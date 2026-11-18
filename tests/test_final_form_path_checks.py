@@ -421,3 +421,141 @@ class TestReviewConfigGlobs:
 
         saved = json.loads((project / ".pyeye.json").read_text(encoding="utf-8"))
         assert saved["packages"] == ["libs/*"]
+
+
+class TestRulingAncestorScanRoots:
+    """A directory-scan root may not be an ANCESTOR of a restricted one (#856 ruling).
+
+    "/" (and "/private" on macOS) would walk into /etc. project_path and
+    single-file inputs are unchanged (Q1); only the SCAN from such a root is refused.
+    """
+
+    def test_the_ancestors_derive_from_the_anchored_patterns_only(self) -> None:
+        from pyeye import validation
+
+        assert "/etc" in validation._RESTRICTED_DIRS
+        assert "/private/etc" in validation._RESTRICTED_DIRS
+        # The unanchored "/etc/" and "/root/" name no fixed directory.
+        assert all(d.startswith("/") and "^" not in d for d in validation._RESTRICTED_DIRS)
+        assert {"/", "/private"} == validation._RESTRICTED_ANCESTORS
+
+    @pytest.mark.parametrize("scope", ["package:/", "package:root_lnk"])
+    def test_a_package_scope_at_an_ancestor(self, project: Path, scope: str) -> None:
+        (project / "root_lnk").symlink_to("/", target_is_directory=True)
+        _assert_refused(
+            "find_pydantic_models",
+            {"scope": scope, "project_path": project.as_posix()},
+            _plugin_server(project),
+        )
+
+    @pytest.mark.parametrize(
+        "args",
+        [{"namespaces": {"ns": ["/"]}}, {"packages": ["/"]}, {"standalone_dirs": ["/"]}],
+        ids=["namespace", "package", "standalone"],
+    )
+    def test_configure_packages_refuses_an_ancestor(
+        self, project: Path, args: dict[str, Any]
+    ) -> None:
+        _assert_refused(
+            "configure_packages", {**args, "save": False, "project_path": project.as_posix()}
+        )
+
+    def test_config_entries_at_an_ancestor_are_skipped_with_a_warning(
+        self, project: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from pyeye.config import ProjectConfig
+
+        good = project / "pkg"
+        (project / ".pyeye.json").write_text(
+            json.dumps(
+                {"namespaces": {"ns": ["/", good.as_posix()]}, "standalone": {"dirs": ["/"]}}
+            ),
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING):
+            config = ProjectConfig(project.as_posix())
+            assert config.get_namespaces() == {"ns": [good.as_posix()]}
+            assert config.get_standalone_paths() == []
+        assert "ancestor of a restricted location" in caplog.text
+
+    def test_project_path_root_with_scope_main_is_refused(self, project: Path) -> None:
+        _assert_refused(
+            "find_pydantic_models",
+            {"scope": "main", "project_path": "/"},
+            _plugin_server(project),
+        )
+
+    def test_project_path_root_with_a_single_file_is_unchanged(self, project: Path) -> None:
+        mod = project / "pkg" / "mod.py"
+        payload = _ok(
+            "resolve_at", {"file": mod.as_posix(), "line": 1, "column": 4, "project_path": "/"}
+        ).structured_content
+        # Not refused (Q1). Whether it resolves is a separate matter: from "/"
+        # the file's module path runs through tmp dirs that aren't dotted names.
+        assert payload["file"] == mod.as_posix()
+        assert payload.get("reason") != "invalid_input"
+
+    def test_no_watcher_is_started_on_an_ancestor(self) -> None:
+        from pyeye.project_manager import ProjectManager
+
+        manager = ProjectManager(max_projects=2)
+        try:
+            manager._watch(Path("/"), Path("/"))
+            assert manager.watchers == {}
+        finally:
+            manager.cleanup_all()
+
+
+class TestRulingWalksPrune:
+    """Every directory walk prunes restricted directories, whatever route reaches them."""
+
+    def test_a_walk_rooted_through_a_symlinked_parent_yields_nothing(self, tmp_path: Path) -> None:
+        from pyeye.async_utils import filtered_rglob, pruned_rglob
+
+        (tmp_path / "via").symlink_to("/", target_is_directory=True)
+        root = tmp_path / "via" / "etc"  # lexically under tmp_path; really /etc
+        assert filtered_rglob("*", root) == []
+        assert pruned_rglob("*", root) == []
+
+    def test_a_restricted_dir_below_the_root_is_pruned_by_its_resolved_form(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye import validation
+        from pyeye.async_utils import filtered_rglob, pruned_rglob
+
+        real = tmp_path / "real"
+        (real / "secret").mkdir(parents=True)
+        (real / "secret" / "x.py").write_text("", encoding="utf-8")
+        (real / "ok.py").write_text("", encoding="utf-8")
+        (tmp_path / "proj").mkdir()
+        link = tmp_path / "proj" / "link"
+        link.symlink_to(real, target_is_directory=True)
+        # Stand in for /etc: a restricted dir only its RESOLVED form names.
+        restricted = (real / "secret").resolve().as_posix()
+        monkeypatch.setattr(validation, "_RESTRICTED_DIRS", (restricted,))
+
+        for walk in (filtered_rglob, pruned_rglob):
+            found = {p.name for p in walk("*.py", link)}
+            assert found == {"ok.py"}, walk.__name__
+
+    def test_pruned_rglob_finds_what_rglob_finds(self, tmp_path: Path) -> None:
+        """Rerouting the template and site-packages walks excludes nothing new."""
+        from pyeye.async_utils import pruned_rglob
+
+        tpl = tmp_path / "templates"
+        for sub in ["", "build", "node_modules", ".venv", "__pycache__", "a/b", "wt"]:
+            (tpl / sub).mkdir(parents=True, exist_ok=True)
+            (tpl / sub / "page.html").write_text("", encoding="utf-8")
+        (tpl / "wt" / ".git").write_text("gitdir: /x/.git/worktrees/wt\n", encoding="utf-8")
+        (tpl / "a" / ".git").mkdir()
+
+        assert set(pruned_rglob("*.html", tpl)) == set(tpl.rglob("*.html"))
+
+    def test_venv_site_packages_discovery_still_works(self, tmp_path: Path) -> None:
+        from pyeye.config import ProjectConfig
+
+        site = tmp_path / "proj" / ".venv" / "lib" / "python3.12" / "site-packages"
+        site.mkdir(parents=True)
+        config = ProjectConfig((tmp_path / "proj").as_posix())
+
+        assert site.as_posix() in [Path(p).as_posix() for p in config._discover_venv_packages()]

@@ -107,6 +107,14 @@ they can't drift from it.
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
 
+  A directory pyeye scans (a plugin scope, or a configured package, namespace
+  or standalone directory) is also refused when it is an ancestor of one of the
+  anchored directories above: `/`, and `/private` on macOS. That includes the
+  scan `project_path="/"` implies for scope `main`. `project_path` itself and
+  single-file inputs are not affected. Every directory walk also skips a
+  directory whose resolved form is one of them, so a symlink inside a scanned
+  tree can't lead a walk into one.
+
   The directories and patterns are POSIX system paths. On Windows a resolved
   path starts with a drive letter, so the `^`-anchored patterns never match it,
   and the system-directory rules only catch a path that spells one of these

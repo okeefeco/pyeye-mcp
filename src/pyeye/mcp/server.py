@@ -693,7 +693,7 @@ def _check_new_config_paths(
         final = config._normalise_config_path(entry)
         try:
             for target in _config_entry_targets(entry, final):
-                PathValidator.validate_final(target, config.project_path)
+                PathValidator.validate_scan_root(target, config.project_path)
         except ValidationError as error:
             raise ValidationError(
                 f"Invalid path {entry!r} in {where}: {error}", parameter=where.split("[")[0]

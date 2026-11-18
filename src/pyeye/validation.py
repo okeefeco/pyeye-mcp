@@ -1,7 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import re
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
 from .exceptions import ValidationError
@@ -92,6 +92,37 @@ class PathValidator:
             ValidationError: If the path is empty, spelled suspiciously, or any
                 form of it lands in a restricted location.
         """
+        path_str, forms = cls._final_forms(path, root)
+        cls._check_targets(forms)
+        return Path(path_str)
+
+    @classmethod
+    def validate_scan_root(cls, path: str | Path, root: str | Path) -> Path:
+        """:meth:`validate_final` for a directory that will be WALKED (#856 ruling).
+
+        A scan root (a scope's directory, a package, a namespace or standalone
+        dir) is also refused when it is an ANCESTOR of a restricted directory
+        ("/", and "/private" on macOS): walking it would descend into one. The
+        walkers prune restricted directories too (:func:`restricted_dir`); this
+        refuses the scan up front, with a clear error.
+
+        Raises:
+            ValidationError: As :meth:`validate_final`, or if any form of *path*
+                is an ancestor of a restricted directory.
+        """
+        path_str, forms = cls._final_forms(path, root)
+        cls._check_targets(forms)
+        for form in forms:
+            if (form.rstrip("/") or "/") in _RESTRICTED_ANCESTORS:
+                raise ValidationError(
+                    f"Path is an ancestor of a restricted location: {form} "
+                    "(a scan from it would reach a system directory)"
+                )
+        return Path(path_str)
+
+    @classmethod
+    def _final_forms(cls, path: str | Path, root: str | Path) -> tuple[str, list[str]]:
+        """``(spelling, forms)``: *path* spell-checked, and its lexical and resolved forms."""
         if not path:
             raise ValidationError("Path cannot be empty")
         path_str = Path(path).as_posix()
@@ -105,8 +136,7 @@ class PathValidator:
             resolved = normalize_path(given if given.is_absolute() else Path(root) / given)
         except (ValueError, RuntimeError, OSError) as e:
             raise ValidationError(f"Invalid path: {e}") from e
-        cls._check_targets(list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()])))
-        return Path(path_str)
+        return path_str, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
 
     @staticmethod
     def check_forms(path: Path, anchor_root: str | Path | None = None) -> tuple[Path, list[str]]:
@@ -213,6 +243,45 @@ class PathValidator:
         if path_obj.is_absolute():
             return absolute_path(path_str)
         return path_obj
+
+
+#: The restricted DIRECTORIES: the literal of each ANCHORED deny-list pattern
+#: ("^/private/etc/" -> "/private/etc"). Only anchored patterns name a
+#: directory: the unanchored "/etc/" and "/root/" match that component at any
+#: depth (/home/u/x/etc/...), so they have no fixed location, and no ancestors.
+_RESTRICTED_DIRS: tuple[str, ...] = tuple(
+    pattern[1:].rstrip("/")
+    for pattern in PathValidator.RESTRICTED_TARGETS
+    if pattern.startswith("^")
+)
+
+#: Every proper ancestor of a restricted directory: "/" and, for macOS's
+#: /private/etc, "/private". A scan rooted at one would walk into a restricted
+#: directory, so :meth:`PathValidator.validate_scan_root` refuses it.
+_RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
+    parent.as_posix() for d in _RESTRICTED_DIRS for parent in PurePosixPath(d).parents
+)
+
+
+def restricted_dir(resolved: str | Path) -> bool:
+    """Whether the RESOLVED directory *resolved* is, or is inside, a restricted directory.
+
+    The prune test every directory walk applies (#856 ruling): a route the
+    input checks miss (a symlinked parent, a new scope form) still can't
+    descend into a system directory. POSIX forms only, as the deny-list is.
+    """
+    form = Path(resolved).as_posix().rstrip("/") + "/"
+    return any(form.startswith(d + "/") for d in _RESTRICTED_DIRS)
+
+
+def unwalkable_root(resolved: str | Path) -> bool:
+    """Whether a walk rooted at the RESOLVED *resolved* can't be made safe by pruning.
+
+    True for a restricted directory and for an ancestor of one: the walkers
+    that take no prune hook (the recursive file watcher) must not start there.
+    """
+    form = Path(resolved).as_posix().rstrip("/") or "/"
+    return restricted_dir(form) or form in _RESTRICTED_ANCESTORS
 
 
 class InputValidator:
@@ -409,7 +478,7 @@ def validate_mcp_inputs(func: Any) -> Any:
                 for namespace, ns_paths in value.items():
                     for i, item in enumerate(ns_paths or []):
                         try:
-                            PathValidator.validate_final(item, project_root)
+                            PathValidator.validate_scan_root(item, project_root)
                         except ValidationError as e:
                             raise ValidationError(
                                 f"Invalid path at index {i} in namespaces[{namespace!r}]: {e}",
@@ -430,6 +499,9 @@ def validate_mcp_inputs(func: Any) -> Any:
                     for i, item in enumerate(value):
                         try:
                             validated = PathValidator.validate_path(item, anchor_root=project_root)
+                            if param_name in ("packages", "standalone_dirs"):
+                                # Directories to scan (#856 ruling): not "/" either.
+                                PathValidator.validate_scan_root(item, project_root)
                             validated_list.append(str(validated))
                         except ValidationError as e:
                             raise ValidationError(

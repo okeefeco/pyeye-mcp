@@ -200,10 +200,11 @@ def resolve_scope_paths(
             logger.warning(f"{owner}Unknown scope specification: {s}")
     # Every directory a scope names is checked in its final form, whichever
     # form produced it (main, packages, namespaces, aliases, package:), so no
-    # scope spelling can skip the check (#856 review).
+    # scope spelling can skip the check (#856 review). Each is a scan root, so an
+    # ancestor of a restricted directory ("/") is refused too (#856 ruling).
     for path in paths:
         try:
-            PathValidator.validate_final(path, layout.project_path)
+            PathValidator.validate_scan_root(path, layout.project_path)
         except ValidationError as error:
             raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
     return paths
@@ -223,7 +224,7 @@ def package_scope_path(scope: str, layout: ScopeLayout) -> Path:
     """
     raw = scope[len("package:") :]
     try:
-        PathValidator.validate_final(raw, layout.project_path)
+        PathValidator.validate_scan_root(raw, layout.project_path)
     except ValidationError as error:
         raise ValidationError(f"Invalid scope {scope!r}: {error}", parameter="scope") from error
     return anchor(raw, layout.project_path)

@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from .async_utils import pruned_rglob
 from .constants import CONFIG_DIR, CONFIG_FILE, CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
@@ -393,7 +394,7 @@ class ProjectConfig:
 
         for venv_path in venv_paths:
             if venv_path.exists():
-                for site_packages in venv_path.rglob("site-packages"):
+                for site_packages in pruned_rglob("site-packages", venv_path):
                     potential_packages.append(str(site_packages))
 
         return potential_packages
@@ -433,9 +434,13 @@ class ProjectConfig:
                 expanded = glob(package)
                 for exp_path in expanded:
                     validated = PathValidator.validate_path(exp_path)
+                    # A directory to scan: not "/" (or another ancestor of /etc) either.
+                    PathValidator.validate_scan_root(exp_path, self.project_path)
                     paths.append(validated.as_posix())
             else:
                 validated = PathValidator.validate_path(package)
+                # A directory to scan: not "/" (or another ancestor of /etc) either.
+                PathValidator.validate_scan_root(package, self.project_path)
                 if validated.exists():
                     paths.append(validated.as_posix())
         except ValidationError as e:
@@ -463,9 +468,13 @@ class ProjectConfig:
                         expanded = glob(ns_path)
                         for exp_path in expanded:
                             validated = PathValidator.validate_path(exp_path)
+                            # A directory to scan: not "/" (or another ancestor of /etc) either.
+                            PathValidator.validate_scan_root(exp_path, self.project_path)
                             paths.append(validated.as_posix())
                     else:
                         validated = PathValidator.validate_path(ns_path)
+                        # A directory to scan: not "/" (or another ancestor of /etc) either.
+                        PathValidator.validate_scan_root(ns_path, self.project_path)
                         if validated.exists():
                             paths.append(validated.as_posix())
                 except ValidationError as e:
@@ -547,7 +556,8 @@ class ProjectConfig:
         never an error: a bad ``.pyeye.json`` must not break every call.
         """
         try:
-            PathValidator.validate_final(entry, self.project_path)
+            # A directory to scan: an ancestor of a restricted one is refused too.
+            PathValidator.validate_scan_root(entry, self.project_path)
         except ValidationError as error:
             logger.warning(f"Skipping config path {entry} ({what}): {error}")
             return False
