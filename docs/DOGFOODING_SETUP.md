@@ -14,8 +14,14 @@ This will:
 
 - Install the project's git hooks with `pre-commit install`, including the post-checkout hook that starts a session on issue branches
 - Set up shell aliases for tracking grep usage
+- Install wrappers for `grep`, `egrep`, `fgrep` and `rg` in `~/.local/bin` that count code searches, then run the real command
 - Create the metrics directory
 - Test the installation
+
+> **If you ran this setup before #969:** the wrappers it installed broke `grep`,
+> `egrep`, `fgrep` and `rg`: every call failed with "not found" (exit 127), and
+> nothing was counted. Re-run `bash scripts/setup_dogfooding.sh` to install
+> fixed wrappers, or delete `~/.local/bin/{grep,egrep,fgrep,rg}` to remove them.
 
 ## ⚡ What Gets Automated
 
