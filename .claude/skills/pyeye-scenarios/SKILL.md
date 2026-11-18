@@ -42,8 +42,8 @@ path. The catalog is the **axis of variation**:
 - **Pin commits.** A recorded baseline is only meaningful against fixed source. Each
   scenario lists exact SHAs.
 - **Full clone, not `--depth 1`.** A shallow clone cannot check out an arbitrary pinned
-  SHA. The jaraco repos are ~350 KB each (free), so a per-worktree clone is trivial.
-  django is ~366 MB — to avoid re-downloading it per worktree, clone with
+  SHA. The jaraco repos are small, so a per-worktree clone is trivial.
+  django is large: to avoid re-downloading it per worktree, clone with
   `--reference <shared-django>` (borrows objects from an existing local clone; the
   per-worktree copy is tiny on disk yet can still check out the pinned SHA), or point
   `SCENARIO_DIR` at a shared cache for that scenario.
@@ -82,67 +82,13 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 |-------|-------|
 | repo | `https://github.com/django/django` |
 | commit | `cd385e6b8c` |
-| size | ~366 MB — clone with **`--reference <shared-django>`** (or set `SCENARIO_DIR` to a shared cache) to avoid a full per-worktree download |
+| size | large — clone with **`--reference <shared-django>`** (or set `SCENARIO_DIR` to a shared cache) to avoid a full per-worktree download |
 | `project_path` | `<TARGET>/django` |
 | root / `.pyeye.json` | none |
 
-### Probe suite + recorded baseline *(re-captured 2026-11-16, build `2.0.1.dev117+g95c7b40b4` = main @ `95c7b40b` after #782, Python 3.12; caches `PYEYE_PARSO_CACHE_MAX_ENTRIES=1000`, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500`, `PYEYE_SCRIPT_CACHE_MAX_ENTRIES=200`; max RSS 333 MB under `MemoryMax=2.5G`; the #629 sign-off, report on #636. Re-verified unchanged 2026-11-17 on `2.0.1.dev123+gb4b4b2a21` and on `2.0.1.dev129+g4f8f70dcd`, after #803's fix in PR #805)*
+### Probe suite + recorded baseline
 
-| # | Probe | Expected (baseline) | Demonstrates / changed since 2026-06-22 |
-|---|-------|---------------------|-----------------------------------------|
-| 1 | `resolve("django.db.models.Model")` | `handle: django.db.models.base.Model`, `kind:class`, `scope:project`, `base.py:501` | **canonical-handle collapse**: the re-export resolves to its definition site. Unchanged. |
-| 2 | `inspect("django.db.models.Model")` | `superclasses:["…utils.AltersData"]`, `signature:"Model()"`, `edge_counts:{members:67, superclasses:1}`, `re_exports:["django.db.models.Model"]`; **no `callers`/`references` key** | **absence-vs-zero** (no caller key) and the **static-surface ceiling** (`members` omits the metaclass-injected `_meta`/`objects`/`DoesNotExist`). Changed: `re_exports` was `["…migrations.operations.fields.Model"]`, an internal import binding; only public paths are reported now (**#712**, PR #766). `members` was 68; 67 is exact (66 methods plus `pk`), because the 5 `save.alters_data = True`-style statements assign an attribute and bind nothing. |
-| 3 | `expand("django.db.models.Model", "superclasses")` | one stub: `django.db.models.utils.AltersData`; `ceiling:"declared_bases"`, `unresolved_superclasses:[]` | matches `edge_counts.superclasses`. Added: `ceiling` (**#417**, PR #760) and `unresolved_superclasses` (**#624**). |
-| 4 | `expand("django.core.signing", "imported_by")` | 10 module stubs incl. `django.http.request`, `django.contrib.sessions.backends.base`, and `tests.*`; `ceiling:"static_imports"`, `unresolved_importers:[]`, `unparseable_files:[".../tests/test_runner_apps/tagged/tests_syntax_error.py"]` | the reverse-static import graph (deterministic). Added: `ceiling` (**#417**), `unresolved_importers` (**#668**), and `unparseable_files` (**#729**, PR #754), which names django's deliberately broken test file instead of skipping it silently. |
-| 5 | `expand("django.db.models.Model", "callers")` | `unsupported, reason:"deferred_reference_backend"` (#333), plus a `report_issues` URL (**#458**, PR #460) | **honest-limit refusal**: not faked, not empty, and it carries the in-band report path. Unchanged. |
-
-All five are identical on an in-process repeat. Timings on `2.0.1.dev129+g4f8f70dcd` (main @ `4f8f70dc`, after PR #805): the first `inspect` takes 21 s, including building the re-export binding index for the `django` package once (#803). The first `imported_by` takes 31 s, including building the project's import graph. Repeats take ≤0.4 s.
-
-**Round-trip probe** ([[pyeye-verify]] §1b) *(values captured 2026-11-17, build
-`2.0.1.dev123+gb4b4b2a21` = main @ `b4b4b2a2`, after #795's fix in PR #797, and
-re-verified unchanged on `2.0.1.dev129+g4f8f70dcd` = main @ `4f8f70dc`, after the
-fix for #803 in PR #805. Timings are from the latter: Python 3.12, the same
-caches as the probes above, max RSS 335 MB, 1m23s wall time including the
-probes; it was 8m17s before #805)*, module `django.db.models.base`:
-
-| Measure | Baseline | Tracking |
-|---------|----------|----------|
-| stubs from `expand("django.db.models.base", "imports")` | 57 (51 `project`, 6 `external`: `collections.defaultdict`, `copy`, `functools.partialmethod`, `inspect`, `itertools.chain`, `warnings`) | |
-| don't round-trip | **0** | |
-| inspect miss / resolve miss | 0 / 0 | |
-| disagree / handle mismatch | 0 / 0 | |
-
-Every stub round-trips, the stdlib ones included. Any miss is a regression.
-
-Timings on `2.0.1.dev129+g4f8f70dcd`:
-
-- **Project stubs** (51): `inspect` has a median of 0.04 s, 8.2 s in total. The
-  slowest is `django.db.models.aggregates.Max` at 2.95 s; the next is
-  `django.db.models.expressions.ExpressionWrapper` at 0.39 s. `resolve` is
-  ≤0.19 s.
-- **External stubs** (6): `inspect` is ≤0.97 s (`functools.partialmethod`).
-
-Two earlier costs are gone:
-
-- On `2.0.1.dev117+g95c7b40b4` this probe never finished.
-  `inspect("django.apps.registry.apps")` (stub 4) re-parsed the 907 package
-  files on each of about 66 BFS hops (#795, fixed by PR #797).
-- On `2.0.1.dev123+gb4b4b2a21` every project stub took 8–10 s, because the
-  re-export binding index was rebuilt for each new handle (#803, fixed by PR
-  #805; profiled on #803).
-
-**Tripwire:** it's a regression if a project stub's `inspect` median rises
-above ~0.5 s, if any single project stub exceeds ~5 s, or if the round-trip's
-wall time exceeds ~5 min. Any of these most likely means #795's or #803's cost is back:
-check `canonicalization._binding_index_cache` and the artifact-cache misses
-(#803's profile). `Max`'s ~3 s is today's ceiling, and it isn't profiled. For
-comparison, #803's profile put a cold `inspect` with `re_exports` stubbed out
-at 0.5–1.2 s, most of it Jedi inference.
-
-> Probe 2's `members:67` is a count of *statically written* members. Reporting it as
-> "Model's complete attribute set" would be wrong — `_meta`, `objects`, `DoesNotExist`
-> are metaclass-injected and invisible to static analysis. The verify rubric treats
-> mislabelling a static count as runtime-exhaustive as a FAIL.
+The probe suite and its expected results, the round-trip probe, the timings and the tripwire are in the dated record [`baselines/django.md`](baselines/django.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
 
 ---
 
@@ -177,48 +123,9 @@ from jaraco.context import ExceptionTrap            # -> ../jaraco.context
 from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 ```
 
-### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #423/#444/#454, `project_path = .../jaraco.text`; row 5 re-recorded 2026-11-08. The other rows predate #623 and #712: re-capture before relying on exact values)*
+### Probe suite + recorded baseline
 
-| # | Probe | Expected (baseline) | Demonstrates / tracking |
-|---|-------|---------------------|-------------------------|
-| 1 | `resolve("jaraco.context.ExceptionTrap")` | `kind:class`, `scope:project`, file in `../jaraco.context` | ✅ **cross-repo resolution** — sibling repo resolves as project |
-| 2 | `expand("jaraco.text", "imports")` (and `trace(... ["imports"])`) | the three `jaraco.*` targets (`context.ExceptionTrap`, `functools.compose`, `functools.method_cache`) report **`scope:project`**; stdlib targets stay `external` | ✅ **cross-repo edge scope** — **#454** (edges agree with `resolve`) |
-| 3 | `resolve("jaraco")` | `kind:module`, `scope:project`, anchored at `jaraco.text/jaraco` | ✅ **#444** namespace cold-start anchoring |
-| 4 | `inspect("jaraco")` | `is_package:true`, `edge_counts:{members:0, submodules:3}` | ✅ **#444 / #423** |
-| 5 | `outline("jaraco")` | `module`/`project` with 3 submodule children: `context` and `functools` `truncated:survey_leaf` (members, no submodules), `text` `truncated:max_depth`; no `children:[]` anywhere | ✅ **#444 / #423** depth-1 survey; **#596** (re-recorded 2026-11-08, PR for #596 — the 2026-06-22 capture's `children:[]` on `context`/`functools` was the #596 bug, mis-recorded as expected) |
-| 6 | `resolve("jaraco.text")` (child contrast) | `kind:module`, `scope:project` | ✅ child handle resolves |
-| 7 | `expand("jaraco", "submodules")` | 3 stubs: `jaraco.context`, `jaraco.functools`, `jaraco.text` (all `project`) | ✅ **#423 / #444** namespace union across sibling repos |
-
-**Round-trip probe** ([[pyeye-verify]] §1b) *(captured 2026-11-15, build
-`2.0.1.dev10+gd615b3a5a` = main @ `d615b3a`)*, module `jaraco.text`.
-**STALE:** #623 closed after this capture (2026-11-15T11:09Z), so these numbers
-predate its fix. Re-capture with [[pyeye-verify]] before treating a value as
-the baseline; until then, don't call a difference a regression.
-
-| Measure | Baseline | Tracking |
-|---------|----------|----------|
-| stubs from `expand("jaraco.text", "imports")` | 32 | |
-| don't round-trip | **22** | #623 (one canonical resolver), #602 |
-| inspect miss / resolve miss | 21 / 20 | all `scope: external` (stdlib and typing: `os`, `typing.Callable`, `__future__.annotations`, …) |
-| disagree | 1: `functools` (resolve finds it, inspect doesn't) | #602: the bare `functools` vs `jaraco.functools` shadowing |
-| handle mismatch | 1: `_typing.TypeVar` | #623 |
-
-All three `jaraco.*` stubs round-trip. Every miss is external. Any
-`project`-scoped miss is a regression.
-
-Rows 2–5 + 7 are the **#423 / #444 / #454** acceptance check, and now pass. Against the
-*earlier* stale build (the 2026-06-21 global server, pre-#423/#444/#454) row 2's `jaraco.*`
-edges came back `external`, `resolve("jaraco")` was ambiguous-external (`kind:variable`,
-`file:""`), `inspect`/`outline` were empty, and `submodules` was unknown/empty — so this
-scenario doubles as the regression guard for all three fixes.
-
-> ⚠️ **Baselines are build-tagged.** The table above was captured against an up-to-date
-> build (`dev416+g406783dd6`, main incl. #423/#444/#454) on 2026-06-22. An earlier capture
-> against the stale globally-installed server (2026-06-21) showed the pre-fix behaviour —
-> `jaraco.*` import edges `external`, `resolve("jaraco")` ambiguous, `submodules`
-> unknown/empty. Same probes, different build: that divergence is the
-> regression-vs-environment **signal**, not a bug. Always re-record against the build under
-> test and note which build (see the `pyeye-verify` classification).
+The probe suite and its expected results, and the round-trip probe (both predate #623 and #712: re-capture before relying on exact values) are in the dated record [`baselines/namespace-jaraco.md`](baselines/namespace-jaraco.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
 
 ---
 
@@ -239,25 +146,9 @@ it exercises: `tests/fixtures/scenarios/multirepo_namespace/README.md`.
 | `project_path` | `<TARGET>/multirepo_namespace/app` |
 | `.pyeye.json` | already in `app/`: `namespaces.corp = ["../corp-core/src", "../corp-web"]`, `packages = ["../corp-tools"]` |
 
-### Probe suite + recorded baseline *(captured 2026-11-15, build `2.0.1.dev34+g9c00bbe2f` = #623 slice 3 @ `9c00bbe`)*
+### Probe suite + recorded baseline
 
-| # | Probe | Expected (baseline) | Demonstrates / tracking |
-|---|-------|---------------------|-------------------------|
-| 1 | `resolve("corp.tools.Base")` | `corp.core.models.Base`, `class`, `project` | re-export collapses across repos |
-| 2 | `inspect("corp.tools.widgets.Widget")` | `superclasses: ["corp.core.models.Base"]`, `edge_counts: {members: 2, superclasses: 1}` | cross-repo base |
-| 3 | `expand("corp", "submodules")` | `corp.core`, `corp.tools`, `corp.web`, all `project` | namespace union; configured namespaces and packages are `project` (#623 decision 7) |
-| 4 | `expand("corp.tools.widgets.Widget", "superclasses")` | `corp.core.models.Base` (`project`) | ✅ |
-| 5 | `expand("corp.core.models.Base", "subclasses")` | `corp.tools.widgets.Widget` | ✅ **#669** (re-recorded on `main` after #676; was `[]`) |
-| 6 | `expand("corp.core.models", "imported_by")` | `app.main`, `corp.tools`, `corp.tools.widgets`, `corp.web.views` | ✅ **#668** (re-recorded after #676; `corp.web.views` was missing) |
-| 7 | `resolve("Shared")` | ambiguous: `corp.core.models.Shared`, `corp.tools.widgets.Shared` | ✅ **#668** (re-recorded after #676; was a silent single answer) |
-| 8 | `expand("corp.web.views.render", "callees")` | `corp.core.models.Base.describe`, `corp.core.models.make`, `corp.tools.sub.helper.shout`, `corp.tools.widgets.Widget`; `unresolved_call_sites: 0` | calls into two other repos |
-| 9 | `outline("corp")` | 3 children, each `truncated: max_depth` | namespace survey |
-| 10 | `expand("app.main", "imports")` | the 4 `corp.*` targets `project`, `sys` `external` | cross-repo edge scope |
-
-Before #623 slice 3, rows 1–4 and 8 failed too: `corp.core` and `corp.web` reported
-`external`, and `inspect`/`outline`/`expand` couldn't find them (the #653 regression).
-Rows 5–7 were re-recorded on build `2.0.1.dev44` (main after #675 and #676), and every
-row now passes; the integration test pins them all.
+The probe suite and its expected results are in the dated record [`baselines/multirepo-namespace.md`](baselines/multirepo-namespace.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
 
 ---
 
@@ -266,6 +157,8 @@ row now passes; the integration test pins them all.
 1. Pick a real repo (or repos) that stresses a shape the catalog doesn't cover yet.
 2. Add a manifest block: repos + **pinned SHAs**, `project_path`, `root`/`.pyeye.json`.
 3. Provision it, then capture its probe suite + baseline via **[[pyeye-verify]]** and
-   paste the recorded table here, each row tagged with the build it was captured on and
-   tied to an issue where the result is a known gap.
+   write it as a record, `baselines/<scenario>.md`, with `date`, `command`, `commit` and
+   `machine` front matter, each row tagged with the build it was captured on and tied
+   to an issue where the result is a known gap. Register the file as a `record` and link
+   it from the scenario.
 4. Keep it declarative — commands and pinned data only, no hand-listed "current files".

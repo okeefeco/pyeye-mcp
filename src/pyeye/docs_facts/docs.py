@@ -151,6 +151,7 @@ _ENTRIES: tuple[DocEntry, ...] = (
     DocEntry(".claude/skills/docs-review/SKILL.md", _C, "skill"),
     DocEntry(".claude/skills/docs-review/reviewer.md", _C, "skill"),
     DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
+    DocEntry(".claude/skills/pyeye-scenarios/baselines/*.md", _C, "record"),
     DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
     # Shipped skills
     DocEntry(
