@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "/docs-review: code_contradiction findings anchored on a canonical symbol with checked evidence, and subject-keyed rule dismissals that lapse (#829, C15, C16)"
 issues: [829, 818]
 anchors: ["pyeye.docs_facts.review.Symbols", "pyeye.docs_facts.review.project_symbols", "pyeye.docs_facts.review.finding_problems", "pyeye.docs_facts.review.SUBJECT_KINDS", "pyeye.docs_facts.review.orphaned", "pyeye.docs_facts.review.move", "tests/test_docs_facts_review.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-829-docs-review-never-decides-every-finding-names-its-anchor.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-829-finding-identity-equals-dismissal-identity-and-proposals-meet-the-rules.md"]
 superseded_by: []
 ---
 

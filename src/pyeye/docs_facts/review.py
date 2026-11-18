@@ -25,7 +25,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -55,6 +55,7 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "D12-absolute": "an absolute claim without the scope the code guarantees",
         "D12-comparison": "an implied comparison with no record behind it",
         "D12-projection": "a projection or target stated as fact",
+        "D12-measurement": "a plain measurement or measurement table with no record behind it",
     },
     "audience_rule": {
         "human-explains": "human docs explain, with no enforcement language",
@@ -72,6 +73,8 @@ RULE_IDS: dict[str, dict[str, str]] = {
         "dated-claim": "an external fact that may be stale and needs checking",
         "duplication": "content repeated from another page",
         "restated-example": "prose describing an executed example's output, not what it demonstrates",
+        "restated-code": "prose stating what the code does or exposes, which belongs in a bound "
+        "fact or an executed example (C15)",
     },
     "task": {},
 }
@@ -202,6 +205,12 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
     path = root / page
     if not path.is_file():
         return [f"page {page!r} doesn't exist"]
+    current = page_hash(path.read_text(encoding="utf-8"))
+    if finding.get("page_hash") != current:
+        return [
+            f"page {page} changed since scope (page_hash {finding.get('page_hash')!r}, now "
+            f"{current!r}): its sections and lines may be stale; re-run scope for {page}"
+        ]
     slugs = [s.slug for s in sections(path.read_text(encoding="utf-8"))]
     if section not in slugs:
         return [f"{page} has no section {section!r}; its sections: {slugs}"]
@@ -417,6 +426,77 @@ def project_symbols(root: Path) -> Symbols:
     return _ProjectSymbols(root)
 
 
+def _proposed_texts(finding: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """``(where, text)`` for every piece of wording the finding proposes."""
+    texts = []
+    if isinstance(finding.get("replacement"), str):
+        texts.append(("replacement", finding["replacement"]))
+    for i, option in enumerate(finding.get("options") or []):
+        if isinstance(option, dict) and isinstance(option.get("text"), str):
+            texts.append((f"options[{i}].text", option["text"]))
+    return texts
+
+
+def _restatable(value: Any) -> str | None:
+    """A fact's value as prose would hand-write it, when it is distinctive enough to spot."""
+    if isinstance(value, dict) and "default" in value:
+        value = value["default"]
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int | float):
+        text = str(value)
+        return text if len(text) >= 2 else None
+    if isinstance(value, str) and len(value) >= 3:
+        return value
+    return None
+
+
+def proposal_problems(
+    finding: Mapping[str, Any], facts: Facts | None = None, root: Path | None = None
+) -> list[str]:
+    """The tool's own suggestions must meet the rules it enforces (#829-3).
+
+    Every proposed wording (the replacement and each option's text) is checked:
+
+    - **D12:** the honest-claims patterns (:func:`.claims.claims`) find no
+      unbacked claim in it, so a fix can't add the overclaim it removes;
+    - **C15:** for a fact-anchored finding, it doesn't hand-write the anchor
+      fact's value outside a fact block: it binds the fact instead.
+    """
+    from . import claims as honest
+    from .rules import prose_text
+
+    records: frozenset[str] = frozenset()
+    if root is not None:
+        from . import docs
+
+        records = honest.record_paths(
+            {path: entry.kind for path, entry in docs.registered_files(root)}
+        )
+    page = str(finding.get("page", ""))
+    raw_anchor = finding.get("anchor")
+    anchor: dict[str, Any] = raw_anchor if isinstance(raw_anchor, dict) else {}
+    anchor_id = str(anchor.get("id", ""))
+    restated = None
+    if anchor.get("kind") == "fact" and facts is not None and anchor_id in facts:
+        item = facts[anchor_id]
+        restated = _restatable(item.value) if isinstance(item, Fact) else None
+    problems = []
+    for where, text in _proposed_texts(finding):
+        prose = prose_text(text)
+        for claim in honest.claims(prose, page, root, records):
+            problems.append(
+                f"{where} adds an unbacked claim ({claim.label} {claim.text!r}): propose "
+                "wording that links a record, binds a fact, or drops the figure"
+            )
+        if restated is not None and re.search(rf"(?<![\w.]){re.escape(restated)}(?![\w])", prose):
+            problems.append(
+                f"{where} restates the value {restated!r} of fact {anchor_id}: show it through "
+                f"a fact block for {anchor_id} instead"
+            )
+    return problems
+
+
 def _option_problems(options: Any) -> list[str]:
     if not isinstance(options, list) or not MIN_OPTIONS <= len(options) <= MAX_OPTIONS:
         return [f"options must be a list of {MIN_OPTIONS} to {MAX_OPTIONS} options"]
@@ -501,6 +581,7 @@ def finding_problems(
             problems.append(f"a {category} finding rests on a {expected} anchor")
     if root is not None and not problems:
         problems.extend(_location_problems(finding, root))
+    problems.extend(proposal_problems(finding, facts, root))
 
     if finding.get("needs_decision") is True:
         if "replacement" in finding:
@@ -540,16 +621,49 @@ def finding_problems(
     return problems
 
 
-def finding_key(finding: Mapping[str, Any]) -> tuple[str, str, str, str, str]:
-    """A finding's identity: page, section, category and anchor; never its prose (#498)."""
+def finding_key(finding: Mapping[str, Any]) -> tuple[str, ...]:
+    """A finding's identity, never its prose (#498): the same as its dismissal's.
+
+    Page, section, category and anchor; for a rule anchor (:data:`SUBJECT_KINDS`)
+    its quoted subject too (C15), so two broken links in one section are two
+    findings. It must agree with the dismissal identity (:func:`_structural_fact`
+    without its pin), or a dismissal could cover a finding it never saw.
+    """
     anchor = finding["anchor"]
-    return (
+    key: tuple[str, ...] = (
         finding["page"],
         finding["section"],
         finding["category"],
         anchor["kind"],
         anchor["id"],
     )
+    if anchor["kind"] in SUBJECT_KINDS:
+        key += (_flat(str(finding.get("subject", ""))),)
+    return key
+
+
+def page_hash(text: str) -> str:
+    """The content hash a packet gives a page, and a finding must echo (``page_hash``)."""
+    return _digest(text)[:16]
+
+
+def batch_problems(findings: Sequence[Mapping[str, Any]]) -> dict[str, list[str]]:
+    """Findings in one batch that repeat an earlier one's identity (:func:`finding_key`)."""
+    seen: dict[tuple[str, ...], int] = {}
+    problems: dict[str, list[str]] = {}
+    for i, finding in enumerate(findings):
+        try:
+            key = finding_key(finding)
+        except (KeyError, TypeError):
+            continue  # its own shape problems say why
+        if key in seen:
+            problems[str(i)] = [
+                f"repeats finding {seen[key]}: one finding per page, section, category, anchor "
+                "and (for a rule anchor) subject; merge them"
+            ]
+        else:
+            seen[key] = i
+    return problems
 
 
 # ---------------------------------------------------------------------------
@@ -1121,6 +1235,10 @@ def packet(
     No page text: the reviewer reads the page itself (targeted reads). Each
     section says whether it needs review (never reviewed, or its text or facts
     changed since it was marked fine) and which facts it shows or covers.
+    ``page_hash`` is the page's content hash, which every finding echoes, so a
+    finding made against a page that changed since is rejected. ``claim_seeds``
+    are the page's grandfathered unbacked claims (:mod:`.claim_seeds`): the
+    honest-claims findings to make first (#830).
     """
     text = (root / path).read_text(encoding="utf-8")
     fact_ids = sorted(_page_fact_ids(text, entry, facts))
@@ -1136,14 +1254,44 @@ def packet(
                 "facts": ids,
             }
         )
+    from .claim_seeds import SEEDS
+
     return {
         "page": path,
+        "page_hash": page_hash(text),
+        "claim_seeds": list(SEEDS.get(path, ())),
         "audience": entry.audience,
         "kind": entry.kind,
         "facts": {i: facts[i].markdown for i in fact_ids},
+        "mentioned": {i: facts[i].markdown for i in mentioned_facts(text, facts, fact_ids)},
         "changed": changed_here,
         "sections": found,
     }
+
+
+_INLINE_NAME = re.compile(r"`([A-Za-z_][\w.:-]{4,})`")
+
+
+def mentioned_facts(text: str, facts: Facts, shown: Iterable[str]) -> list[str]:
+    """Item facts the page names but doesn't bind or cover: candidate restatements.
+
+    A fact is named when its own inline-code name (its Markdown is one code span,
+    as for a tool, edge or env var) occurs in the page, or, for an env var, when
+    its bare name does. These are the facts a ``fact_drift`` finding about an
+    unbound restatement anchors on.
+    """
+    skip = set(shown)
+    found = []
+    for fact_id, item in facts.items():
+        if fact_id in skip or not isinstance(item, Fact):
+            continue
+        match = _INLINE_NAME.fullmatch(item.markdown.strip())
+        names = [match.group(1)] if match else []
+        if fact_id.startswith("env.") and fact_id.count(".") == 1:
+            names.append(fact_id.split(".", 1)[1])
+        if any(re.search(rf"(?<![\w.]){re.escape(n)}(?![\w])", text) for n in names):
+            found.append(fact_id)
+    return sorted(found)
 
 
 def _reviewable(path: str, entry: Any) -> bool:
@@ -1310,6 +1458,8 @@ def main(argv: list[str] | None = None, root: Path | None = None) -> int:
                 for i, f in enumerate(findings)
                 if (found := finding_problems(f, facts, base, symbols))
             }
+            for index, found in batch_problems(findings).items():
+                problems.setdefault(index, []).extend(found)
             if problems:
                 print(json.dumps({"problems": problems}, indent=2))
                 return 1
