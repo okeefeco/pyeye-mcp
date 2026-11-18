@@ -2,6 +2,7 @@
 
 import ast
 import logging
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -9,6 +10,21 @@ from ..async_utils import filtered_rglob, pruned_rglob
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
+
+#: A requirement line that names Django itself (#940): ``django``, ``Django==4.2``,
+#: ``django>=3.2``, ``django[argon2]``, or a Pipfile's ``django = "*"``. A package
+#: that merely starts with the name (``django-environ``, ``djangorestframework``)
+#: is not Django, and a comment never counts.
+_DJANGO_REQUIREMENT = re.compile(
+    r"""^\s*["']?django["']?\s*(?:\[[^\]]*\])?\s*(?:[<>=!~;@,]|$)""",
+    re.IGNORECASE | re.MULTILINE,
+)
+_COMMENT = re.compile(r"#.*$", re.MULTILINE)
+
+
+def requires_django(text: str) -> bool:
+    """Whether a requirements file or Pipfile *text* names Django as a requirement."""
+    return _DJANGO_REQUIREMENT.search(_COMMENT.sub("", text)) is not None
 
 
 class DjangoPlugin(AnalyzerPlugin):
@@ -19,18 +35,19 @@ class DjangoPlugin(AnalyzerPlugin):
         return "Django"
 
     def detect(self) -> bool:
-        """Detect if this is a Django project."""
-        # Check for manage.py
-        if (self.project_path / "manage.py").exists():
-            return True
+        """Detect if this is a Django project: Django is required or imported (#940).
 
+        A ``manage.py`` alone is not evidence: other tools use the name
+        (Flask-Script). Django's own generated ``manage.py`` imports Django, so
+        the import check below finds it.
+        """
         # Check for Django in requirements
         requirements_files = ["requirements.txt", "requirements/base.txt", "Pipfile"]
         for req_file in requirements_files:
             req_path = self.project_path / req_file
             if req_path.exists():
                 content = self._read_text_or_skip(req_path)
-                if content is not None and "django" in content.lower():
+                if content is not None and requires_django(content):
                     return True
 
         # Check for Django imports in Python files
