@@ -425,6 +425,15 @@ NON_BINDING_CASES = {
     ),
     # main: a bare annotation, a self-assignment and += aren't new definitions.
     "bare_annotation": ("from .src import A\nA: int\n", "q.A", "q.A", "variable", "__init__.py:1"),
+    # Fixed by #857: an annotated assignment WITH a value is a real definition,
+    # so it shadows the import (the last binding wins), unlike the bare form.
+    "annotated_assignment_with_value": (
+        "from .src import A\nA: int = 5\n",
+        "q.A",
+        "q.A",
+        "variable",
+        "__init__.py:2",
+    ),
     "self_assignment": ("from .src import A\nA = A\n", "q.A", "q.A", "class", "__init__.py:1"),
     "augmented_assignment": (
         "from .src import A\nA += 1\n",
