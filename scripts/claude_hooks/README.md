@@ -20,8 +20,9 @@ mcp-report
 The setup script copies the hook matchers from `hooks.json` into your
 `~/.claude/settings.json`, so a change to them reaches you only when you re-run
 it. If you set up monitoring before the plugin's tool names were matched
-(#965), re-run `bash scripts/claude_hooks/setup_mcp_monitoring.sh` once; it
-backs up your settings first. The tracking scripts themselves run from this
+(#965), or before the Grep tool was counted (#970, which points the `Grep` hook
+at `track_grep_tool.py`), re-run `bash scripts/claude_hooks/setup_mcp_monitoring.sh`
+once; it backs up your settings first. The tracking scripts themselves run from this
 repository, so changes to them need nothing.
 
 ## 📊 What Gets Tracked
