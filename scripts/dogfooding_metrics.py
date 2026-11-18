@@ -72,13 +72,10 @@ class DogfoodingMetrics:
         """
         if self.session_file.exists():
             self.end_session()
-        # Get current MCP metrics via the MCP tool
-        # For now, we'll simulate this - in production, call the actual MCP
         session: dict[str, Any] = {
             "id": datetime.now().isoformat(),
             "issue": issue_number,
             "start_time": datetime.now().isoformat(),
-            "baseline_metrics": self._get_mcp_metrics(),
             "grep_count": 0,
             "mcp_queries": [],
             "time_saved_estimates": [],
@@ -95,7 +92,6 @@ class DogfoodingMetrics:
 
         session = self._load_session()
         session["end_time"] = datetime.now().isoformat()
-        session["final_metrics"] = self._get_mcp_metrics()
 
         # Calculate deltas
         session["stats"] = self._calculate_stats(session)
@@ -197,66 +193,16 @@ class DogfoodingMetrics:
             "sessions": recent_sessions,
         }
 
-    def _get_mcp_metrics(self) -> dict[str, Any]:
-        """Get current MCP performance metrics."""
-        try:
-            # Try to import and use the dogfooding integration
-            import sys
-            from pathlib import Path
-
-            # The repo root makes ``scripts`` importable (src/ is already on
-            # sys.path, for pyeye itself).
-            project_root = Path(__file__).parent.parent
-            if str(project_root) not in sys.path:
-                sys.path.insert(0, str(project_root))
-
-            from scripts.dogfooding_integration import get_integration
-
-            integration = get_integration()
-            metrics: dict[str, Any] = integration.export_mcp_metrics_for_session()
-            return metrics
-
-        except ImportError:
-            # Fallback: try subprocess call if integration not available
-            # Note: get_performance_metrics tool was removed in issue #271
-            # This fallback will gracefully fail and return empty metrics below
-            try:
-                result = subprocess.run(
-                    ["mcp", "call", "get_performance_metrics"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    return json.loads(result.stdout)  # type: ignore[no-any-return]
-            except Exception:
-                pass
-
-        # Return empty metrics if MCP not available
-        return {
-            "operations": {},
-            "cache": {"hits": 0, "misses": 0},
-            "summary": {"total_operations": 0},
-        }
-
     def _calculate_stats(self, session: dict[str, Any]) -> dict[str, Any]:
         """Calculate session statistics."""
         start = datetime.fromisoformat(session["start_time"])
         end = datetime.fromisoformat(session["end_time"])
         duration_minutes = (end - start).total_seconds() / 60
 
-        # Get MCP call counts from final metrics if available
-        final_metrics = session.get("final_metrics", {})
-        baseline_metrics = session.get("baseline_metrics", {})
-
-        # Calculate delta in MCP calls
-        final_total = final_metrics.get("total_mcp_calls", 0)
-        baseline_total = baseline_metrics.get("total_mcp_calls", 0)
-        mcp_count = max(final_total - baseline_total, 0)
-
-        # Fallback to old counting method if metrics not available
-        if mcp_count == 0:
-            mcp_count = len(session.get("mcp_queries", []))
+        # The MCP queries this session logged (the `mcp` command). The CLI runs
+        # outside the MCP server's process, so it can't read the server's own
+        # counts; the Claude Code hooks in scripts/claude_hooks/ do that (#915).
+        mcp_count = len(session.get("mcp_queries", []))
 
         grep_count = session.get("grep_count", 0)
 

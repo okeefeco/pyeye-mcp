@@ -290,6 +290,6 @@ The unified metrics system logs to the same location as the MCP server:
 
 ## Related Documentation
 
-- [DOGFOODING_INTEGRATION.md](DOGFOODING_INTEGRATION.md) - Integration with dogfooding metrics
+- [DOGFOODING_INTEGRATION.md](DOGFOODING_INTEGRATION.md) - How the dogfooding CLI, grep tracking and the hooks fit together
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - Development workflow
 - [GitHub Issue #189](https://github.com/okeefeco/pyeye-mcp/issues/189) - Original feature request
