@@ -11,6 +11,14 @@ look up. The examples below run against a small project with one model, `User`.
 
 The tools: <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->.
 
+Each model's fields follow its own pydantic API: models built on
+`pydantic.v1` (the v1 API that pydantic 2 ships) use v1 rules, and models
+built on `pydantic.BaseModel` use the rules of the installed major version.
+Under v1, a public attribute without an annotation (`x = 1`) is a field. Its
+record has no `type`: `type` is absent when the field has no annotation. When
+the rules can't be known (the version can't be read, or a v1 value can't be
+classified), `fields` is left out rather than shown partial (#913, #935).
+
 A model's configuration (`config` on a model or schema, `settings` from
 `find_model_config`) is reported only when its `model_config` can be read in
 full from source: a dict literal or a `ConfigDict(...)` /
