@@ -35,18 +35,18 @@ cat >> "$SHELL_RC" << EOF
 function tracked_grep() {
     # Only track if we're in a project with dogfooding metrics
     if [[ -f "scripts/dogfooding_metrics.py" ]]; then
-        python scripts/dogfooding_metrics.py grep 2>/dev/null || true
+        uv run --frozen python scripts/dogfooding_metrics.py grep 2>/dev/null || true
     fi
     command grep "\$@"
 }
 alias grep='tracked_grep'
 
 # Quick commands for metrics
-alias mcp-start='python scripts/dogfooding_metrics.py start'
-alias mcp-end='python scripts/dogfooding_metrics.py end'
-alias mcp-report='python scripts/dogfooding_metrics.py report'
-alias mcp-saved='python scripts/dogfooding_metrics.py saved'
-alias mcp-bug='python scripts/dogfooding_metrics.py bug'
+alias mcp-start='uv run --frozen python scripts/dogfooding_metrics.py start'
+alias mcp-end='uv run --frozen python scripts/dogfooding_metrics.py end'
+alias mcp-report='uv run --frozen python scripts/dogfooding_metrics.py report'
+alias mcp-saved='uv run --frozen python scripts/dogfooding_metrics.py saved'
+alias mcp-bug='uv run --frozen python scripts/dogfooding_metrics.py bug'
 
 # Auto-start metrics when cd'ing into project
 function mcp_cd() {
@@ -58,7 +58,7 @@ function mcp_cd() {
         local issue=\$(echo "\$branch" | sed -nE 's#^(worktree-)?[a-z]+[/-]([0-9]+)(-.*)?$#\2#p')
         if [[ -n "\$issue" ]]; then
             echo "📊 Auto-starting dogfooding metrics for issue #\$issue..."
-            python scripts/dogfooding_metrics.py start --issue "\$issue" 2>/dev/null || true
+            uv run --frozen python scripts/dogfooding_metrics.py start --issue "\$issue" 2>/dev/null || true
         fi
     fi
 }
