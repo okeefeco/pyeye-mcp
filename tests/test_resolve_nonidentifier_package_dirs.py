@@ -114,22 +114,9 @@ def test_the_tools_answer_after_configure_packages(tmp_path: Path, location: str
     }
 
 
-@pytest.mark.parametrize(
-    "location",
-    [
-        pytest.param(
-            ".hidden/upstream",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="#858: Jedi can't infer a relative import inside a dot-dir package",
-            ),
-        ),
-        "my-dir/upstream",
-        "vendor/upstream",
-    ],
-)
+@pytest.mark.parametrize("location", LOCATIONS)
 def test_the_relative_re_export_resolves_to_the_definition(tmp_path: Path, location: str) -> None:
-    """With #857, a relative re-export collapses in every layout Jedi can infer."""
+    """With #857, a relative re-export collapses in every layout; ``.hidden`` too since #858."""
     project, root = _project(tmp_path, location)
     analyzer = JediAnalyzer(project.as_posix())
     analyzer.set_additional_paths([root])

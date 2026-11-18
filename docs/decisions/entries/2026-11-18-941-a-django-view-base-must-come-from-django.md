@@ -6,7 +6,7 @@ anchors: ["pyeye.plugins.django.DjangoPlugin.find_views", "pyeye.plugins.django.
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-19-942-find-django-views-follows-project-subclasses.md"]
+amended_by: ["2026-11-19-947-find-django-views-reports-drf-views-with-a-framework-key.md", "2026-11-19-942-find-django-views-follows-project-subclasses.md"]
 superseded_by: []
 ---
 

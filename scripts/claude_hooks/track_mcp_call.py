@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Track MCP Python Intelligence tool calls from Claude Code hooks."""
+"""Track pyeye MCP tool calls from Claude Code PreToolUse hooks."""
 
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
+
+from pyeye_tool_names import short_name  # a sibling module: hooks run the script by path
 
 
 def ensure_monitoring_dir() -> Path:
@@ -27,10 +29,7 @@ def main() -> None:
         session_id = payload.get("session_id", "unknown")
 
         # Extract the specific MCP tool being called
-        if tool_name.startswith("mcp__pyeye__"):
-            mcp_tool = tool_name.replace("mcp__pyeye__", "")
-        else:
-            mcp_tool = tool_name
+        mcp_tool = short_name(tool_name)  # either install form (#965)
 
         # Log to CSV for easy analysis
         csv_file = monitoring_dir / "mcp_calls.csv"

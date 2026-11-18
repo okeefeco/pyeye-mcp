@@ -12,10 +12,15 @@ The tools: <!-- fact:begin tools.plugin.flask -->`find_cli_commands`, `find_erro
 
 ## find_flask_routes
 
-The route inventory: each decorated route with its methods and its own path,
-as the decorator writes it. A blueprint's `url_prefix` isn't added, so two
-routes with the same path in different blueprints are different URLs (composing
-the prefix is #952).
+The route inventory: each decorated route with its methods, its own `path` as
+the decorator writes it, and `urls`, the URLs it's served at once its
+blueprint's prefixes are applied the way Flask applies them (a registration's
+`url_prefix` overrides the blueprint's own; a nested blueprint adds its
+parent's). Use `urls` to see what an application serves, or to spot two
+handlers on one URL. `urls` is a list, because a blueprint registered twice
+serves each route twice. It is absent when a prefix isn't a literal, the
+blueprint isn't registered in the searched scope, or a registration can't be
+read (#952).
 
 ```json pyeye-example tool=find_flask_routes
 {}
@@ -30,8 +35,10 @@ the prefix is #952).
 
 ## find_flask_blueprints
 
-Each blueprint the application creates, with its URL prefix, so you can see how
-the URL space is divided.
+Each blueprint the application creates, with the `url_prefix` its constructor
+gives and `url_prefixes`, the prefixes it's actually served under after
+registration and nesting, so you can see how the URL space is divided.
+`url_prefixes` is absent under the same conditions as a route's `urls`.
 
 ```json pyeye-example tool=find_flask_blueprints
 {}
