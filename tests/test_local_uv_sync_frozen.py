@@ -82,6 +82,10 @@ def _unpinned_syncs(text: str) -> list[int]:
             False,
         ),
         ("CI pins `uv sync` <!-- fact:begin ci.uv_sync_flags -->`--group`<!-- fact:end -->", True),
+        # Reading rendered text must not weaken #573: a bare `uv sync` still fails,
+        # whatever fact block or code span follows it.
+        ("run `uv sync` <!-- fact:begin x.y -->`pyeye`<!-- fact:end --> first", True),
+        ("run `uv sync` `pytest` first", True),
         ("NEVER use bare `uv sync` locally", False),
     ],
 )
