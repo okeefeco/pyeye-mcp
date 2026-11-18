@@ -77,7 +77,7 @@ An ended session, as appended to `~/.pyeye/metrics/history.jsonl`:
   "end_time": "2025-08-24T11:26:42.901233",
   "grep_count": 2,
   "mcp_queries": [
-    {"tool": "resolve", "duration_ms": 45.2, "success": true, "timestamp": "2025-08-24T11:15:30"}
+    {"tool": "resolve", "duration_ms": 100, "success": true, "timestamp": "2025-08-24T11:15:30"}
   ],
   "time_saved_estimates": [],
   "bugs_prevented": [],
@@ -93,6 +93,8 @@ An ended session, as appended to `~/.pyeye/metrics/history.jsonl`:
 ```
 
 `mcp_ratio` is the logged MCP query count over all searches: 1 / (1 + 2).
+`duration_ms` is a placeholder: the `mcp` command logs 100 for every query, so
+it says nothing about how long the query took.
 Sessions saved by older versions also carry `baseline_metrics` and
 `final_metrics`; nothing reads them.
 
