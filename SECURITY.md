@@ -93,9 +93,10 @@ they can't drift from it.
   - `resolve`'s file forms (`path/to/file.py` and `path/to/file.py:42`);
   - a plugin tool's `scope="package:<path>"`;
   - `configure_packages`' `packages`, `namespaces` paths and `standalone_dirs`;
-  - the `namespaces` and `standalone.dirs` paths in a `.pyeye.json` or other
-    config, which are skipped with a warning when refused, rather than failing
-    the call.
+  - the `packages` entries, the `namespaces` paths and the `standalone.dirs`
+    paths in a `.pyeye.json` or other config, which are skipped with a warning
+    when refused, rather than failing the call. `configure_packages` lists
+    them in `rejected_paths`.
 
   A refused tool argument is an error, never a "not found". A path is rejected
   for:

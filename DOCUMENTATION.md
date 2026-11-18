@@ -90,8 +90,8 @@ On macOS, edit `~/Library/Application Support/Claude/claude_desktop_config.json`
 ```
 
 Claude Desktop doesn't start the server in your project, so ask for the
-project explicitly: every tool takes a `project_path` argument (see the
-[tool reference](docs/reference/tools.md)).
+project explicitly: every analysis tool takes a `project_path` argument (the
+admin tools don't; see the [tool reference](docs/reference/tools.md)).
 
 ## Configuration
 

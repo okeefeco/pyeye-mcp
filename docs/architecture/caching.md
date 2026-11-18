@@ -78,6 +78,6 @@ without a file change.
 ## Configuration
 
 Caches are tuned only through the environment variables above, set on the MCP
-client's server entry (the README's "Performance Settings" lists them all). A
+client's server entry ([Environment variables](../reference/env-vars.md) lists them all). A
 `cache` section in `.pyeye.json`, `[tool.pyeye]` or the global config has no
 effect: pyeye never read it, and it logs a warning when it is present (#581).
