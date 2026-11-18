@@ -58,9 +58,18 @@ def test_trace_subclasses_walks_through_a_subscripted_base(project: Path) -> Non
 
 
 def test_a_qualified_subscripted_base_is_named_too(project: Path) -> None:
+    """``typing.Generic[T]`` names the class, never the module ``typing``.
+
+    Generic's canonical handle follows where this interpreter defines it: the C
+    ``_typing`` module on 3.12+, ``typing.py`` on 3.11.
+    """
+    import importlib
+
+    compiled = hasattr(importlib.import_module("_typing"), "Generic")
     response = _call(project, "expand", {"handle": "m.QualifiedGeneric", "edge": "superclasses"})
 
-    assert [s["handle"] for s in response["stubs"]] == ["_typing.Generic"]
+    expected = "_typing.Generic" if compiled else "typing.Generic"
+    assert [s["handle"] for s in response["stubs"]] == [expected]
 
 
 @pytest.mark.asyncio
