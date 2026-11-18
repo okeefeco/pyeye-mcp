@@ -179,3 +179,28 @@ def test_unreadable_settings_are_left_alone(home: Path) -> None:
     assert result.returncode != 0
     assert settings_file.read_text(encoding="utf-8") == "{ not json"
     assert "not valid JSON" in result.stdout + result.stderr
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the setup script is bash")
+def test_the_alias_file_names_this_repository(home: Path) -> None:
+    """Step 5 writes the aliases with the real path (it used ``sed -i``, which failed on macOS)."""
+    result = _setup(home)
+    assert result.returncode == 0, result.stdout + result.stderr
+    aliases = (home / ".claude" / "mcp_monitoring" / "aliases.sh").read_text(encoding="utf-8")
+    assert f"python3 {ROOT}/scripts/claude_hooks/mcp_analytics.py" in aliases
+    assert "$REPO_ROOT" not in aliases
+    assert "tail -f ~/.claude/mcp_monitoring/*.csv" in aliases  # ~ and * stay literal
+
+
+def test_no_setup_script_edits_in_place_with_sed() -> None:
+    """BSD sed (macOS) reads ``sed -i expr`` as a backup suffix; don't use it at all."""
+    import re
+
+    scripts = [*HOOKS.glob("*.sh"), *(ROOT / "scripts").glob("setup_*.sh")]
+    offenders = [
+        f"{path.name}:{n}"
+        for path in scripts
+        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if re.search(r"\bsed\b[^#\n]*\s-i\b", line) and not line.lstrip().startswith("#")
+    ]
+    assert not offenders, offenders

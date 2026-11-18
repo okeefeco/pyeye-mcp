@@ -87,7 +87,10 @@ echo ""
 # Step 5: Create convenience aliases
 echo "5️⃣  Setting up convenience commands..."
 ALIAS_FILE="$HOME/.claude/mcp_monitoring/aliases.sh"
-cat > "$ALIAS_FILE" << 'EOF'
+# An unquoted heredoc fills in $REPO_ROOT. It used to be a quoted heredoc plus
+# `sed -i`, which BSD sed (macOS) reads as a backup suffix, so step 5 always
+# failed there (#981).
+cat > "$ALIAS_FILE" << EOF
 # MCP Monitoring Aliases
 alias mcp-report='python3 $REPO_ROOT/scripts/claude_hooks/mcp_analytics.py'
 alias mcp-report-week='python3 $REPO_ROOT/scripts/claude_hooks/mcp_analytics.py --days 7'
@@ -97,9 +100,6 @@ alias mcp-logs='tail -f ~/.claude/mcp_monitoring/*.csv'
 alias mcp-errors='tail -f ~/.claude/mcp_monitoring/hook_errors.log'
 alias mcp-session='cat ~/.claude/mcp_monitoring/active_session.json 2>/dev/null || echo "No active session"'
 EOF
-
-# Replace $REPO_ROOT in aliases
-sed -i "s|\$REPO_ROOT|$REPO_ROOT|g" "$ALIAS_FILE"
 
 echo -e "${GREEN}✓${NC} Created alias file: $ALIAS_FILE"
 echo ""
