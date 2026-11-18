@@ -18,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 
 from ..analyzers.jedi_analyzer import JediAnalyzer
 from ..canonicalization import invalidate_re_exports
-from ..config import ProjectConfig
+from ..config import ProjectConfig, add_unsaved, clear_unsaved, has_unsaved
 from ..constants import CONFIG_FILE
 from ..docs_facts.describe import described, fill
 from ..exceptions import ValidationError
@@ -677,6 +677,30 @@ def _check_new_config_paths(
             ) from error
 
 
+def _unsaved_view(config: ProjectConfig, disk: ProjectConfig) -> dict[str, Any]:
+    """The part of *config* that *disk* (the same project, unsaved entries left out) lacks (#953).
+
+    Shaped like ``configure_packages``' own keys (``packages``, ``namespaces``,
+    ``standalone.dirs``), each in the form that key reports, so a caller can
+    compare field for field. ``[]`` / ``{}`` when nothing is unsaved.
+    """
+    disk_packages = set(disk.get_package_paths())
+    disk_namespaces = disk.get_namespaces()
+    disk_dirs = set(disk.get_standalone_config().get("dirs", []))
+    namespaces = {
+        ns: dirs for ns, dirs in config.get_namespaces().items() if dirs != disk_namespaces.get(ns)
+    }
+    return {
+        "packages": [p for p in config.get_package_paths() if p not in disk_packages],
+        "namespaces": namespaces,
+        "standalone": {
+            "dirs": [
+                d for d in config.get_standalone_config().get("dirs", []) if d not in disk_dirs
+            ]
+        },
+    }
+
+
 def _config_entry_targets(entry: str, final: str) -> list[str]:
     """What a config *entry* will reach, to check: the entry, or every glob match.
 
@@ -720,7 +744,10 @@ def configure_packages(
         namespaces: Namespace packages with their repo paths
         standalone_dirs: Directories containing standalone Python scripts.
             Every ``.py`` file under them is analysed.
-        save: Save configuration to .pyeye.json
+        save: Save configuration to .pyeye.json, together with any entries this
+            session's earlier unsaved calls added. False keeps this call's
+            entries for the session only: unsaved calls accumulate until the
+            server restarts or a save writes them; ``unsaved`` lists them (#953).
         project_path: Project root to configure (default: current directory)
 
     The call errors (an MCP tool error, not a response) only when it can't run:
@@ -750,21 +777,26 @@ def configure_packages(
     # saved: a refused entry is an error and nothing is written (#856 review).
     _check_new_config_paths(config, packages, namespaces, standalone_dirs)
 
-    # Update configuration
-    if packages:
-        config.config.setdefault("packages", []).extend(packages)
-
-    if namespaces:
-        config.config.setdefault("namespaces", {}).update(namespaces)
-
-    if standalone_dirs:
-        # Update standalone configuration
-        standalone_config = config.config.setdefault("standalone", {})
-        standalone_config.setdefault("dirs", []).extend(standalone_dirs)
-
-    # Save if requested
-    if save and (packages or namespaces or standalone_dirs):
-        config.save_config()
+    if save:
+        # The loaded config already carries the session's unsaved entries
+        # (#953): add this call's, and persist both, then forget the overlay.
+        if packages:
+            existing = config.config.setdefault("packages", [])
+            existing.extend(p for p in packages if p not in existing)
+        if namespaces:
+            config.config.setdefault("namespaces", {}).update(namespaces)
+        if standalone_dirs:
+            if not isinstance(config.config.get("standalone"), dict):
+                config.config["standalone"] = {}
+            dirs = config.config["standalone"].setdefault("dirs", [])
+            dirs.extend(d for d in standalone_dirs if d not in dirs)
+        if packages or namespaces or standalone_dirs or has_unsaved(root):
+            config.save_config()
+            clear_unsaved(root)
+    else:
+        # Unsaved: kept for the session, so successive calls accumulate (#953).
+        add_unsaved(root, packages, namespaces, standalone_dirs)
+        project_config = config = ProjectConfig(root.as_posix())
 
     # Apply configuration to project manager
     manager = get_project_manager()
@@ -810,6 +842,9 @@ def configure_packages(
     # Entries the path check refused, skipped above; [] when none. Absent when
     # the check couldn't complete (a config that failed to load), never a []
     # for a check that didn't finish (#898).
+    # What lives only in this session's overlay, in the response's own shape so
+    # each field compares with its counterpart; empty when nothing is unsaved (#953).
+    result["unsaved"] = _unsaved_view(config, ProjectConfig(root.as_posix(), include_unsaved=False))
     rejected = config.rejected_paths()
     if rejected is not None:
         result["rejected_paths"] = rejected

@@ -18,6 +18,50 @@ logger = logging.getLogger(__name__)
 #: from a ``package:`` path that merely doesn't exist (#842).
 REJECTED_PATH = "rejected_path"
 
+#: Session-only config additions per project, from ``configure_packages(save=False)``
+#: (#953), keyed by :func:`path_to_key` of the resolved project path. Applied over
+#: the disk sources by every :class:`ProjectConfig` load, so successive unsaved
+#: calls accumulate as documented, and cleared by a save that persists them. It
+#: lives as long as the server process: unsaved entries last until restart or a save.
+_UNSAVED: dict[str, dict[str, Any]] = {}
+
+
+def _unsaved_key(project_path: str | Path) -> str:
+    return path_to_key(normalize_path(project_path))
+
+
+def add_unsaved(
+    project_path: str | Path,
+    packages: list[str] | None = None,
+    namespaces: dict[str, list[str]] | None = None,
+    standalone_dirs: list[str] | None = None,
+) -> None:
+    """Record unsaved config entries for *project_path*, merged as a save would merge them.
+
+    Packages and standalone dirs extend, deduped; a namespace replaces that
+    namespace's list, as ``configure_packages(save=True)`` does (#953).
+    """
+    overlay = _UNSAVED.setdefault(
+        _unsaved_key(project_path), {"packages": [], "namespaces": {}, "standalone_dirs": []}
+    )
+    overlay["packages"] = list(dict.fromkeys([*overlay["packages"], *(packages or [])]))
+    overlay["namespaces"].update(namespaces or {})
+    overlay["standalone_dirs"] = list(
+        dict.fromkeys([*overlay["standalone_dirs"], *(standalone_dirs or [])])
+    )
+
+
+def has_unsaved(project_path: str | Path) -> bool:
+    """Whether *project_path* has unsaved config entries (#953)."""
+    overlay = _UNSAVED.get(_unsaved_key(project_path))
+    return bool(overlay and any(overlay.values()))
+
+
+def clear_unsaved(project_path: str | Path) -> None:
+    """Forget *project_path*'s unsaved entries, once a save has persisted them (#953)."""
+    _UNSAVED.pop(_unsaved_key(project_path), None)
+
+
 #: The top-level keys of the pyeye config that pyeye reads (docs facts
 #: ``config.key.*``). ``tests/test_docs_facts_repo_config.py`` fails if code reads
 #: a top-level key that isn't listed here.
@@ -51,13 +95,17 @@ class ProjectConfig:
     # Config file names to check (in order of precedence)
     CONFIG_FILES = CONFIG_FILES
 
-    def __init__(self, project_path: str = ".") -> None:
+    def __init__(self, project_path: str = ".", *, include_unsaved: bool = True) -> None:
         """Initialize configuration for a project.
 
         Args:
             project_path: Root path of the project
+            include_unsaved: Apply the session's unsaved additions (#953).
+                ``False`` gives the configuration as the disk sources alone
+                describe it, to tell what is unsaved.
         """
         self.project_path = normalize_path(project_path)
+        self.include_unsaved = include_unsaved
         self.config: dict[str, Any] = {}
         self.has_explicit_config: bool = False
         #: Config sources that failed to load, as ``"<path>: <error>"`` (#898):
@@ -73,6 +121,9 @@ class ProjectConfig:
         2. Project config files (.pyeye.json, pyproject.toml, etc.)
         3. Override file (.pyeye.override.json) - for local development
         4. Auto-discovery (if no packages configured)
+        5. The session's unsaved additions (``configure_packages(save=False)``,
+           #953), last, as a ``save=False`` call appended them before: they
+           don't suppress auto-discovery
         """
         # 1. Load global config first (lowest precedence)
         self._load_global_config()
@@ -95,9 +146,29 @@ class ProjectConfig:
         if not self.config.get("packages"):
             self._auto_discover()
 
+        # 5. The session's unsaved additions (#953), merged as a save merges them.
+        if self.include_unsaved:
+            self._apply_unsaved()
+
         ignored = self.get_ignored_top_level_keys()
         if ignored:
             logger.warning(self.ignored_top_level_keys_message(ignored))
+
+    def _apply_unsaved(self) -> None:
+        """Merge this project's unsaved entries over the loaded config (#953)."""
+        overlay = _UNSAVED.get(_unsaved_key(self.project_path))
+        if not overlay:
+            return
+        if overlay["packages"]:
+            packages = self.config.setdefault("packages", [])
+            packages.extend(p for p in overlay["packages"] if p not in packages)
+        if overlay["namespaces"]:
+            self.config.setdefault("namespaces", {}).update(overlay["namespaces"])
+        if overlay["standalone_dirs"]:
+            if not isinstance(self.config.get("standalone"), dict):
+                self.config["standalone"] = {}
+            dirs = self.config["standalone"].setdefault("dirs", [])
+            dirs.extend(d for d in overlay["standalone_dirs"] if d not in dirs)
 
     def get_ignored_top_level_keys(self) -> list[str]:
         """Return the (sorted) top-level keys in the config that pyeye ignores (#581)."""

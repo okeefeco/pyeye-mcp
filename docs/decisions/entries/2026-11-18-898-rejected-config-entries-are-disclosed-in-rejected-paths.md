@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Config entries the path check refuses are disclosed in an always-present `rejected_paths` (#898)"
 issues: [898, 856, 594, 842, 568]
 anchors: ["pyeye.config.ProjectConfig.rejected_paths", "pyeye.config.REJECTED_PATH", "pyeye.plugins.base.AnalyzerPlugin.set_rejected_paths", "pyeye.plugins.base.AnalyzerPlugin.describe_scope", "pyeye.mcp.server._plugin_tool", "pyeye.mcp.server.configure_packages", "tests/test_rejected_config_disclosure.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-594-plugin-tools-take-an-opt-in-envelope-that-reports-searched.md", "2026-11-18-856-every-caller-path-is-checked-in-its-final-form.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-953-unsaved-configure-packages-calls-accumulate-in-a-session-overlay.md"]
 superseded_by: []
 ---
 
