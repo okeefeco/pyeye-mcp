@@ -141,7 +141,7 @@ they can't drift from it.
   MCP client.
 - **What it writes.** Every place in the server's code that writes a file or
   creates a directory:
-  <!-- fact:begin security.write_sites -->`pyeye.config:ProjectConfig.save_config`, `pyeye.config:create_example_config`, `pyeye.mcp.__main__:_configure_logging`, `pyeye.unified_metrics:UnifiedMetricsCollector.__init__`, `pyeye.unified_metrics:UnifiedMetricsCollector._append_jsonl`, `pyeye.unified_metrics:UnifiedMetricsCollector._write_json`, `pyeye.unified_metrics:UnifiedMetricsCollector.cleanup_old_sessions`, `pyeye.unified_metrics:UnifiedMetricsCollector.export_metrics`<!-- fact:end -->.
+  <!-- fact:begin security.write_sites -->`pyeye.config:ProjectConfig.save_config`, `pyeye.config:create_example_config`, `pyeye.mcp.__main__:_configure_logging`<!-- fact:end -->.
   Among them, the files the server keeps:
   - the project configuration,
     <!-- fact:begin security.writes.config -->`<project_path>/.pyeye.json`<!-- fact:end -->, when
@@ -149,10 +149,6 @@ they can't drift from it.
     The parameter and its default:
     <!-- fact:begin tool.configure_packages.param.save -->`save`: true<!-- fact:end -->;
     pass `save=false` to change only the running configuration;
-  - usage metrics, under <!-- fact:begin security.writes.metrics -->`~/.pyeye/metrics/`<!-- fact:end -->.
-    A tool call hands the metrics recorder only
-    <!-- fact:begin security.metrics_inputs -->`tool_name`, `session_id`, `success`, `duration_ms`<!-- fact:end -->, so no tool
-    arguments, paths or source reach it;
   - logs, to the file named by
     <!-- fact:begin env.PYEYE_LOG_FILE -->`PYEYE_LOG_FILE`<!-- fact:end -->, if it's set.
 

@@ -168,7 +168,10 @@ class TestEnv:
         }
 
         assert len(loaded) == len(fresh)
-        assert sorted(v["default"] for v in loaded.values()) == sorted(fresh.values())
+        # repr: a string setting with no default is None, which doesn't sort with numbers
+        assert sorted((v["default"] for v in loaded.values()), key=repr) == sorted(
+            fresh.values(), key=repr
+        )
 
     def test_statuses(self, facts: dict[str, Bindable]) -> None:
         from pyeye.settings import DEPRECATED_ENV_VARS
