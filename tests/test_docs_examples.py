@@ -65,10 +65,13 @@ def _plugin_server(project: Path) -> Any:
     from pyeye.scope_utils import SmartScopeResolver
 
     server = MCPServer("docs-examples-plugins")
+    config = ProjectConfig(project.as_posix())
     plugins = [cls(project.as_posix()) for cls in srv._PLUGIN_CLASSES]
-    srv.register_plugin_tools(
-        server, plugins, SmartScopeResolver(ProjectConfig(project.as_posix()))
-    )
+    for plugin in plugins:
+        # As initialize_plugins does: the config's paths and its rejected_paths
+        # check (#898), which an envelope reports only once it has run.
+        srv._apply_plugin_paths(plugin, config)
+    srv.register_plugin_tools(server, plugins, SmartScopeResolver(config))
     return server
 
 

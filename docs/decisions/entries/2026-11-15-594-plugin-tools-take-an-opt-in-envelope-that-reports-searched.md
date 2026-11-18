@@ -6,7 +6,7 @@ anchors: ["pyeye.mcp.server._plugin_tool", "register_plugin_tools", "pyeye.plugi
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-16-690-one-scope-to-paths-resolver-standalone-dirs-are-project.md", "2026-11-18-842-relative-caller-paths-anchor-on-project-path-missing-package-is-unsearched.md"]
+amended_by: ["2026-11-16-690-one-scope-to-paths-resolver-standalone-dirs-are-project.md", "2026-11-18-842-relative-caller-paths-anchor-on-project-path-missing-package-is-unsearched.md", "2026-11-18-898-rejected-config-entries-are-disclosed-in-rejected-paths.md"]
 superseded_by: []
 ---
 

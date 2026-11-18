@@ -14,6 +14,10 @@ from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
+#: The ``reason`` of a config entry the path check refused (#898), as distinct
+#: from a ``package:`` path that merely doesn't exist (#842).
+REJECTED_PATH = "rejected_path"
+
 #: The top-level keys of the pyeye config that pyeye reads (docs facts
 #: ``config.key.*``). ``tests/test_docs_facts_repo_config.py`` fails if code reads
 #: a top-level key that isn't listed here.
@@ -56,6 +60,9 @@ class ProjectConfig:
         self.project_path = normalize_path(project_path)
         self.config: dict[str, Any] = {}
         self.has_explicit_config: bool = False
+        #: Config sources that failed to load, as ``"<path>: <error>"`` (#898):
+        #: their entries are unknown, so :meth:`rejected_paths` can't vouch for them.
+        self.load_errors: list[str] = []
         self.load_config()
 
     def load_config(self) -> None:
@@ -150,6 +157,7 @@ class ProjectConfig:
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
+            self.load_errors.append(f"{config_path.as_posix()}: {e}")
 
     def _load_global_config(self) -> None:
         """Load global configuration from user home.
@@ -169,6 +177,7 @@ class ProjectConfig:
                         break
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
+                    self.load_errors.append(f"{config_path.as_posix()}: {e}")
 
     def _detect_setuptools_layout(self, tool_config: dict[str, Any]) -> list[str]:
         """Extract setuptools [tool.setuptools.packages.find.where].
@@ -461,7 +470,9 @@ class ProjectConfig:
     def _checked_package_dirs(self, normalised: str) -> list[str]:
         """A normalised package entry's directories, each checked as a scan root.
 
-        A glob gives its matches; a plain entry, itself if it exists.
+        A glob gives its matches; a plain entry, itself if it exists. The one
+        check of a package-path entry, for the getters and :meth:`rejected_paths`
+        alike (#898).
 
         Raises:
             ValidationError: For the first directory the path check refuses, so
@@ -566,10 +577,22 @@ class ProjectConfig:
 
     def _namespace_dirs(self, entry: str, namespace: str) -> list[str]:
         """The checked directories of one namespace *entry*; ``[]`` if any is refused (#856)."""
-        targets = self._expand_glob(self._normalise_config_path(entry))
-        if all(self._passes_path_check(target, namespace) for target in targets):
-            return targets
-        return []
+        refusal = self._namespace_refusal(entry)
+        if refusal is not None:
+            logger.warning(f"Skipping config path {entry} ({namespace}): {refusal}")
+            return []
+        return self._expand_glob(self._normalise_config_path(entry))
+
+    def _namespace_refusal(self, entry: str) -> str | None:
+        """Why :meth:`get_namespaces` skips namespace *entry*, or ``None`` (#856, #872, #898).
+
+        The first refused directory the entry names (a glob's matches, #872);
+        the one check, for the getter and :meth:`rejected_paths` alike.
+        """
+        for target in self._expand_glob(self._normalise_config_path(entry)):
+            if (refusal := self._path_refusal(target)) is not None:
+                return refusal
+        return None
 
     def _passes_path_check(self, entry: str, what: str) -> bool:
         """Whether a config path *entry* passes the input check in its final form (#856).
@@ -577,13 +600,66 @@ class ProjectConfig:
         A refused entry is skipped with a warning, as package paths already are,
         never an error: a bad ``.pyeye.json`` must not break every call.
         """
+        refusal = self._path_refusal(entry)
+        if refusal is not None:
+            logger.warning(f"Skipping config path {entry} ({what}): {refusal}")
+            return False
+        return True
+
+    def _path_refusal(self, entry: str) -> str | None:
+        """Why the path check refuses directory *entry* (normalised), or ``None`` (#856, #898)."""
         try:
             # A directory to scan: an ancestor of a restricted one is refused too.
             PathValidator.validate_scan_root(entry, self.project_path)
         except ValidationError as error:
-            logger.warning(f"Skipping config path {entry} ({what}): {error}")
-            return False
-        return True
+            return str(error)
+        return None
+
+    def rejected_paths(self) -> list[dict[str, str]] | None:
+        """Every config path entry the path check refuses, for the caller to see (#898).
+
+        The getters skip a refused entry with a warning (#856); this reports the
+        same entries, through the same checks, so a result can't silently omit a
+        package the user configured (#568). One record per refused entry:
+        ``{scope, path, reason: "rejected_path", detail}``, where ``scope`` is the
+        scope it belongs to (``packages``, ``namespace:<name>`` or
+        ``standalone``) and ``path`` is the entry as written. ``[]`` when none.
+
+        ``None`` when the check can't be complete: a config source failed to
+        load (:attr:`load_errors`), so its entries were never seen. ``[]`` is
+        always a measured "none refused", never a check that didn't finish.
+        """
+        if self.load_errors:
+            return None
+        rejected: list[dict[str, str]] = []
+
+        def record(scope: str, raw: str, detail: str | None) -> None:
+            if detail is not None:
+                rejected.append(
+                    {"scope": scope, "path": raw, "reason": REJECTED_PATH, "detail": detail}
+                )
+
+        for raw in self.config.get("packages", []):
+            record("packages", raw, self._package_refusal(raw))
+        for ns, raws in (self.config.get("namespaces") or {}).items():
+            for raw in raws:
+                # get_namespaces and get_package_paths each check its directories.
+                record(
+                    f"namespace:{ns}",
+                    raw,
+                    self._namespace_refusal(raw) or self._package_refusal(raw),
+                )
+        for raw in self.get_standalone_config().get("dirs", []):
+            record("standalone", raw, self._path_refusal(self._standalone_dir(raw).as_posix()))
+        return rejected
+
+    def _package_refusal(self, raw: str) -> str | None:
+        """Why :meth:`_process_package_path` skips package entry *raw*, or ``None``."""
+        try:
+            self._checked_package_dirs(self._normalise_config_path(raw))
+        except ValidationError as error:
+            return str(error)
+        return None
 
     def _normalise_config_path(self, entry: str) -> str:
         """Return *entry* as an absolute, normalised POSIX path.
@@ -618,6 +694,13 @@ class ProjectConfig:
         aliases = self.config.get("scope_aliases", {})
         return dict(aliases) if aliases else {}
 
+    def _standalone_dir(self, dir_path: str) -> Path:
+        """A ``standalone.dirs`` entry as the config uses it: ``~`` expanded, on the project."""
+        resolved_path = Path(dir_path).expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = self.project_path / resolved_path
+        return resolved_path
+
     def get_standalone_paths(self) -> list[Path]:
         """The configured standalone script directories that exist (#690).
 
@@ -626,9 +709,7 @@ class ProjectConfig:
         """
         paths: list[Path] = []
         for dir_path in self.get_standalone_config().get("dirs", []):
-            resolved_path = Path(dir_path).expanduser()
-            if not resolved_path.is_absolute():
-                resolved_path = self.project_path / resolved_path
+            resolved_path = self._standalone_dir(dir_path)
             if not self._passes_path_check(resolved_path.as_posix(), "standalone.dirs"):
                 continue
             if resolved_path.exists():
