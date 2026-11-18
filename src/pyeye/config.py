@@ -14,6 +14,10 @@ from .validation import PathValidator, ValidationError
 
 logger = logging.getLogger(__name__)
 
+#: The ``reason`` of a config entry the path check refused (#898), as distinct
+#: from a ``package:`` path that merely doesn't exist (#842).
+REJECTED_PATH = "rejected_path"
+
 #: The top-level keys of the pyeye config that pyeye reads (docs facts
 #: ``config.key.*``). ``tests/test_docs_facts_repo_config.py`` fails if code reads
 #: a top-level key that isn't listed here.
@@ -431,29 +435,38 @@ class ProjectConfig:
         Returns:
             List of validated paths
         """
-        paths = []
         try:
             # The one rule shared with namespaces (#668): ``~`` expanded,
             # relative to the project, ``..`` collapsed.
             package = self._normalise_config_path(package)
-            if "*" in package:
-                from glob import glob
-
-                expanded = glob(package)
-                for exp_path in expanded:
-                    validated = PathValidator.validate_path(exp_path)
-                    # A directory to scan: not "/" (or another ancestor of /etc) either.
-                    PathValidator.validate_scan_root(exp_path, self.project_path)
-                    paths.append(validated.as_posix())
-            else:
-                validated = PathValidator.validate_path(package)
-                # A directory to scan: not "/" (or another ancestor of /etc) either.
-                PathValidator.validate_scan_root(package, self.project_path)
-                if validated.exists():
-                    paths.append(validated.as_posix())
+            return self._checked_package_dirs(package)
         except ValidationError as e:
             logger.warning(f"Skipping invalid package path {package}: {e}")
+            return []
 
+    def _checked_package_dirs(self, normalised: str) -> list[str]:
+        """The directories a normalised package entry names, each checked as a scan root.
+
+        A glob names its matches, a plain entry itself if it exists. The one
+        check of a package-path entry, for the getters and
+        :meth:`rejected_paths` alike (#898).
+
+        Raises:
+            ValidationError: For the first directory the path check refuses.
+        """
+        if "*" in normalised:
+            from glob import glob
+
+            targets, keep_missing = glob(normalised), True
+        else:
+            targets, keep_missing = [normalised], False
+        paths = []
+        for target in targets:
+            validated = PathValidator.validate_path(target)
+            # A directory to scan: not "/" (or another ancestor of /etc) either.
+            PathValidator.validate_scan_root(target, self.project_path)
+            if keep_missing or validated.exists():
+                paths.append(validated.as_posix())
         return paths
 
     def _process_namespace_paths(self, namespaces: dict[str, list[str]]) -> list[str]:
@@ -470,21 +483,7 @@ class ProjectConfig:
             for ns_path in ns_paths:
                 try:
                     ns_path = self._normalise_config_path(ns_path)
-                    if "*" in ns_path:
-                        from glob import glob
-
-                        expanded = glob(ns_path)
-                        for exp_path in expanded:
-                            validated = PathValidator.validate_path(exp_path)
-                            # A directory to scan: not "/" (or another ancestor of /etc) either.
-                            PathValidator.validate_scan_root(exp_path, self.project_path)
-                            paths.append(validated.as_posix())
-                    else:
-                        validated = PathValidator.validate_path(ns_path)
-                        # A directory to scan: not "/" (or another ancestor of /etc) either.
-                        PathValidator.validate_scan_root(ns_path, self.project_path)
-                        if validated.exists():
-                            paths.append(validated.as_posix())
+                    paths.extend(self._checked_package_dirs(ns_path))
                 except ValidationError as e:
                     logger.warning(
                         f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"
@@ -563,13 +562,61 @@ class ProjectConfig:
         A refused entry is skipped with a warning, as package paths already are,
         never an error: a bad ``.pyeye.json`` must not break every call.
         """
+        refusal = self._path_refusal(entry)
+        if refusal is not None:
+            logger.warning(f"Skipping config path {entry} ({what}): {refusal}")
+            return False
+        return True
+
+    def _path_refusal(self, entry: str) -> str | None:
+        """Why the path check refuses directory *entry* (normalised), or ``None`` (#856, #898)."""
         try:
             # A directory to scan: an ancestor of a restricted one is refused too.
             PathValidator.validate_scan_root(entry, self.project_path)
         except ValidationError as error:
-            logger.warning(f"Skipping config path {entry} ({what}): {error}")
-            return False
-        return True
+            return str(error)
+        return None
+
+    def rejected_paths(self) -> list[dict[str, str]]:
+        """Every config path entry the path check refuses, for the caller to see (#898).
+
+        The getters skip a refused entry with a warning (#856); this reports the
+        same entries, through the same checks, so a result can't silently omit a
+        package the user configured (#568). One record per refused entry:
+        ``{scope, path, reason: "rejected_path", detail}``, where ``scope`` is the
+        scope it belongs to (``packages``, ``namespace:<name>`` or
+        ``standalone``) and ``path`` is the entry as written. ``[]`` when none.
+        """
+        rejected: list[dict[str, str]] = []
+
+        def record(scope: str, raw: str, detail: str | None) -> None:
+            if detail is not None:
+                rejected.append(
+                    {"scope": scope, "path": raw, "reason": REJECTED_PATH, "detail": detail}
+                )
+
+        for raw in self.config.get("packages", []):
+            record("packages", raw, self._package_refusal(raw))
+        for ns, raws in (self.config.get("namespaces") or {}).items():
+            for raw in raws:
+                # get_namespaces checks the entry; get_package_paths, its directories.
+                normalised = self._normalise_config_path(raw)
+                record(
+                    f"namespace:{ns}",
+                    raw,
+                    self._path_refusal(normalised) or self._package_refusal(raw),
+                )
+        for raw in self.get_standalone_config().get("dirs", []):
+            record("standalone", raw, self._path_refusal(self._standalone_dir(raw).as_posix()))
+        return rejected
+
+    def _package_refusal(self, raw: str) -> str | None:
+        """Why :meth:`_process_package_path` skips package entry *raw*, or ``None``."""
+        try:
+            self._checked_package_dirs(self._normalise_config_path(raw))
+        except ValidationError as error:
+            return str(error)
+        return None
 
     def _normalise_config_path(self, entry: str) -> str:
         """Return *entry* as an absolute, normalised POSIX path.
@@ -604,6 +651,13 @@ class ProjectConfig:
         aliases = self.config.get("scope_aliases", {})
         return dict(aliases) if aliases else {}
 
+    def _standalone_dir(self, dir_path: str) -> Path:
+        """A ``standalone.dirs`` entry as the config uses it: ``~`` expanded, on the project."""
+        resolved_path = Path(dir_path).expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = self.project_path / resolved_path
+        return resolved_path
+
     def get_standalone_paths(self) -> list[Path]:
         """The configured standalone script directories that exist (#690).
 
@@ -612,9 +666,7 @@ class ProjectConfig:
         """
         paths: list[Path] = []
         for dir_path in self.get_standalone_config().get("dirs", []):
-            resolved_path = Path(dir_path).expanduser()
-            if not resolved_path.is_absolute():
-                resolved_path = self.project_path / resolved_path
+            resolved_path = self._standalone_dir(dir_path)
             if not self._passes_path_check(resolved_path.as_posix(), "standalone.dirs"):
                 continue
             if resolved_path.exists():

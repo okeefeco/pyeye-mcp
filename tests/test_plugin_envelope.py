@@ -6,7 +6,8 @@ result. An empty result is zero items, and nothing says which scope was searched
 
 With ``envelope=true`` every plugin tool returns::
 
-    {"scope": ..., "searched": [...], "unsearched_scopes": [...], "results": ...}
+    {"scope": ..., "searched": [...], "unsearched_scopes": [...], "rejected_paths": [...],
+     "results": ...}
 
 The default (``envelope`` omitted or false) must stay byte-for-byte what it was:
 making the envelope the default is a breaking change, deferred to #644.
@@ -218,7 +219,13 @@ class TestEnvelopeShape:
 
         payload = await _envelope(_wrapped_server(plugins, config), tool, scope="main")
 
-        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results"]
+        assert list(payload) == [
+            "scope",
+            "searched",
+            "unsearched_scopes",
+            "rejected_paths",  # #898
+            "results",
+        ]
         expected = await method(**EXTRA_ARGS.get(tool, {}), scope="main")
         assert _strip_627(payload["results"]) == json.loads(json.dumps(expected))
 
@@ -236,6 +243,7 @@ class TestEnvelopeShape:
             "scope": "main",
             "searched": ["main"],
             "unsearched_scopes": [],
+            "rejected_paths": [],
             "results": [],
         }
 

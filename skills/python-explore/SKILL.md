@@ -368,7 +368,7 @@ answer wrapped with the scopes it covered:
 ```
 
 ```json pyeye-output
-{"scope": "main", "searched": ["main"], "unsearched_scopes": [],
+{"scope": "main", "searched": ["main"], "unsearched_scopes": [], "rejected_paths": [],
  "results": [{"name": "Product", "handle": "shop.models.Product", "…": "<omitted>"}]}
 ```
 
@@ -378,6 +378,10 @@ answer wrapped with the scopes it covered:
   `package:<path>` you gave whose directory doesn't exist (a relative path is relative to
   `project_path`). If it is non-empty, don't call the result complete: retry with
   `scope="all"` or a corrected path, or say which scopes you didn't search.
+- **`rejected_paths`** lists config entries the path check refused
+  (`{scope, path, reason: "rejected_path", detail}`, `[]` when none). Their scopes are
+  always unsearched. Tell the user which configured path was skipped and why; don't
+  retry it.
 
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.
