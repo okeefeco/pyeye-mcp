@@ -267,3 +267,31 @@ def test_a_file_held_open_elsewhere_skips_the_write_without_raising(
     assert "stayed open elsewhere" in caplog.text
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".active_sessions")] == []
     assert sid in _active(c)
+
+
+def test_an_append_that_cannot_lock_is_skipped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    c = UnifiedMetricsCollector(storage_dir=tmp_path)
+    monkeypatch.setattr(um, "_LOCK_TIMEOUT_S", 0.05)
+    held = FileLock(f"{c.completed_sessions_file}.lock")
+    with held, caplog.at_level("WARNING", logger="pyeye.unified_metrics"):
+        other = threading.Thread(target=c._append_jsonl, args=(c.completed_sessions_file, {"x": 1}))
+        other.start()
+        other.join()
+    assert not c.completed_sessions_file.exists()
+    assert "append skipped" in caplog.text
+
+
+def test_a_session_with_an_unreadable_timestamp_is_never_pruned(tmp_path: Path) -> None:
+    seeder = UnifiedMetricsCollector(storage_dir=tmp_path)
+    old = datetime.now() - STALE_SESSION_AGE - timedelta(hours=1)
+    _seed(seeder, "garbled", last_activity=old, start=old)
+
+    def garble(data: dict) -> None:
+        data["garbled"]["last_activity"] = "not a date"
+
+    seeder._update_json_atomic(seeder.active_sessions_file, garble)
+    c = UnifiedMetricsCollector(storage_dir=tmp_path)
+    assert list(_active(c)) == ["garbled"]
+    assert _completed(c) == []
