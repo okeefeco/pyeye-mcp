@@ -62,20 +62,22 @@ async def test_the_suggested_call_resolves_the_module(
 
 
 @pytest.mark.asyncio
-async def test_resolve_of_a_stub_points_at_its_source(project: Path) -> None:
-    miss = await _call("resolve", project, identifier="pkg/mod.pyi")
+async def test_resolve_of_a_stub_resolves_its_source(project: Path) -> None:
+    """Since #885 a stub beside its source needs no hint: it resolves."""
+    found = await _call("resolve", project, identifier="pkg/mod.pyi")
 
-    assert miss["reason"] == "unresolved"
-    followed = await _follow(miss["detail"], project)
-    assert followed["found"] is True and followed["handle"] == "pkg.mod"
+    assert found["found"] is True and found["handle"] == "pkg.mod"
 
 
 @pytest.mark.asyncio
-async def test_a_stub_with_no_source_gets_an_honest_file_not_found(project: Path) -> None:
+async def test_a_stub_with_no_source_is_sent_to_an_honest_miss(project: Path) -> None:
+    """The hint passes the stub as it is; it never names a .py that isn't there (#885)."""
     miss = await _call("outline", project, handle="pkg/stub.pyi")
 
+    assert "stub.py'" not in miss["detail"]
     followed = await _follow(miss["detail"], project)
-    assert followed["found"] is False and followed["reason"] == "file_not_found"
+    assert followed["found"] is False and followed["reason"] == "unresolved"
+    assert "stub with no .py source beside it" in followed["detail"]
 
 
 @pytest.mark.parametrize(

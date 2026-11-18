@@ -77,8 +77,9 @@ def _leaf(text: str) -> str:
     return text.rsplit(".", 1)[-1]
 
 
-#: The suffixes that make a lookup argument a source file, not a dotted handle.
-_SOURCE_SUFFIXES = (".py", ".pyi")
+#: The suffixes that make a lookup argument a source file, not a dotted handle
+#: (``resolve`` parses its identifier with the same ones, #885).
+SOURCE_SUFFIXES = (".py", ".pyi")
 
 
 def _as_file_path(text: str) -> str | None:
@@ -89,22 +90,18 @@ def _as_file_path(text: str) -> str | None:
     Forward slashes work on every OS, so the suggested call resolves everywhere
     (#882).
     """
-    if "/" in text or "\\" in text or text.endswith(_SOURCE_SUFFIXES):
+    if "/" in text or "\\" in text or text.endswith(SOURCE_SUFFIXES):
         return text.replace("\\", "/")
     return None
 
 
 def _path_hint(text: str, path: str) -> str:
-    """The next step for a file path: resolve its ``.py`` source.
+    """The next step for a file path: ``resolve`` it.
 
-    ``resolve`` reads ``.py`` sources; a ``.pyi`` stub isn't one, so the hint
-    names the source beside it (``resolve`` says plainly if there is none).
+    A ``.pyi`` stub is passed as it is (#885): ``resolve`` reads it through the
+    ``.py`` beside it, and says plainly when there is none. Naming a ``.py``
+    here would send a stub-only file to a path that doesn't exist.
     """
-    if path.endswith(".pyi"):
-        return (
-            f"{text!r} is a stub file. pyeye reads the .py source: call "
-            f"resolve({path[:-1]!r}) to get its module's handle."
-        )
     return f"{text!r} is a file path, not a dotted handle. Call resolve({path!r}) to get its module's handle."
 
 
@@ -139,8 +136,6 @@ def _default_detail(operation: str, echo: Mapping[str, Any], reason: str) -> str
                 "column) to point at a name, or resolve() the name itself."
             )
         path = _as_file_path(identifier)
-        if path is not None and path.endswith(".pyi"):  # its leaf would be 'pyi' (#882)
-            return _path_hint(identifier, path)
         if path is not None:
             return (
                 f"{identifier!r} is a file that didn't resolve to a module. Pass a .py "
