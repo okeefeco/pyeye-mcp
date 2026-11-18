@@ -128,7 +128,8 @@ the server didn't detect at startup (for example, Flask is used only in a newly
 added package), that plugin activates now and its tools can be called by name
 straight away; the response's `activated_plugins` names them. Your client's tool
 list may not refresh, because no list-changed notification is sent (#659, #770).
-This applies only to the project the server started in.
+Plugin activation applies only to the project the server started in; the new
+paths themselves take effect on whichever project you configure.
 
 > **Removed in 2.0:** `recursive`, `file_pattern` and `exclude_patterns`. They
 > were saved to `.pyeye.json` but never took effect
@@ -159,7 +160,10 @@ compares with its counterpart. It is empty when everything is saved (#953).
 `rejected_paths` lists the config entries the path check refused and skipped,
 in the same shape as the plugin `envelope`'s, and is `[]` when there are none.
 Like the envelope's, it is missing only when a config file failed to load
-(#898).
+(#898). It covers entries already in the configuration: the config file and
+this session's unsaved additions. A path you pass in the call itself is checked
+before anything changes, and if it is refused, the call fails with an error
+naming it, and nothing is changed or saved (#856).
 
 A call that names packages adds them, and with `save` left on, writes
 `.pyeye.json`. To add a package for this session only:

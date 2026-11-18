@@ -138,9 +138,12 @@ usually lives in the main project.
 An explicit `scope` argument always wins, and `scope_aliases` are expanded in
 both cases.
 
-This is what makes a namespace project complete by default: an AI agent calling
-`find_pydantic_models()` doesn't know the models live in `company-*` repos, but
-the project config does.
+So by default a plugin tool searches only the main project, and a namespace's
+repositories aren't searched unless the call passes a `scope` or the config sets
+a default. `scope_defaults` is how a namespace project closes that gap: an AI
+agent calling `find_pydantic_models()` doesn't know the models live in
+`company-*` repos, but the project config does. Called with `envelope=true`, a
+plugin tool lists the configured scopes it didn't search in `unsearched_scopes`.
 
 ```json
 {
@@ -407,10 +410,34 @@ complete cycle detection it did not have:**
   "no cycle within the caps", never "no cycles". Check `sub["truncated"]` and
   `sub["truncation_reasons"]` (`["max_depth"?, "max_nodes"?]`); if either fired,
   the result is a floor, not an answer.
-- **Static imports only.** `importlib.import_module()`, plugin loaders and
-  conditional imports are invisible, so a runtime cycle can exist with no static
-  edge. Also check `sub["unresolved_imports"]` — a node listed there has an
+- **Module-scope static imports only.** The `imports` edge follows every import
+  that binds a name in the module, including ones under `if TYPE_CHECKING:`,
+  both branches of a `try`/`except ImportError` shim, and version branches. It
+  doesn't see imports inside a function or class body, `importlib.import_module()`
+  or plugin loaders. So a runtime cycle can exist with no static edge, and a
+  cycle through a `TYPE_CHECKING` import exists only statically, never at
+  runtime. Also check `sub["unresolved_imports"]`: a node listed there has an
   incomplete import set, so any cycle claim about it is unverified.
+
+For example, `shop/checkout.py` imports `Order` under `if TYPE_CHECKING:`,
+`dumps` from either `shop.speedups` or `shop.fallback` in a
+`try`/`except ImportError` shim, and `Report` only inside a function:
+
+```json pyeye-example tool=expand fixture=docs_examples_guarded_imports
+{"handle": "shop.checkout", "edge": "imports"}
+```
+
+```json pyeye-output
+{"found": true, "stubs": [
+  {"handle": "shop.fallback.slow_dumps", "kind": "function", "…": "<omitted>"},
+  {"handle": "shop.orders.Order", "kind": "class", "…": "<omitted>"},
+  {"handle": "shop.speedups.fast_dumps", "kind": "function", "…": "<omitted>"},
+  {"handle": "typing.TYPE_CHECKING", "kind": "variable", "…": "<omitted>"}],
+ "unresolved_imports": [], "…": "<omitted>"}
+```
+
+The edge lists both shim branches and the type-only import, but not the
+function-local `Report`.
 
 ## Best Practices
 
