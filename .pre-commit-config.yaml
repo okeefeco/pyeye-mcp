@@ -53,9 +53,11 @@ repos:
     hooks:
       - id: pip-audit
         name: Check dependencies with pip-audit
-        # No ignored vulnerabilities. If one must be ignored, add `--ignore-vuln <ID>`
+        # No ignored vulnerabilities. If one must be ignored, add `args: ['--ignore-vuln', '<ID>']`
         # with a comment naming the tracking issue, and remove it once a fix lands.
-        entry: uv run --frozen pip-audit --skip-editable
+        # The wrapper retries only a positively identified network error to pypi.org;
+        # a vulnerability or any other failure fails at once (#894).
+        entry: uv run --frozen python scripts/pip_audit_retry.py
         language: system
         pass_filenames: false
         files: '(requirements.*\.txt|pyproject\.toml|uv\.lock)$'
