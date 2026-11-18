@@ -190,7 +190,16 @@ jobs:
         # Off on Windows, where symlinks need privileges, as on test-main.
         env:
           PYEYE_EXHAUSTIVE_PATHS: ${{ github.event_name == 'merge_group' && matrix.os != 'windows-latest' && '1' || '' }}
-        run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+        # #892: Windows 3.11 runs WITHOUT coverage; every other leg keeps it.
+        # Measured on one commit (run 44225009133), pytest time in s, 3 runs each:
+        # 3.11 with coverage 544/587/819, without 401/406/419 (coverage cost ~28%,
+        # the old settrace tracer); 3.13 the cost is ~9%. Coverage is uploaded only
+        # from ubuntu 3.11, so Windows lost only its own leg's 85% gate. The user
+        # chose this after #835 made the no_cover benchmark safe under --no-cov.
+        run: >-
+          uv run pytest ${{ (matrix.os == 'windows-latest' && matrix.python-version == '3.11')
+          && '--no-cov'
+          || '--cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85' }}
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
@@ -239,7 +248,16 @@ jobs:
         # bugs. Off on Windows, where symlinks need privileges.
         env:
           PYEYE_EXHAUSTIVE_PATHS: ${{ matrix.os != 'windows-latest' && '1' || '' }}
-        run: uv run pytest --cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85
+        # #892: Windows 3.11 runs WITHOUT coverage; every other leg keeps it.
+        # Measured on one commit (run 44225009133), pytest time in s, 3 runs each:
+        # 3.11 with coverage 544/587/819, without 401/406/419 (coverage cost ~28%,
+        # the old settrace tracer); 3.13 the cost is ~9%. Coverage is uploaded only
+        # from ubuntu 3.11, so Windows lost only its own leg's 85% gate. The user
+        # chose this after #835 made the no_cover benchmark safe under --no-cov.
+        run: >-
+          uv run pytest ${{ (matrix.os == 'windows-latest' && matrix.python-version == '3.11')
+          && '--no-cov'
+          || '--cov=src/pyeye --cov-report=xml --cov-report=term --cov-fail-under=85' }}
 
       - name: Upload coverage to Codecov
         # Skip for Dependabot PRs as they don't have access to secrets
