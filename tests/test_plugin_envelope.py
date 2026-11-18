@@ -218,7 +218,10 @@ class TestEnvelopeShape:
 
         payload = await _envelope(_wrapped_server(plugins, config), tool, scope="main")
 
-        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results"]
+        # A plugin may add its own keys after these (#921: find_pydantic_models'
+        # unplaced_classes, through AnalyzerPlugin.envelope_extras).
+        extras = ["unplaced_classes"] if tool == "find_pydantic_models" else []
+        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results", *extras]
         expected = await method(**EXTRA_ARGS.get(tool, {}), scope="main")
         assert _strip_627(payload["results"]) == json.loads(json.dumps(expected))
 

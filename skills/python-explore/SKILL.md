@@ -378,6 +378,10 @@ answer wrapped with the scopes it covered:
   `package:<path>` you gave whose directory doesn't exist (a relative path is relative to
   `project_path`). If it is non-empty, don't call the result complete: retry with
   `scope="all"` or a corrected path, or say which scopes you didn't search.
+- **`unplaced_classes`** (`find_pydantic_models` only) lists classes whose base is an
+  expression (`make_base()`), which can't be placed, so any of them may be a model the
+  results don't show. If it is non-empty, say so, or read those classes. Its own cap
+  (`max_unplaced`) can add `truncated` / `total` beside it; `results` is never capped.
 
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.

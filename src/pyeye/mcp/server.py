@@ -425,11 +425,13 @@ def _plugin_tool(
         if not envelope:
             return result
         searched, unsearched = target.describe_scope(bound.arguments["scope"])
+        extras = await target.envelope_extras(tool_name, dict(bound.arguments))
         return {
             "scope": requested,
             "searched": searched,
             "unsearched_scopes": unsearched,
             "results": result,
+            **respell_paths(extras, [absolute_path(project_path or target.project_path)]),
         }
 
     # Keep the tool's own return type, so the SDK builds the same structured

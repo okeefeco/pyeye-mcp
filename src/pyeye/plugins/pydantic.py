@@ -202,7 +202,9 @@ class PydanticPlugin(AnalyzerPlugin):
             "find_computed_fields": self.find_computed_fields,
         }
 
-    async def find_models(self, scope: Scope = "main") -> list[dict[str, Any]]:
+    async def find_models(
+        self, scope: Scope = "main", max_unplaced: int | None = 50
+    ) -> list[dict[str, Any]]:
         """Find all Pydantic models in the project, direct and indirect (#664).
 
         A model is a project class that subclasses a Pydantic root
@@ -221,6 +223,19 @@ class PydanticPlugin(AnalyzerPlugin):
         omitted when it can't be known: the API is unknown, or a v1 value can't
         be classified.
 
+        **Unplaced classes (with ``envelope=true``):** a class whose base is an
+        expression (``make_base()``, a conditional) has no static base, so it
+        can't be placed and isn't reported as a model. The envelope lists every
+        such class in the searched scope, pydantic-looking or not, in
+        ``unplaced_classes`` (``{name, file, line, base}``, ``[]`` when none; a
+        subscripted base like ``Box[int]`` names its class and is placed).
+        ``max_unplaced`` (default 50, ``None`` for all) caps that list only:
+        when it cuts, the envelope carries ``truncated: true``,
+        ``truncation_reasons: ["max_unplaced"]`` and ``total`` (the number of
+        unplaced classes), and those refer to ``unplaced_classes`` alone.
+        ``results`` is never capped. Without the envelope, ``max_unplaced`` has
+        no effect.
+
         **Weaker fallback:** a root that doesn't resolve is matched by direct base
         NAME instead. For example, when pydantic-settings isn't importable,
         BaseSettings subclasses are found by direct base name; the walk then
@@ -234,7 +249,10 @@ class PydanticPlugin(AnalyzerPlugin):
                 <<fact:scopes.options:bullets>>
                 A name from the project's ``scope_aliases`` config expands to the
                 scopes it lists.
+            max_unplaced: Most ``unplaced_classes`` entries the envelope returns
+                (default 50; ``None`` for all). Envelope only.
         """
+        _ = max_unplaced  # read by envelope_extras, never by the walk
         analyzer = self._analyzer()
         await self._warn_unreadable_sources(scope)
         roots, unresolved_names = self._resolve_roots(analyzer)
@@ -267,6 +285,55 @@ class PydanticPlugin(AnalyzerPlugin):
             if record is not None:
                 models.append(record)
         return models
+
+    async def envelope_extras(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """``find_pydantic_models``' ``unplaced_classes``, capped by ``max_unplaced`` (#921)."""
+        if tool_name != "find_pydantic_models":
+            return {}
+        from ..mcp.operations.completeness import DEFAULT_MAX_UNPLACED, MAX_UNPLACED, cap_items
+
+        cap = arguments.get("max_unplaced", DEFAULT_MAX_UNPLACED)
+        unplaced = await self._unplaced_classes(arguments.get("scope", "main"))
+        kept, truncation = cap_items(unplaced, cap, MAX_UNPLACED, "max_unplaced")
+        return {"unplaced_classes": kept, **truncation}
+
+    async def _unplaced_classes(self, scope: Scope) -> list[dict[str, Any]]:
+        """Every class in *scope* with a base that can't be placed statically (#921).
+
+        After subscripts are removed, a base that isn't a name or an attribute
+        (a call, a conditional, any other expression) has no static class, the
+        rule the class graph and ``superclass_bases`` use (#930). One entry per
+        class, with its first such base's source text, sorted by file and line.
+        """
+        from .._ast_targets import unsubscripted
+
+        entries: list[dict[str, Any]] = []
+        for py_file in await self.get_project_files("*.py", scope):
+            content = await self._read_source(py_file)
+            tree = self._parse_source(py_file, content) if content is not None else None
+            if tree is None:
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                base = next(
+                    (
+                        b
+                        for b in node.bases
+                        if not isinstance(unsubscripted(b), ast.Name | ast.Attribute)
+                    ),
+                    None,
+                )
+                if base is not None:
+                    entries.append(
+                        {
+                            "name": node.name,
+                            "file": py_file.as_posix(),
+                            "line": node.lineno,
+                            "base": ast.unparse(base),
+                        }
+                    )
+        return sorted(entries, key=lambda e: (e["file"], e["line"]))
 
     async def _warn_unreadable_sources(self, scope: Scope) -> None:
         """Warn about every Pydantic-looking file that can't be read or parsed (#637).
