@@ -55,14 +55,15 @@ git clone https://github.com/okeefeco/pyeye-mcp.git
 pip install -e ./pyeye-mcp
 ```
 
-Then create a `.mcp.json` file in your project root:
+Then create a `.mcp.json` file in your project root, pointing `command` at that
+virtual environment's Python:
 
 ```json
 {
   "mcpServers": {
     "pyeye": {
       "type": "stdio",
-      "command": "python",
+      "command": "/path/to/your/project/venv/bin/python",
       "args": ["-m", "pyeye.mcp"],
       "env": {}
     }
@@ -70,7 +71,11 @@ Then create a `.mcp.json` file in your project root:
 }
 ```
 
-This way, the MCP server uses your project's environment and has access to all your project's dependencies.
+The server then runs in your project's environment and can see all your
+project's dependencies. (On Windows the path is `venv\Scripts\python.exe`.) A bare
+`"command": "python"` works only if your MCP client was started from a shell
+with that virtual environment active; otherwise it runs whichever Python is
+first on the client's `PATH`.
 
 ### Option 2: Global Installation
 
@@ -163,7 +168,8 @@ Configuration is loaded in the following order (later sources override earlier o
 1. **Global Config**: the first of <!-- fact:begin config.files.global -->`~/.config/pyeye/config.json`, `~/.pyeye.json`<!-- fact:end --> that exists - User defaults
 2. **Project Config**: the first of <!-- fact:begin config.files.project -->`.pyeye.json`, `.pyeye.yaml`, `.pyeye.yml`, `pyproject.toml`, `.claude/pyeye.json`<!-- fact:end --> in the project root (in `pyproject.toml`, the `[tool.pyeye]` section)
 3. **Override File**: <!-- fact:begin config.files.override -->`.pyeye.override.json`<!-- fact:end --> - Local development overrides (keep it out of git)
-4. **Auto-Discovery**: Automatically detects source layouts and sibling packages if no packages configured
+4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages and the project's virtualenv site-packages are added
+5. **This session's unsaved additions**: packages, namespaces and standalone directories added with `configure_packages(save=false)`. They're applied last and don't stop auto-discovery
 
 The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`<!-- fact:end -->.
 
@@ -273,6 +279,11 @@ sources = ["src"]
 package-dir = "src"
 ```
 
+Two conditions apply. `pyproject.toml` is read only when it is the project's config
+file, the first of the project config files above that exists, so a
+`.pyeye.json` or `.pyeye.yaml` in the root means it is never read. And detection
+only runs when no `packages` are set yet, including by your global config.
+
 If no configuration is found in `pyproject.toml`, PyEye will also check for the presence of a `src/` directory containing Python packages and automatically add it to the package paths.
 
 **Note:** Explicit `[tool.pyeye]` configuration always takes precedence over auto-detected layouts.
@@ -373,8 +384,10 @@ plugin, follow [Adding a plugin](docs/architecture/plugin-system.md#adding-a-plu
 
 ## Performance Monitoring
 
-Set `PYEYE_ENABLE_PERFORMANCE_METRICS` to register the `get_performance_metrics`
-tool, which reports per-tool latencies. Its parameters are in the
+Set `PYEYE_ENABLE_PERFORMANCE_METRICS` to true to register the admin tools:
+<!-- fact:begin tool.get_performance_metrics -->`get_performance_metrics`<!-- fact:end -->, which reports per-tool latencies, and
+<!-- fact:begin tool.get_connection_diagnostics -->`get_connection_diagnostics`<!-- fact:end -->, which reports the server's
+connection state and recent errors. Their parameters are in the
 [tool reference](docs/reference/tools.md#admin-tools).
 
 ## Development
