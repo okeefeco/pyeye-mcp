@@ -239,6 +239,8 @@ class TestDeprecatedSettings:
             "PYEYE_ENABLE_CONNECTION_POOLING",
             "PYEYE_POOL_MAX_CONNECTIONS",
             "PYEYE_POOL_TTL",
+            "PYEYE_ISSUE",  # #943: the unified metrics sessions they labelled are gone
+            "PYEYE_PARENT_SESSION",
         }
 
     @pytest.mark.parametrize("name", sorted(DEPRECATED_ENV_VARS))
