@@ -20,6 +20,7 @@ Every `PYEYE_*` variable pyeye reads, with its default and range. `unused` means
 | `PYEYE_MAX_FILE_SIZE` | 1048576 | 1024-104857600 | deprecated, no effect: nothing ever used it (#592) |
 | `PYEYE_MAX_PROJECTS` | 10 | 1-1000 | live |
 | `PYEYE_MAX_WORKERS` | 4 | 1-32 | deprecated, no effect: nothing ever used it (#592) |
+| `PYEYE_METRICS_DIR` | unset |  | live |
 | `PYEYE_PARENT_SESSION` | unset |  | live |
 | `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | 1-1000000 | live |
 | `PYEYE_POOL_MAX_CONNECTIONS` | 10 | 1-100 | deprecated, no effect: the connection pool was removed (#628) |

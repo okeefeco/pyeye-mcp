@@ -85,6 +85,8 @@ class TestConfigurePackages:
         mock_config.get_package_paths.return_value = ["../lib1", "../lib2"]
         mock_config.get_namespaces.return_value = {}
         mock_config.project_path = Path(".")
+        # #856: new entries are checked as the config normalises them.
+        mock_config._normalise_config_path.side_effect = lambda entry: entry
         mock_config_class.return_value = mock_config
 
         mock_manager = Mock()
@@ -118,6 +120,8 @@ class TestConfigurePackages:
         mock_config.get_package_paths.return_value = []
         mock_config.get_namespaces.return_value = {"company": ["/repos/auth", "/repos/api"]}
         mock_config.project_path = Path(".")
+        # #856: new entries are checked as the config normalises them.
+        mock_config._normalise_config_path.side_effect = lambda entry: entry
         mock_config_class.return_value = mock_config
 
         mock_manager = Mock()
@@ -146,6 +150,8 @@ class TestConfigurePackages:
         mock_config.get_package_paths.return_value = ["test"]
         mock_config.get_namespaces.return_value = {}
         mock_config.project_path = Path(".")
+        # #856: new entries are checked as the config normalises them.
+        mock_config._normalise_config_path.side_effect = lambda entry: entry
         mock_config_class.return_value = mock_config
 
         mock_manager = Mock()
@@ -172,6 +178,8 @@ class TestConfigurePackages:
         mock_config.get_package_paths.return_value = ["../lib1"]
         mock_config.get_namespaces.return_value = {}
         mock_config.project_path = Path(".")
+        # #856: new entries are checked as the config normalises them.
+        mock_config._normalise_config_path.side_effect = lambda entry: entry
         mock_config_class.return_value = mock_config
 
         mock_manager = Mock()

@@ -343,6 +343,12 @@
       "status": "deprecated",
       "type": "int"
     },
+    "env.PYEYE_METRICS_DIR": {
+      "default": null,
+      "source": "pyeye/unified_metrics.py",
+      "status": "live",
+      "type": "str"
+    },
     "env.PYEYE_PARENT_SESSION": {
       "default": null,
       "source": "pyeye/metrics_hook.py",
@@ -680,6 +686,7 @@
     ],
     "security.path_checks.targets": [
       "^/etc/",
+      "^/private/etc/",
       "^/root/",
       "^/proc/",
       "^/sys/",

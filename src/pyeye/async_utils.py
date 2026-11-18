@@ -4,11 +4,13 @@ import asyncio
 import logging
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 
 import aiofiles
 
-from .path_utils import path_to_key, relative_within
+from .path_utils import normalize_path, path_to_key, relative_within
+from .validation import restricted_dir
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +131,56 @@ def _is_linked_worktree(directory: Path) -> bool:
     return target.parent.name == "worktrees"
 
 
+def pruned_walk(path: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
+    """``os.walk(path)`` that never enters a restricted directory (#856 ruling).
+
+    The ONE directory walk: every recursive scan goes through it, so a route
+    the input checks miss (a symlinked parent, a new scope form) still can't
+    descend into ``/etc`` and the like. Each directory is judged by its
+    RESOLVED form: *path* is resolved once, and a directory below it resolves
+    to that plus its relative path, since ``os.walk`` never follows a symlinked
+    subdirectory. A restricted *path* yields nothing.
+
+    Yields ``(dir, dirnames, filenames)`` as ``os.walk`` does; a caller may
+    prune ``dirnames`` in place, and the walk honours it.
+    """
+    try:
+        real_root = normalize_path(path)
+    except (OSError, RuntimeError):
+        return
+    if restricted_dir(real_root):
+        logger.warning(f"Not walking {path.as_posix()}: it resolves into a restricted location")
+        return
+    real_of: dict[str, Path] = {}
+    for dirpath, dirnames, filenames in os.walk(path):
+        real_here = real_of.pop(dirpath, real_root)
+        dirnames[:] = [d for d in dirnames if not restricted_dir(real_here / d)]
+        for d in dirnames:
+            real_of[os.path.join(dirpath, d)] = real_here / d
+        yield Path(dirpath), dirnames, filenames
+
+
+def pruned_rglob(pattern: str, path: Path) -> list[Path]:
+    """``rglob``-style matching over :func:`pruned_walk`: no restricted directory is entered.
+
+    For the walks that must NOT apply the project-scan exclusions (a venv's
+    ``site-packages``, a framework's ``templates`` tree); a project scan uses
+    :func:`filtered_rglob`.
+    """
+    return [
+        here / name
+        for here, dirnames, filenames in pruned_walk(path)
+        for name in (*dirnames, *filenames)
+        if _tail_matches(here / name, path, pattern)
+    ]
+
+
+def _tail_matches(candidate: Path, path: Path, pattern: str) -> bool:
+    """``rglob(pattern)`` semantics: *pattern* matches *candidate*'s tail below *path*."""
+    below = relative_within(candidate, path)
+    return below is not None and PurePosixPath(below.as_posix()).match(pattern)
+
+
 def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     """Recursively glob under *path*, excluding non-project directories (#507, #517).
 
@@ -185,8 +237,7 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     declared: set[str] = set()
     for ancestor in (path, *path.parents):
         declared |= _declared_submodules(ancestor)
-    for dirpath, dirnames, filenames in os.walk(path):
-        here = Path(dirpath)
+    for here, dirnames, filenames in pruned_walk(path):
         if here != path and ".gitmodules" in filenames:
             declared |= _declared_submodules(here)  # a nested superproject's own
         dirnames[:] = [
@@ -197,13 +248,8 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
             and not _is_nested_repo(here / d, declared)
         ]
         for name in (*dirnames, *filenames):
-            if _excluded(name):
-                continue
-            candidate = here / name
-            # ``rglob(pattern)`` semantics: *pattern* matches the path's tail at any depth.
-            below = relative_within(candidate, path)
-            if below is not None and PurePosixPath(below.as_posix()).match(pattern):
-                results.append(candidate)
+            if not _excluded(name) and _tail_matches(here / name, path, pattern):
+                results.append(here / name)
     return results
 
 

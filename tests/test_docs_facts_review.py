@@ -1292,15 +1292,22 @@ class TestFeedback829_3:
         unhashed = _without(finding, "page_hash")
         assert "changed since scope" in review.finding_problems(unhashed, _FACTS, tmp_path)[0]
 
-    def test_packets_carry_the_page_hash_and_its_claim_seeds(self, repo_facts: Any) -> None:
-        from pyeye.docs_facts.claim_seeds import SEEDS
+    def test_packets_carry_the_page_hash_and_its_claim_seeds(
+        self, repo_facts: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye.docs_facts import claim_seeds
 
-        seeded = next(iter(sorted(SEEDS)))
+        seeded = "docs/architecture/resolution.md"
+        seeds = ("unbacked percentage '7%': an example seed.",)
+        monkeypatch.setattr(claim_seeds, "SEEDS", {seeded: seeds})
         out = review.scope(_ROOT, repo_facts, pages=[seeded])
         (page,) = out["pages"]
         text = (_ROOT / seeded).read_text(encoding="utf-8")
         assert page["page_hash"] == review.page_hash(text)
-        assert page["claim_seeds"] == list(SEEDS[seeded])
+        assert page["claim_seeds"] == list(seeds)
+        monkeypatch.setattr(claim_seeds, "SEEDS", {})
+        (page,) = review.scope(_ROOT, repo_facts, pages=[seeded])["pages"]
+        assert page["claim_seeds"] == []
 
     def test_d12_measurement_is_a_claims_rule(self) -> None:
         finding = _clear(
