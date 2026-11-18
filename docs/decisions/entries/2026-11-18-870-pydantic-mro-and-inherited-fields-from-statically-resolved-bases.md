@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Pydantic mro and fields_inherited come from statically resolved bases, project or installed, and are omitted when not computable (#870)"
 issues: [870, 749, 568, 921, 922]
 anchors: ["pyeye.plugins.pydantic.PydanticPlugin._mro", "pyeye.plugins.pydantic.PydanticPlugin._inherited_fields", "pyeye.plugins.pydantic.PydanticPlugin._is_model_field", "pyeye.plugins.pydantic.PydanticPlugin._has_unannotated_public_assignment", "pyeye.plugins.pydantic._compiled_bases", "pyeye.plugins.pydantic._c3", "pyeye.plugins.pydantic.PydanticPlugin.inheritance_for"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-18-913-pydantic-field-rules-follow-the-models-own-api.md"]
 superseded_by: []
 ---
 

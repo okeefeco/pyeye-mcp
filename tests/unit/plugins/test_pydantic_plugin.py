@@ -1101,8 +1101,8 @@ class R(RootModel[int]):
         assert "mro" not in result and "fields_inherited" not in result, result
 
     @pytest.mark.asyncio
-    async def test_an_unannotated_public_assignment_omits_fields_inherited(self, temp_project):
-        """Pydantic v1 makes ``a = 1`` a field; v2 doesn't. We can't tell, so omit."""
+    async def test_under_v2_an_unannotated_assignment_is_not_inherited(self, temp_project):
+        """The model's lineage decides the rules (#913): v2 doesn't make ``a = 1`` a field."""
         (temp_project / "models.py").write_text(
             "from pydantic import BaseModel\n"
             "class Base(BaseModel):\n    a = 1\n    b: int\n"
@@ -1112,7 +1112,9 @@ class R(RootModel[int]):
         result = await self._trace(temp_project, "Child")
 
         assert result["mro"][:2] == ["models.Child", "models.Base"]
-        assert "fields_inherited" not in result, result
+        assert [(f["name"], f["defined_in"]) for f in result["fields_inherited"]] == [
+            ("b", "models.Base")
+        ]
 
 
 class TestInheritanceV1Shape:
@@ -1239,3 +1241,144 @@ class TestCompiledBases:
         found = resolver.resolve_handle("m.A", plugin._analyzer())
         assert isinstance(found, resolver.Resolved)
         assert _compiled_bases(found.anchor) is None
+
+
+_V1_MODELS = """
+from pydantic.v1 import BaseModel, BaseSettings, Field
+
+def helper():
+    return 1
+
+class Kind:
+    pass
+
+class Old(BaseModel):
+    count = 1
+    label: str
+    tags = Field(default_factory=list)
+    kind = Kind
+    fn = helper
+    double = lambda self: 2
+    cached = property(lambda self: 3)
+    _private = 4
+
+class OldChild(Old):
+    extra = 2.5
+
+class OldSettings(BaseSettings):
+    debug = False
+"""
+
+
+class TestPydanticV1Roots:
+    """pydantic.v1 models are found, under a v2 install (#935)."""
+
+    @pytest.mark.asyncio
+    async def test_v1_models_are_found(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        assert sorted(m["name"] for m in models) == ["Old", "OldChild", "OldSettings"]
+
+    @pytest.mark.asyncio
+    async def test_a_mixed_project_finds_both_apis(self, temp_project):
+        (temp_project / "old.py").write_text(
+            "from pydantic.v1 import BaseModel\nclass A(BaseModel):\n    x = 1\n"
+        )
+        (temp_project / "new.py").write_text(
+            "from pydantic import BaseModel\nclass B(BaseModel):\n    y: int\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        assert sorted(m["name"] for m in models) == ["A", "B"]
+
+
+class TestV1FieldRules:
+    """fields_own follows the model's own API (#913)."""
+
+    @staticmethod
+    async def _fields(temp_project, name):
+        models = await PydanticPlugin(temp_project).find_models()
+        return next(m for m in models if m["name"] == name)
+
+    @pytest.mark.asyncio
+    async def test_a_v1_model_counts_unannotated_fields_without_a_type(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+
+        record = await self._fields(temp_project, "Old")
+
+        by_name = {f["name"]: f for f in record["fields"]}
+        # kind (a class), fn (a function), the lambda, the property and _private aren't fields.
+        assert sorted(by_name) == ["count", "label", "tags"]
+        # No annotation: type is absent, never a guess (#870's Q1 ruling).
+        assert "type" not in by_name["count"]
+        assert by_name["count"]["default"] == "1" and by_name["count"]["required"] is False
+        assert by_name["label"]["type"] == "str"
+        assert by_name["tags"].get("has_field_config") is True
+
+    @pytest.mark.asyncio
+    async def test_a_v1_child_inherits_unannotated_fields(self, temp_project):
+        (temp_project / "models.py").write_text(_V1_MODELS)
+        plugin = PydanticPlugin(temp_project)
+        models = await plugin.find_models()
+        target = next(m for m in models if m["name"] == "OldChild")
+
+        result = await plugin.inheritance_for("OldChild", target, models)
+
+        assert [f["name"] for f in result["fields_own"]] == ["extra"]
+        assert [(f["name"], f["defined_in"]) for f in result["fields_inherited"]] == [
+            ("count", "models.Old"),
+            ("label", "models.Old"),
+            ("tags", "models.Old"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_an_unclassifiable_v1_value_omits_the_fields(self, temp_project):
+        """A value whose target can't be resolved might be a type (ignored) or not."""
+        (temp_project / "models.py").write_text(
+            "from pydantic.v1 import BaseModel\n"
+            "from not_installed_pkg import SOMETHING\n"
+            "class M(BaseModel):\n    x = SOMETHING\n    y: int\n"
+        )
+        plugin = PydanticPlugin(temp_project)
+
+        record = await self._fields(temp_project, "M")
+        schema = await plugin.get_model_schema("M")
+
+        assert "fields" not in record, record
+        assert schema is not None
+        assert not {"fields", "required", "optional"} & set(schema), schema
+
+    @pytest.mark.asyncio
+    async def test_a_v2_model_ignores_unannotated_assignments(self, temp_project):
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    a = 1\n    b: int\n"
+        )
+
+        record = await self._fields(temp_project, "M")
+
+        assert [f["name"] for f in record["fields"]] == ["b"]
+
+
+class TestPydanticV1Installed:
+    """pydantic 1.x installed on its own: its version.py says so (#913, #935)."""
+
+    @pytest.mark.asyncio
+    async def test_v1_rules_follow_the_installed_version(self, temp_project):
+        pkg = temp_project / "pydantic"
+        pkg.mkdir()
+        (pkg / "version.py").write_text("VERSION = '1.10.2'\n")
+        (pkg / "main.py").write_text("class BaseModel:\n    pass\n")
+        (pkg / "__init__.py").write_text(
+            "from .main import BaseModel\nfrom .version import VERSION\n"
+        )
+        (temp_project / "models.py").write_text(
+            "from pydantic import BaseModel\nclass M(BaseModel):\n    a = 1\n    b: int\n"
+        )
+
+        models = await PydanticPlugin(temp_project).find_models()
+
+        record = next(m for m in models if m["name"] == "M")
+        assert sorted(f["name"] for f in record["fields"]) == ["a", "b"]
