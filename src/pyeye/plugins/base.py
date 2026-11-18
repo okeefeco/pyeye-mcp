@@ -299,7 +299,11 @@ class AnalyzerPlugin(ABC):
         unsearched: list[str] = []
         for name, paths in self.configured_scopes().items():
             # A path is searched when it is, or lies under, a searched root.
-            whole = all(any(p == c or c in p.parents for c in covered) for p in paths)
+            # A scope with no directories (a namespace glob that matched nothing,
+            # #872) searched nothing: unsearched, not vacuously "all searched".
+            whole = bool(paths) and all(
+                any(p == c or c in p.parents for c in covered) for p in paths
+            )
             (searched if whole else unsearched).append(name)
         for s in [scope] if isinstance(scope, str) else scope:
             exists = (

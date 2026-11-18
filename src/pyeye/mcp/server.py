@@ -708,6 +708,11 @@ def _config_entry_targets(entry: str, final: str) -> list[str]:
     outright: whether it escapes depends on matches that exist only later, and on
     lexical collapsing the config does by accident (#856 review).
 
+    Deliberately wider than the config's expansion: ``*?[`` count as glob here,
+    while ``ProjectConfig._expand_glob`` expands ``*`` only (#872), so a literal
+    ``?`` or ``[`` in a path keeps its meaning. Checking an entry by its matches
+    as well as itself is only ever stricter.
+
     Raises:
         ValidationError: For a glob entry containing ``..``.
     """
