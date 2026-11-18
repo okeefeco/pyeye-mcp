@@ -363,7 +363,7 @@ class TestValidatorKeepsRelativePaths:
 
 
 #: Either of the validator's two refusals: the given string, or its resolved target.
-REFUSED = "suspicious component|restricted location"
+REFUSED = "restricted location"
 
 
 def _assert_refused(tool: str, args: dict[str, Any]) -> None:
@@ -507,10 +507,15 @@ class TestDenyListChecksLexicalAndResolvedForms:
         assert forms[0] == (tmp_path / "x").as_posix()  # lexical, anchored on root
         assert resolved == (tmp_path / "x").resolve()
 
-    def test_check_forms_plain_relative_is_checked_as_given(self) -> None:
+    def test_check_forms_plain_relative_is_anchored_on_the_cwd(self) -> None:
+        """Every pattern is anchored (#939), so a relative path is checked where the OS puts it."""
+        from pyeye.path_utils import absolute_path, normalize_path
         from pyeye.validation import PathValidator
 
-        assert PathValidator.check_forms(Path("pkg/m.py")) == (Path("pkg/m.py"), ["pkg/m.py"])
+        resolved, forms = PathValidator.check_forms(Path("pkg/m.py"))
+
+        assert resolved == normalize_path(absolute_path("pkg/m.py"))
+        assert absolute_path("pkg/m.py").as_posix() in forms
 
     @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
     def test_a_symlinked_system_dir_is_caught_by_the_lexical_form(

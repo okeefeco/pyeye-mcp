@@ -1,5 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
+import contextlib
+import functools
 import re
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
@@ -18,9 +20,6 @@ class PathValidator:
         ("...", "suspicious triple dots"),
     )
 
-    #: System directories a given path may not name (docs fact ``security.path_checks``).
-    RESTRICTED_COMPONENTS: tuple[str, ...] = ("/etc/", "/root/", "/proc/", "/sys/", "/dev/")
-
     # Patterns for potentially dangerous file names
     DANGEROUS_NAMES = [
         r"\.git/",  # Git directory
@@ -34,7 +33,12 @@ class PathValidator:
         r"^/sys/",  # System info (Unix)
     ]
 
-    #: Checked against every form of the target (:meth:`check_forms`).
+    #: Checked against every form of the target (:meth:`check_forms`), ignoring
+    #: case (a case-insensitive macOS volume reads "/ETC/passwd" as /etc). Every
+    #: pattern is ANCHORED (#939): a check that matched a component anywhere
+    #: refused ~/dev/proj, /srv/etc/lib and a project's own etc/ package. The
+    #: anchored forms still catch every route to these directories, because
+    #: since #856 each caller path is checked anchored and resolved.
     RESTRICTED_TARGETS: tuple[str, ...] = (
         r"^/etc/",
         r"^/private/etc/",  # macOS: /etc resolves here (#856 review)
@@ -42,40 +46,72 @@ class PathValidator:
         r"^/proc/",
         r"^/sys/",
         r"^/dev/",
-        r"/etc/",  # Also check if /etc/ appears anywhere in path
-        r"/root/",  # Also check if /root/ appears anywhere
+        r"^/boot/",  # #909
+        r"^/run/secrets/",  # container secrets (#909)
+        r"^/var/run/secrets/",  # Kubernetes service-account tokens (#909)
+        r"^/private/var/run/secrets/",  # ...as /var/run resolves on macOS (#909 review)
+        r"^/var/root/",  # macOS root's home (#909)
+        r"^/private/var/root/",  # ...as it resolves on macOS (#909)
     )
+
+    #: Credential stores, refused (and pruned in walks) directly below any user
+    #: home (:data:`USER_HOMES`), the entry itself or anything inside it (#909).
+    #: Unlike :data:`RESTRICTED_TARGETS` they define no ancestors: a scan of
+    #: ``~``, ``/home`` or ``/Users`` works and skips them. A project placed
+    #: INSIDE one (``~/.config/gh/x``) is refused, as intended.
+    CREDENTIAL_PATHS: tuple[str, ...] = (
+        ".ssh",
+        ".aws",
+        ".gnupg",
+        ".config/gcloud",
+        ".azure",
+        ".kube",
+        ".docker",
+        ".config/gh",
+        ".netrc",
+        ".pypirc",
+        ".pgpass",
+        ".git-credentials",
+        ".npmrc",
+    )
+
+    #: Where a user home is, as anchored patterns: every one, including a home
+    #: created after the server started, since nothing is enumerated. The
+    #: server's own home (``Path.home()``, read once per process) is added at
+    #: use, for a ``$HOME`` outside these roots (#909).
+    USER_HOMES: tuple[str, ...] = (r"^/home/[^/]+/", r"^/Users/[^/]+/", r"^/root/")
 
     @classmethod
     def _check_spelling(cls, path_str: str) -> None:
         """Reject a path by how it's spelled, before anything resolves it.
 
         Null bytes and patterns that might be attacks are rejected even if the
-        path doesn't exist, and so is a system directory named in any spelling.
+        path doesn't exist. Where a path LEADS is :meth:`_check_targets`' job,
+        on its anchored forms: a directory name inside the path proves nothing
+        (#939).
         """
         for sequence, described in cls.REJECTED_SEQUENCES:
             if sequence in path_str:
                 raise ValidationError(f"Path contains {described}")
-        path_lower = path_str.lower()
-        for comp in cls.RESTRICTED_COMPONENTS:
-            if comp in path_lower:
-                raise ValidationError(f"Path contains suspicious component: {comp}")
 
     @classmethod
     def _check_targets(cls, forms: list[str]) -> None:
         """Reject a target any of whose *forms* matches :data:`RESTRICTED_TARGETS`.
 
         The system directory itself counts too: "/etc" (from "../../etc") must
-        not slip past "^/etc/" for lack of a trailing slash. Only for the
-        anchored patterns: a project dir that merely ENDS in "root" or "etc"
-        (/home/u/repos/root) is not a system directory.
+        not slip past "^/etc/" for lack of a trailing slash. Case is ignored
+        (#939).
         """
         for form in forms:
             as_dir = form.rstrip("/") + "/"
             for pattern in cls.RESTRICTED_TARGETS:
-                anchored = pattern.startswith("^")
-                if re.search(pattern, form) or (anchored and re.search(pattern, as_dir)):
+                if re.search(pattern, as_dir, re.IGNORECASE):
                     raise ValidationError(f"Path resolves to restricted location: {pattern}")
+            if (name := credential_path(form)) is not None:
+                raise ValidationError(
+                    f"Path resolves to restricted location: the credential store {name} "
+                    "in a user home"
+                )
 
     @classmethod
     def validate_final(cls, path: str | Path, root: str | Path) -> Path:
@@ -151,18 +187,22 @@ class PathValidator:
         - An absolute path: as given.
         - A relative path with *anchor_root* (where the tool will anchor it):
           ALWAYS anchored there, ``..`` or not (#856).
-        - A relative path without one: anchored on the cwd if it contains
-          ``..``; otherwise checked as written only.
+        - A relative path without one: anchored on the cwd, where the OS would
+          resolve it (#939). The deny-list is all anchored patterns, so a path
+          checked only as written ("etc/passwd") would never match.
+
+        The resolved form resolves the RAW join, never the lexical form: the OS
+        follows a symlink before ``..``, so ``l_tmp/../etc`` with ``l_tmp`` ->
+        ``/tmp`` is ``/etc`` on disk, though it collapses lexically to
+        ``<root>/etc`` (as :meth:`_final_forms` does, #856 review; #939 review).
         """
         if path.is_absolute():
-            lexical = absolute_path(path)
+            lexical, raw = absolute_path(path), path
         elif anchor_root is not None:
-            lexical = absolute_path(anchor(path, anchor_root))
-        elif ".." in path.as_posix():
-            lexical = absolute_path(path)
+            lexical, raw = absolute_path(anchor(path, anchor_root)), Path(anchor_root) / path
         else:
-            return path, [path.as_posix()]
-        resolved = normalize_path(lexical)
+            lexical, raw = absolute_path(path), path
+        resolved = normalize_path(raw)
         return resolved, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
 
     @classmethod
@@ -245,10 +285,10 @@ class PathValidator:
         return path_obj
 
 
-#: The restricted DIRECTORIES: the literal of each ANCHORED deny-list pattern
-#: ("^/private/etc/" -> "/private/etc"). Only anchored patterns name a
-#: directory: the unanchored "/etc/" and "/root/" match that component at any
-#: depth (/home/u/x/etc/...), so they have no fixed location, and no ancestors.
+#: The restricted DIRECTORIES: the literal of each anchored deny-list pattern
+#: ("^/private/etc/" -> "/private/etc"). Every pattern is anchored since #939;
+#: the filter keeps an unanchored one, if ever added, from defining ancestors:
+#: it would name no fixed directory.
 _RESTRICTED_DIRS: tuple[str, ...] = tuple(
     pattern[1:].rstrip("/")
     for pattern in PathValidator.RESTRICTED_TARGETS
@@ -263,15 +303,46 @@ _RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
 )
 
 
+@functools.cache
+def _credential_pattern() -> re.Pattern[str]:
+    """Every user home followed by a credential store, as one pattern (#909).
+
+    Built once per process: :data:`PathValidator.USER_HOMES` plus the server's
+    own home, as spelled and resolved, whose ``$HOME`` can't move for a running
+    process.
+    """
+    homes = list(PathValidator.USER_HOMES)
+    # The home both as spelled ($HOME) and resolved: with a symlinked home
+    # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
+    # the resolved check see, names neither the spelling nor a fixed root
+    # (#909 review). No resolvable home: the fixed roots still apply.
+    with contextlib.suppress(RuntimeError, KeyError, OSError):
+        home = Path.home()
+        for spelling in dict.fromkeys([home.as_posix(), normalize_path(home).as_posix()]):
+            homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
+    stores = "|".join(re.escape(name) for name in PathValidator.CREDENTIAL_PATHS)
+    return re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
+
+
+def credential_path(form: str | Path) -> str | None:
+    """The credential store *form* is, or is inside, below a user home; else ``None`` (#909)."""
+    match = _credential_pattern().match(Path(form).as_posix().rstrip("/") + "/")
+    return match.group(1) if match else None
+
+
 def restricted_dir(resolved: str | Path) -> bool:
     """Whether the RESOLVED directory *resolved* is, or is inside, a restricted directory.
 
     The prune test every directory walk applies (#856 ruling): a route the
     input checks miss (a symlinked parent, a new scope form) still can't
-    descend into a system directory. POSIX forms only, as the deny-list is.
+    descend into a system directory or a credential store (#909). Case is
+    ignored, as in :meth:`PathValidator._check_targets` (#939). POSIX forms
+    only, as the deny-list is.
     """
-    form = Path(resolved).as_posix().rstrip("/") + "/"
-    return any(form.startswith(d + "/") for d in _RESTRICTED_DIRS)
+    form = Path(resolved).as_posix().rstrip("/").lower() + "/"
+    if any(form.startswith(d.lower() + "/") for d in _RESTRICTED_DIRS):
+        return True
+    return credential_path(form) is not None
 
 
 def unwalkable_root(resolved: str | Path) -> bool:
@@ -402,8 +473,10 @@ def validate_mcp_inputs(func: Any) -> Any:
         raw_project = bound.arguments.get("project_path")
         project_root = raw_project if isinstance(raw_project, str | Path) else "."
 
-        # Validate based on parameter names
-        for param_name, value in bound.arguments.items():
+        # Validate based on parameter names. project_path first: the others are
+        # anchored on it, so a refusal it causes must name it, not them (#949 review).
+        arguments = sorted(bound.arguments.items(), key=lambda item: item[0] != "project_path")
+        for param_name, value in arguments:
             if value is None:
                 continue
 
