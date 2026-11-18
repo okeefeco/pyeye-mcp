@@ -39,7 +39,8 @@ The auditor sweeps (at minimum) these seven convention axes. The keys are the
 single source of truth in `pyeye.architecture_review.taxonomy.SEED_AXES`; the
 auditor may also surface other axes it finds.
 
-| Axis key | What it covers |
+<!-- fact:begin review.axes.table -->
+| `axis` key | What it covers |
 |---|---|
 | `layering` | Layering / dependency direction: which layers/packages may import which. |
 | `module_boundaries` | Module & placement boundaries: where a *kind* of thing lives. |
@@ -48,6 +49,7 @@ auditor may also surface other axes it finds.
 | `validation_placement` | Validation placement: at the boundary vs in core vs scattered. |
 | `naming_api_shape` | Naming & API shape: naming patterns, return-type conventions, sync/async split. |
 | `cross_cutting` | Cross-cutting access: logging, config, path handling. |
+<!-- fact:end -->
 
 > **Not an axis: code duplication.** That is the `duplication-review` skill
 > (#495; see the scope caveat above). It never appears as an axis here.
@@ -230,15 +232,10 @@ findings whose `non_issue_key` matches an entry in this list.
 #### Positive-norm path (confirmed `deterministic_single`)
 
 Invoke the [`decision-log`](../decision-log/SKILL.md) skill's
-**human-gated propose → draft → confirm → append** flow. That skill's rigid gate
-applies in full — propose in ONE line; never draft before the user confirms; never
-fabricate the date. The entry's `Anchor` must use stable refs (canonical symbol
-handles / #issue) — never bare `file:line`; `Verify` must be honestly tiered
-(gold / partial / unverifiable).
-
-When drafting the entry, pull evidence and handles from the finding verbatim.
-The entry is a new file in `docs/decisions/entries/`, in the format the
-`decision-log` skill's File Convention defines (one file per decision; #679).
+**human-gated propose → draft → confirm → write** flow. Its rules (the gate, the
+entry's fields and its File Convention) apply in full; follow that skill, not a
+copy here. When drafting the entry, pull evidence and handles from the finding
+verbatim.
 
 **Prefer an executable fitness-function or conformance-test stub** so the norm
 becomes a running check (anti-drift, spec §14): the stub lives in `tests/` and

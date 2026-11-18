@@ -219,7 +219,11 @@ class PydanticPlugin(AnalyzerPlugin):
         """Get the schema for a specific Pydantic model.
 
         Args:
-            model_name: Name of the model to get schema for
+            model_name: The model to get the schema for: the model's class name, or its canonical handle (a dotted name,
+                as ``find_pydantic_models`` returns it) to pick one when several
+                models share the name. No match gives the shared not-found shape
+                (``found: false``); several give resolve's ambiguous shape
+                (``ambiguous: true`` with ``candidates``).
             scope: One scope or a list of scopes (default: this tool's
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):
@@ -380,7 +384,11 @@ class PydanticPlugin(AnalyzerPlugin):
         so two models with the same name each list only their own children.
 
         Args:
-            model_name: Name of the model to trace
+            model_name: The model to trace: the model's class name, or its canonical handle (a dotted name,
+                as ``find_pydantic_models`` returns it) to pick one when several
+                models share the name. No match gives the shared not-found shape
+                (``found: false``); several give resolve's ambiguous shape
+                (``ambiguous: true`` with ``candidates``).
             scope: One scope or a list of scopes (default: this tool's
                 ``scope_defaults.methods`` entry in the project config, else
                 ``scope_defaults.global``, else <<fact:scope.default.plugin>>):

@@ -10,8 +10,9 @@ Spec §4.1 Stub shape
 
     {
       "handle":     str,               # canonical definition-site handle
-      "kind":       str,               # class|function|method|module|attribute|
-                                       # property|variable
+      "kind":       str,               # one of pyeye.kinds.KINDS: class|function|
+                                       # method|module|attribute|property|
+                                       # variable|enum_member
       "scope":      "project"|"external",
       "signature":  str,               # PRESENT whenever Jedi yields a real
                                        # signature (always for class/function/
@@ -42,10 +43,9 @@ Design notes
   kind.
 - ``line_start`` / ``line_end`` are the flattened span: ``line_start`` is the
   symbol's own line; ``line_end`` is ``get_end_line(jedi_name)``.  For a
-  class/function this is the end of the definition block.  It is NOT guaranteed
-  to equal ``line_start`` for other kinds — a class-body attribute, for
-  instance, can report the enclosing class's end line.  The only invariant the
-  linter enforces is ``line_end >= line_start``.
+  class/function this is the end of the definition block; any other name
+  (a variable, or a class-body attribute) ends on its own line (#693).  The only
+  invariant the linter enforces is ``line_end >= line_start``.
 - No source content anywhere — no ``body``, ``source``, ``code``, ``snippet``,
   or ``text`` fields.
 - ``build_stub`` is a **pure synchronous** function.  It does not call
