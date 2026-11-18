@@ -235,32 +235,3 @@ async def _warm_median_ms(call, calls: int = 40, repeats: int = 5) -> float:
             samples.append((time.perf_counter() - start) * 1000)
         medians.append(statistics.median(samples))
     return min(medians)
-
-
-# Performance baseline configuration for CI
-PERFORMANCE_BASELINES = {
-    "symbol_search": {"p50_ms": 50, "p95_ms": 100, "p99_ms": 200},
-    "cache_lookup": {"p50_ms": 0.1, "p95_ms": 0.5, "p99_ms": 1.0},
-    "cache_invalidation": {"p50_ms": 2, "p95_ms": 5, "p99_ms": 10},
-}
-
-
-def check_performance_against_baselines(metrics: dict, operation: str) -> list[str]:
-    """Check if metrics meet baseline requirements.
-
-    Returns:
-        List of failure messages, empty if all pass
-    """
-    failures = []
-    if operation not in PERFORMANCE_BASELINES:
-        return failures
-
-    baseline = PERFORMANCE_BASELINES[operation]
-
-    for metric, threshold in baseline.items():
-        if metric in metrics and metrics[metric] > threshold:
-            failures.append(
-                f"{operation} {metric}: {metrics[metric]}ms exceeds baseline {threshold}ms"
-            )
-
-    return failures
