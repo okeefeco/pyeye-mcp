@@ -1201,25 +1201,32 @@ class TestCompiledBases:
             assert hasattr(CompiledValue, attr), attr
 
     @pytest.mark.asyncio
-    async def test_generic_is_read_as_a_compiled_class_ending_in_object(self, temp_project):
+    async def test_generic_ends_in_object_on_this_pythons_path(self, temp_project):
+        """``Generic`` is compiled (``_typing``) on 3.12+ and Python source on 3.11.
+
+        Either way the walk must end in ``builtins.object``: through Jedi's
+        compiled introspection when ``_typing`` defines it, else through
+        ``typing.py``'s own class statement. Which path runs is read from the
+        interpreter, not from the version number.
+        """
+        import importlib
+
         from pyeye.plugins.pydantic import _compiled_bases
 
+        compiled = hasattr(importlib.import_module("_typing"), "Generic")
         (temp_project / "m.py").write_text("from typing import Generic\nclass C(Generic): ...\n")
         plugin = PydanticPlugin(temp_project)
-        analyzer = plugin._analyzer()
-        from pyeye import resolver
-        from pyeye.mcp.operations.edges import superclass_bases
 
-        found = resolver.resolve_handle("m.C", analyzer)
-        assert isinstance(found, resolver.Resolved)
-        declared = superclass_bases(found.anchor, analyzer)
-        assert declared and declared[0][1] is not None
-        generic = declared[0][1][1]
+        mro = plugin._mro(plugin._analyzer(), "m.C")
 
-        bases = _compiled_bases(generic)
-
-        assert bases is not None
-        assert [handle for handle, _ in bases] == ["builtins.object"]
+        assert mro is not None
+        generic = "_typing.Generic" if compiled else "typing.Generic"
+        assert [handle for handle, _ in mro] == ["m.C", generic, "builtins.object"]
+        bases = _compiled_bases(mro[1][1])
+        if compiled:
+            assert bases is not None and [h for h, _ in bases] == ["builtins.object"]
+        else:
+            assert bases is None  # a source class: its class statement gave the bases
 
     @pytest.mark.asyncio
     async def test_a_source_class_is_not_treated_as_compiled(self, temp_project):
