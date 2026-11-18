@@ -275,6 +275,11 @@ def all_plugin_tool_names(project_path: str) -> set[str]:
 #: Appended to every plugin tool's description (#665).
 PLUGIN_PROJECT_PATH_NOTE = """
 
+Each record also carries ``scope`` (project or external) and an absolute
+``location`` (#627).  A record that names a symbol carries its canonical
+``handle``, ready for ``inspect`` or ``expand``, or ``unresolved``
+(``{reason, detail}``) when it can't be placed.
+
 ``project_path`` selects the project to analyse; omitted, it is the project
 the server started in, exactly as before.  Plugin tools run against the given project even if its
 framework wasn't auto-detected there; an empty result means the scan found
@@ -817,7 +822,8 @@ async def resolve(
 
     Returns:
         ResolveResult dict — one of:
-        - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external"}
+        - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external",
+          "location": {...}} (the definition site, a pointer: no source content)
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
           At most ``max_candidates`` (default 50; ``None`` for all) candidates
           come back, in sorted order (#435).  When more match, the result also
@@ -892,9 +898,8 @@ async def inspect(
     """Python: Inspect a canonical handle and return a structural Node.
 
     The "what is this?" operation. Returns the symbol's kind, location,
-    signature, docstring, and kind-dependent fields. Cheap by default —
-    no source content, no exhaustive enumerations. Edge counts and
-    highlights come in later phases.
+    signature, docstring, edge counts, and kind-dependent fields. Cheap by
+    default — no source content, no exhaustive enumerations.
 
     Args:
         handle: Canonical Python dotted-name string (from resolve/resolve_at).
@@ -902,13 +907,21 @@ async def inspect(
 
     Returns:
         Node dict with ``found: True``, universal fields (handle, kind, scope,
-        location, docstring, edge_counts={}) plus kind-dependent fields:
-        - class: signature (constructor), superclasses (list of Handle strings)
+        location, docstring, edge_counts) plus kind-dependent fields.
+        ``edge_counts`` counts only the edges cheap to measure from the
+        definition itself.  An edge it didn't measure, including one that ran
+        past its time budget, is ABSENT, never ``0``.  Follow an edge with
+        ``expand`` to measure it.
+        - class: signature (constructor), superclasses (list of Handle strings;
+          omitted when the class's file can't be parsed, never a measured ``[]``)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
         - module: is_package, package?
         - attribute/property/variable/enum_member: type?, default? (simple literals only).
           A class-body binding is ``attribute``; a member of an ``enum.Enum``
           subclass is ``enum_member`` (its ``default`` is the member's value).
+        - non-module kinds: a re-export list, **deprecated** (removed in v3.0);
+          follow the re-export edge with ``expand`` instead.  It is absent when
+          it couldn't be measured, never an empty list standing in for "unknown".
 
         If the handle does not resolve:
         ``{"found": False, "handle": str, "reason": "unresolved", "detail": str}``
@@ -1055,6 +1068,10 @@ async def expand(
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
           "unparseable_files": [file, ...],  # subclasses / imported_by / re_exports ONLY (#729); [] when all parsed
+          "transitive_hint": str,        # subclasses ONLY: the trace call for the full tree
+          "truncated": True,             # these three only when max_stubs cut the list;
+          "truncation_reasons": ["max_stubs"],  # absent otherwise
+          "total": int,                  # the edge's full size
           "ceiling": str }               # #417 — the scope the list is complete over
 
     ``ceiling`` names the edge's static-surface ceiling (#417), as each edge's
@@ -1078,6 +1095,7 @@ async def expand(
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
     ``line_end``, and ``signature`` when Jedi yields one (always for
     class/function/method; also any name whose inferred type is callable).
+    A ``re_exports`` stub also carries ``bindings``, the public names it binds.
 
     A call, import or base whose definition Jedi can't pin to exactly one
     target is reported as unresolved (``unresolved_call_sites`` /
@@ -1314,7 +1332,7 @@ async def outline(
     otherwise hide among many ``survey_leaf`` nodes.  Budget reasons
     (``max_depth``, ``max_nodes``) mean "raise the limit" and always carry a
     count; boundary reasons (``external``, ``survey_leaf``) mean "outline that
-    node" and carry none.
+    node" and carry none; ``unparseable`` means "read that node's file".
 
     **Package survey mode.** When *handle* is a package that has submodules, the
     tree walks the ``submodules`` edge instead of ``members``: children are its
@@ -1389,11 +1407,9 @@ async def get_connection_diagnostics() -> dict[str, Any]:
     """Get connection lifecycle diagnostics for debugging disconnects.
 
     Returns:
-        Dictionary with connection diagnostics including:
-        - Connection uptime and idle time
-        - Recent connection events
-        - Error summary and patterns
-        - Signal handler status
+        ``{connection, errors, pattern_warning, status}``: the connection
+        summary (uptime, idle time, recent events), the error summary, any
+        detected error pattern, and ``"healthy"`` or ``"warning"``.
     """
     from .connection_diagnostics import get_diagnostics
     from .error_tracker import get_error_tracker
