@@ -1,0 +1,94 @@
+name: Bug report
+description: A pyeye tool returned something wrong, or failed.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. The more exactly you show the call and its answer, the faster we can reproduce it.
+        A security vulnerability doesn't belong here: see [SECURITY.md](https://github.com/okeefeco/pyeye-mcp/blob/main/SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: pyeye version
+      description: The `version` from the `pyeye://about` resource, or the output of `pip show pyeye-mcp`.
+    validations:
+      required: true
+  - type: dropdown
+    id: runner
+    attributes:
+      label: How you run pyeye
+      options:
+        - Claude Code plugin
+        - "`claude mcp add`"
+        - Another MCP client
+        - As a Python library
+    validations:
+      required: true
+  - type: textarea
+    id: tool-call
+    attributes:
+      label: Tool call
+      description: The tool's name and its exact arguments. You may redact paths.
+      render: json
+      placeholder: '{"tool": "resolve", "arguments": {"identifier": "pkg.mod.Thing"}}'
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual response
+      description: What the tool returned, or the error it raised.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected response
+      description: What you expected instead, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: The smallest code or project layout that shows the problem.
+  - type: textarea
+    id: config
+    attributes:
+      label: pyeye config
+      description: Your `.pyeye.json`, or the `[tool.pyeye]` section of `pyproject.toml`, if you have one.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Any server log or stderr output around the failure.
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched the existing issues.
+          required: true
+        - label: This isn't a security vulnerability.
+          required: true
