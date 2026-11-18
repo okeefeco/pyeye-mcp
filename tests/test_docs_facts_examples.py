@@ -11,7 +11,12 @@ import pytest
 
 from pyeye.docs_facts import cli, docs
 from pyeye.docs_facts.docs import DocEntry
-from pyeye.docs_facts.examples import allows_examples, match_shown, parse_examples
+from pyeye.docs_facts.examples import (
+    WHERE_EXAMPLES_LIVE,
+    allows_examples,
+    match_shown,
+    parse_examples,
+)
 
 F = "```"
 
@@ -120,7 +125,17 @@ class TestWhereExamplesLive:
             (DocEntry("docs/api/flask-tools.md", "human", "prose"), True),
             (DocEntry("docs/reference/tools.md", "both", "reference"), True),
             (DocEntry("skills/python-explore/SKILL.md", "claude", "skill"), True),
-            (DocEntry("README.md", "human", "prose"), False),
+            (DocEntry(".claude/skills/pyeye-verify/SKILL.md", "claude", "skill"), True),
+            # Widened by design C17: prose for humans.
+            (DocEntry("README.md", "human", "prose"), True),
+            (DocEntry("docs/architecture/resolution.md", "human", "prose"), True),
+            (DocEntry("docs/development/docs-facts.md", "both", "prose"), True),
+            # Still refused: history, Claude-only prose, and anything under .claude/.
+            (DocEntry("CHANGELOG.md", "human", "history"), False),
+            (DocEntry("docs/migration-guide.md", "human", "history"), False),
+            (DocEntry("CLAUDE.md", "claude", "prose"), False),
+            (DocEntry(".claude/instructions/07-validation.md", "claude", "prose"), False),
+            (DocEntry(".claude/README.md", "human", "prose"), False),
         ],
     )
     def test_allows_examples(self, entry: DocEntry, allowed: bool) -> None:
@@ -133,14 +148,18 @@ class TestWhereExamplesLive:
         (tmp_path / "docs" / "api" / "a.md").write_text(
             _example("json pyeye-example", "{}"), encoding="utf-8"
         )
-        (tmp_path / "README.md").write_text(
-            "x\n" + _example("json pyeye-example tool=inspect", "{}"), encoding="utf-8"
-        )
+        good = "x\n" + _example("json pyeye-example tool=inspect", "{}")
+        for name in ("README.md", "CHANGELOG.md"):
+            (tmp_path / name).write_text(good, encoding="utf-8")
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "README.md").write_text(good, encoding="utf-8")
         monkeypatch.setattr(
             docs,
             "DOCS",
             (
                 DocEntry("README.md", "human", "prose"),
+                DocEntry("CHANGELOG.md", "human", "history"),
+                DocEntry(".claude/README.md", "human", "prose"),
                 DocEntry("docs/api/a.md", "human", "prose"),
             ),
         )
@@ -151,8 +170,11 @@ class TestWhereExamplesLive:
 
         result = cli.plan(tmp_path, facts={})
 
+        misplaced = f"runnable examples belong in {WHERE_EXAMPLES_LIVE}"
+        # README.md (human prose) is allowed now; the history page and .claude/ aren't.
         assert result.problems == [
-            "README.md:2: runnable examples belong in docs/api/, docs/reference/ or a skill",
+            f".claude/README.md:2: {misplaced}",
+            f"CHANGELOG.md:2: {misplaced}",
             "docs/api/a.md:1: `pyeye-example` needs tool=<tool>: 'json pyeye-example'",
         ]
 

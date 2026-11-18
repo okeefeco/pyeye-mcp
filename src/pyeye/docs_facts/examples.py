@@ -72,9 +72,31 @@ class Example:
         return self.output is not None
 
 
+#: The one wording of the fence, used by ``check``'s message.
+WHERE_EXAMPLES_LIVE = (
+    "docs/api/, docs/reference/, a skill, or a prose page for humans "
+    "(audience human or both, outside .claude/); never a history page"
+)
+
+
 def allows_examples(entry: DocEntry) -> bool:
-    """Where runnable examples may live: ``docs/api/``, ``docs/reference/`` and skills."""
-    return entry.path.startswith(("docs/api/", "docs/reference/")) or entry.kind == "skill"
+    """Where runnable examples may live (#828; widened by design C17).
+
+    ``docs/api/``, ``docs/reference/`` and skills, as before, plus every prose
+    page whose audience is ``human`` or ``both`` (a guide or README can show a
+    real call). Never a ``history`` page (it records the past, which may no
+    longer run), and the widening stops at ``.claude/`` (Claude's own
+    instructions and agents; its skills stay allowed as skills).
+    """
+    if entry.kind == "history":
+        return False
+    if entry.path.startswith(("docs/api/", "docs/reference/")) or entry.kind == "skill":
+        return True
+    return (
+        entry.kind == "prose"
+        and entry.audience in ("human", "both")
+        and not entry.path.startswith(".claude/")
+    )
 
 
 def _parse_tag(info: str) -> tuple[str, dict[str, str]] | str | None:
