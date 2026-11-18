@@ -110,9 +110,7 @@ Create in your project root:
   ],
   "namespaces": {
     "mycompany": [
-      "~/repos/mycompany-auth",
-      "~/repos/mycompany-api",
-      "~/repos/mycompany-core"
+      "~/repos/mycompany-*"
     ],
     "plugins": [
       "./plugins/builtin",
@@ -124,9 +122,11 @@ Create in your project root:
 
 `packages` lists package directories: relative to the project, under your home
 directory (`~`), absolute, or a glob. Each `namespaces` entry names a namespace
-package and lists the repositories that each hold part of it. List those
-repositories one by one: a glob in a namespace entry isn't expanded yet
-([#872](https://github.com/okeefeco/pyeye-mcp/issues/872)).
+package and lists the repositories that each hold part of it, one by one or as a
+glob. A glob (`*` only) expands to its matching directories in sorted order, and
+that order is the namespace's precedence: the first repository to define a module
+wins. A glob that matches nothing leaves the namespace with no repositories, and
+its scope is then reported as unsearched (#872).
 
 Older docs also showed keys that are deprecated and have no effect: pyeye never
 read them, and it logs a warning when one is set (#581). They are

@@ -431,29 +431,50 @@ class ProjectConfig:
         Returns:
             List of validated paths
         """
-        paths = []
         try:
             # The one rule shared with namespaces (#668): ``~`` expanded,
             # relative to the project, ``..`` collapsed.
             package = self._normalise_config_path(package)
-            if "*" in package:
-                from glob import glob
-
-                expanded = glob(package)
-                for exp_path in expanded:
-                    validated = PathValidator.validate_path(exp_path)
-                    # A directory to scan: not "/" (or another ancestor of /etc) either.
-                    PathValidator.validate_scan_root(exp_path, self.project_path)
-                    paths.append(validated.as_posix())
-            else:
-                validated = PathValidator.validate_path(package)
-                # A directory to scan: not "/" (or another ancestor of /etc) either.
-                PathValidator.validate_scan_root(package, self.project_path)
-                if validated.exists():
-                    paths.append(validated.as_posix())
+            return self._checked_package_dirs(package)
         except ValidationError as e:
             logger.warning(f"Skipping invalid package path {package}: {e}")
+            return []
 
+    @staticmethod
+    def _expand_glob(normalised: str) -> list[str]:
+        """The directories a normalised config entry names: a glob's matches, or itself (#872).
+
+        The ONE expansion, for packages and namespaces alike, so the two can't
+        disagree again. Matches are sorted: a namespace's order is its
+        precedence (first portion wins, #419), and ``glob`` returns them in
+        filesystem order. Only ``*`` makes a glob, so a literal path containing
+        ``?`` or ``[`` keeps its meaning. ``configure_packages``' check treats
+        ``*?[`` as glob (``mcp.server._config_entry_targets``): checking more
+        entries by their matches than are expanded is only stricter.
+        """
+        if "*" not in normalised:
+            return [normalised]
+        from glob import glob
+
+        return sorted(Path(match).as_posix() for match in glob(normalised))
+
+    def _checked_package_dirs(self, normalised: str) -> list[str]:
+        """A normalised package entry's directories, each checked as a scan root.
+
+        A glob gives its matches; a plain entry, itself if it exists.
+
+        Raises:
+            ValidationError: For the first directory the path check refuses, so
+                a glob with a refused match is skipped whole, never in part.
+        """
+        is_glob = "*" in normalised
+        paths = []
+        for target in self._expand_glob(normalised):
+            validated = PathValidator.validate_path(target)
+            # A directory to scan: not "/" (or another ancestor of /etc) either.
+            PathValidator.validate_scan_root(target, self.project_path)
+            if is_glob or validated.exists():
+                paths.append(validated.as_posix())
         return paths
 
     def _process_namespace_paths(self, namespaces: dict[str, list[str]]) -> list[str]:
@@ -470,21 +491,7 @@ class ProjectConfig:
             for ns_path in ns_paths:
                 try:
                     ns_path = self._normalise_config_path(ns_path)
-                    if "*" in ns_path:
-                        from glob import glob
-
-                        expanded = glob(ns_path)
-                        for exp_path in expanded:
-                            validated = PathValidator.validate_path(exp_path)
-                            # A directory to scan: not "/" (or another ancestor of /etc) either.
-                            PathValidator.validate_scan_root(exp_path, self.project_path)
-                            paths.append(validated.as_posix())
-                    else:
-                        validated = PathValidator.validate_path(ns_path)
-                        # A directory to scan: not "/" (or another ancestor of /etc) either.
-                        PathValidator.validate_scan_root(ns_path, self.project_path)
-                        if validated.exists():
-                            paths.append(validated.as_posix())
+                    paths.extend(self._checked_package_dirs(ns_path))
                 except ValidationError as e:
                     logger.warning(
                         f"Skipping invalid namespace path {Path(ns_path).as_posix()}: {e}"
@@ -548,14 +555,21 @@ class ProjectConfig:
         # collapsed.  A raw "../repo" was resolved differently by each consumer
         # (or against the server's CWD), and "app/../repo" defeated the
         # file<->module mapper.
+        # A glob entry expands to its sorted matches, through the helper the
+        # package paths use (#872). A namespace whose entries match nothing keeps
+        # its key with no directories: still configured, so its scope is
+        # reported unsearched, never silently absent (#842).
         return {
-            ns: [
-                normalised
-                for p in paths
-                if self._passes_path_check(normalised := self._normalise_config_path(p), ns)
-            ]
+            ns: list(dict.fromkeys(d for p in paths for d in self._namespace_dirs(p, ns)))
             for ns, paths in namespaces.items()
         }
+
+    def _namespace_dirs(self, entry: str, namespace: str) -> list[str]:
+        """The checked directories of one namespace *entry*; ``[]`` if any is refused (#856)."""
+        targets = self._expand_glob(self._normalise_config_path(entry))
+        if all(self._passes_path_check(target, namespace) for target in targets):
+            return targets
+        return []
 
     def _passes_path_check(self, entry: str, what: str) -> bool:
         """Whether a config path *entry* passes the input check in its final form (#856).

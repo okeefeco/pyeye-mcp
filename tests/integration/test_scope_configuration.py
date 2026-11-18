@@ -390,16 +390,16 @@ class TestConfigurationExamples:
         assert not set(config) & set(IGNORED_TOP_LEVEL_KEYS)
 
     @pytest.mark.parametrize("path", _EXAMPLES, ids=lambda p: p.name)
-    def test_namespace_entries_are_not_globs(self, path):
-        """A namespace glob isn't expanded yet (#872), so it configures nothing."""
+    def test_namespace_globs_use_only_star(self, path):
+        """A namespace glob expands since #872, but only ``*`` makes one."""
         config = json.loads(path.read_text())
-        globs = [
+        literal_meta = [
             entry
             for entries in config.get("namespaces", {}).values()
             for entry in entries
-            if any(ch in entry for ch in "*?[")
+            if any(ch in entry for ch in "?[")
         ]
-        assert globs == []
+        assert literal_meta == []
 
     @pytest.mark.parametrize("path", _EXAMPLES, ids=lambda p: p.name)
     def test_every_scope_can_resolve(self, path):
