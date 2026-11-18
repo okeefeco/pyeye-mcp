@@ -310,28 +310,41 @@ class MetricsCollector:
         self.start_time = datetime.now()
 
     def export_prometheus(self) -> str:
-        """Export metrics in Prometheus format.
+        """Export metrics in the Prometheus text exposition format (0.0.4).
+
+        Each metric family is one contiguous group with its own ``HELP`` and
+        ``TYPE``. Operation durations are a ``summary``: per operation, the
+        0.5/0.95/0.99 quantiles plus the ``_sum`` and ``_count`` a summary
+        requires. Label values are escaped, and every line, the last included,
+        ends in a newline (#402).
 
         Returns:
             Prometheus-formatted metrics string
         """
         lines = []
-        lines.append("# HELP pyeye_operation_duration_ms Operation duration in milliseconds")
-        lines.append("# TYPE pyeye_operation_duration_ms histogram")
+        operations = [
+            (_label_value(name.replace(".", "_").replace("-", "_")), metric)
+            for name, metric in self.metrics.items()
+        ]
 
-        for name, metric in self.metrics.items():
+        lines.append("# HELP pyeye_operation_duration_ms Operation duration in milliseconds")
+        lines.append("# TYPE pyeye_operation_duration_ms summary")
+        for label, metric in operations:
             stats = metric.get_stats()
-            safe_name = name.replace(".", "_").replace("-", "_")
-            lines.append(f'pyeye_operation_count{{operation="{safe_name}"}} {stats["count"]}')
+            for quantile, key in (("0.5", "p50_ms"), ("0.95", "p95_ms"), ("0.99", "p99_ms")):
+                lines.append(
+                    f'pyeye_operation_duration_ms{{operation="{label}",quantile="{quantile}"}} '
+                    f"{stats[key]}"
+                )
             lines.append(
-                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.5"}} {stats["p50_ms"]}'
+                f'pyeye_operation_duration_ms_sum{{operation="{label}"}} {metric.total_ms}'
             )
-            lines.append(
-                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.95"}} {stats["p95_ms"]}'
-            )
-            lines.append(
-                f'pyeye_operation_duration_ms{{operation="{safe_name}",quantile="0.99"}} {stats["p99_ms"]}'
-            )
+            lines.append(f'pyeye_operation_duration_ms_count{{operation="{label}"}} {metric.count}')
+
+        lines.append("# HELP pyeye_operation_count Operations measured")
+        lines.append("# TYPE pyeye_operation_count counter")
+        for label, metric in operations:
+            lines.append(f'pyeye_operation_count{{operation="{label}"}} {metric.count}')
 
         # Cache metrics
         lines.append("# HELP pyeye_cache_hits Cache hits")
@@ -360,9 +373,14 @@ class MetricsCollector:
         memory = self.get_memory_stats()
         lines.append("# HELP pyeye_memory_mb Memory usage in MB")
         lines.append("# TYPE pyeye_memory_mb gauge")
-        lines.append(f"pyeye_memory_mb {{type=\"rss\"}} {memory['rss_mb']}")
+        lines.append(f'pyeye_memory_mb{{type="rss"}} {memory["rss_mb"]}')
 
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
+
+
+def _label_value(value: str) -> str:
+    """*value* escaped for a Prometheus label: backslash, double quote and newline (#402)."""
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
 
 
 # Global metrics instance

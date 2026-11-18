@@ -63,6 +63,7 @@ dev = [
     "pre-commit-hooks==6.0.0",  # General file checks run by pre-commit via `uv run` (#547)
     "click>=8.0.0",  # CLI for scripts/dogfooding_metrics.py (was only transitively present)
     "setuptools_scm[toml]>=8",  # _version.py generation (mirrors [build-system].requires)
+    "prometheus-client>=0.26.0",  # tests only: parses the Prometheus export (#402)
     # Note: pre-commit removed from dev deps - install at user level instead:
     # python3 -m pip install --user --break-system-packages pre-commit
 ]
