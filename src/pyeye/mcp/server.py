@@ -5,6 +5,7 @@ import json
 import logging
 import typing
 from collections.abc import Callable, Collection
+from glob import glob
 from inspect import (
     Parameter as _Parameter,
     isawaitable as _isawaitable,
@@ -691,11 +692,30 @@ def _check_new_config_paths(
     for where, entry in entries:
         final = config._normalise_config_path(entry)
         try:
-            PathValidator.validate_final(final, config.project_path)
+            for target in _config_entry_targets(entry, final):
+                PathValidator.validate_final(target, config.project_path)
         except ValidationError as error:
             raise ValidationError(
                 f"Invalid path {entry!r} in {where}: {error}", parameter=where.split("[")[0]
             ) from error
+
+
+def _config_entry_targets(entry: str, final: str) -> list[str]:
+    """What a config *entry* will reach, to check: the entry, or every glob match.
+
+    A glob is checked by what it matches, never in pattern form: ``/e*`` would
+    pass as a pattern and match ``/etc`` at use. A glob with ``..`` is refused
+    outright: whether it escapes depends on matches that exist only later, and on
+    lexical collapsing the config does by accident (#856 review).
+
+    Raises:
+        ValidationError: For a glob entry containing ``..``.
+    """
+    if not any(ch in entry for ch in "*?["):
+        return [final]
+    if ".." in entry.replace("\\", "/").split("/"):
+        raise ValidationError("a glob pattern may not contain '..'")
+    return [final, *sorted(glob(final))]
 
 
 @mcp.tool()

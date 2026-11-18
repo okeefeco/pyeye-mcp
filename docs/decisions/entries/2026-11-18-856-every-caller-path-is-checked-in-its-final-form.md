@@ -44,6 +44,7 @@ superseded_by: []
   - **macOS:** `^/private/etc/` (the resolved form of `/etc`) is an anchored pattern, so the directory itself is refused too. The unanchored `/etc/` and `/root/` patterns get no directory form, so a project dir that merely ends in `etc` or `root` still passes.
   - **Resolved form:** the resolved form is the RAW join resolved (`root/l_tmp/../etc` follows `l_tmp` first, as the OS does), not the lexically collapsed path.
   - **`configure_packages`:** each new entry is checked as the config will read it (`~` expanded, anchored, normalised), on the tool's normalised project path. A refused entry is an error, and nothing is changed or saved.
+  - **Glob entries in `configure_packages`:** a glob is checked by every directory it matches, never in pattern form (`/e*` matched `/etc` at use). A glob containing `..` is refused outright, because whether it escapes depends on matches that exist only later. Whether namespace globs are expanded at all is #872, out of scope.
   - **Not fixed here:** whether a scan root that CONTAINS a restricted directory (`package:/`, `project_path="/"`) must be refused is a design question with the designer. TOCTOU symlink swaps are out of scope.
 - **Scope:** it is still "a sanity check, not a sandbox", and the deny-list stays POSIX-only (#867).
 

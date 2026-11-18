@@ -33,8 +33,9 @@ pytestmark = pytest.mark.skipif(
     os.name == "nt", reason="the deny-list names POSIX system directories"
 )
 
-#: Either refusal the validator gives: the given spelling, or the checked target.
-REFUSED = "suspicious component|restricted location"
+#: The validator's refusals: the given spelling, the checked target, or a glob
+#: with ``..`` in configure_packages.
+REFUSED = "suspicious component|restricted location|may not contain '\\.\\.'"
 
 
 def _assert_refused(tool: str, args: dict[str, Any], server: Any = None) -> None:
@@ -371,3 +372,52 @@ class TestReviewConfigurePackagesFinalForm:
 
         with pytest.raises(ValidationError, match="restricted location"):
             PathValidator.validate_final("l_root/../etc", root)
+
+
+class TestReviewConfigGlobs:
+    """#901 re-review: glob entries were checked in pattern form, so they were saved."""
+
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"packages": ["l_t*/../etc"]},
+            {"namespaces": {"n5": ["l_t*/../etc"]}},
+            {"standalone_dirs": ["l_t*/../etc"]},
+            {"packages": ["/e*"]},
+            {"namespaces": {"n6": ["/e?c"]}},
+        ],
+        ids=["dotdot-package", "dotdot-namespace", "dotdot-standalone", "star-etc", "qmark-etc"],
+    )
+    def test_refused_and_nothing_is_written(self, project: Path, args: dict[str, Any]) -> None:
+        (project / "l_tmp").symlink_to("/tmp", target_is_directory=True)
+
+        _assert_refused(
+            "configure_packages", {**args, "save": True, "project_path": project.as_posix()}
+        )
+
+        assert not (project / ".pyeye.json").exists()
+
+    def test_a_glob_with_dot_dot_is_refused_outright(self, project: Path) -> None:
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        from pyeye.mcp.server import mcp
+
+        with pytest.raises(ToolError, match="may not contain '..'"):
+            asyncio.run(
+                mcp.call_tool(
+                    "configure_packages",
+                    {"packages": ["lib*/../x"], "save": True, "project_path": project.as_posix()},
+                )
+            )
+
+    def test_control_a_glob_over_ordinary_dirs_is_saved(self, project: Path) -> None:
+        for name in ("a", "b"):
+            (project / "libs" / name).mkdir(parents=True)
+
+        _ok(
+            "configure_packages",
+            {"packages": ["libs/*"], "save": True, "project_path": project.as_posix()},
+        )
+
+        saved = json.loads((project / ".pyeye.json").read_text(encoding="utf-8"))
+        assert saved["packages"] == ["libs/*"]
