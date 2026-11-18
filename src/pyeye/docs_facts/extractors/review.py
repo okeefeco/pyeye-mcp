@@ -51,6 +51,19 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the packa
         ),
     )
 
+    # The ranker's default bucket map, highest stakes first (#830): the order the
+    # skill shows the human. A project can re-tier it; the skill says so.
+    order = sorted(taxonomy._BUCKET_ORDER, key=taxonomy._BUCKET_ORDER.__getitem__, reverse=True)
+    yield view(
+        "review.buckets",
+        axes,
+        " > ".join(
+            f"{code(bucket)}: "
+            + ", ".join(f.markdown for f in axes if f.value["stakes_bucket"] == bucket)
+            for bucket in order
+        ),
+    )
+
     grades = [Fact(f"review.grade.{g}", {"tier": t}, code(g)) for g, t in ranking._TIER.items()]
     yield from grades
     yield view("review.grades", grades, code_list(f.id.rsplit(".", 1)[1] for f in grades))

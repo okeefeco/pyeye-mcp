@@ -1,11 +1,5 @@
 {
   "baseline": [
-    "ceiling.declared_bases",
-    "ceiling.literal_subclassing",
-    "ceiling.on_disk_modules",
-    "ceiling.package_reexports",
-    "ceiling.static_calls",
-    "ceiling.static_definitions",
     "cli.module.pyeye.mcp",
     "cli.script.pyeye-mcp",
     "edges.inspect_unmeasured",
