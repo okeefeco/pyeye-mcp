@@ -29,22 +29,9 @@ When to update: When PR requirements or quality standards change
 
 ### MANDATORY: Every PR Must Include Tests
 
-**Every PR that adds or modifies code MUST include:**
-
-1. **Unit tests** for new functions/methods
-2. **Integration tests** for new features
-3. **Regression tests** for bug fixes
-4. **Coverage must not drop** - CI will fail if coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->
-
-**Before marking any PR as ready:**
-
-```bash
-# MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
-# This would have caught the cache-class breakage in PR #77
-uv run pytest --cov=src/pyeye
-
-# Note: Pre-commit does NOT run tests - you MUST run them manually!
-```
+The test requirements are in `06-workflow-commits.md` → "Test Requirements
+(MANDATORY)". They apply to every PR. Pre-commit does NOT run tests: you MUST run
+the full suite yourself before marking a PR ready.
 
 ## Development Setup Reminders
 
