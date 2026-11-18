@@ -26,10 +26,15 @@ superseded_by: []
   - A test pins that the two sets are equal.
   - A glob with any refused match is skipped whole and reported once. Before, the matches checked ahead of the refusal were kept.
 - **The plugin envelope:** it gains `rejected_paths` between `unsearched_scopes` and `results`.
-  - The key is always present; `[]` is a measured "none refused".
+  - The key is present whenever the check completed; `[]` is a measured "none refused".
+  - **Never `[]` for an unfinished check** (coordinator's addition at the merge, 2026-11-19). When the check can't complete, the response errors or omits the key.
+    - A config source that failed to load is recorded in `ProjectConfig.load_errors`, and `rejected_paths()` returns `None`. A malformed `.pyeye.json` was logged and treated as empty, so `[]` would have vouched for entries nobody saw.
+    - A plugin's value starts as `None`. `_apply_plugin_paths` clears it before recomputing, so a check that raises leaves "not measured", never the previous list.
+    - The envelope and `configure_packages` include the key only when it is not `None`.
+    - A check that raises part-way is a tool error, never a partial list.
   - The list comes from `AnalyzerPlugin.rejected_paths`, which `_apply_plugin_paths` sets from the config.
   - `describe_scope` puts every scope with a rejected entry in `unsearched_scopes`, never in `searched`, whatever scope was asked for.
-- **`configure_packages`:** it returns the same `rejected_paths`, always present.
+- **`configure_packages`:** it returns the same `rejected_paths`, present on the same terms.
 - **Missing and rejected stay distinct:** a `package:` path that merely doesn't exist stays an unsearched scope with no `rejected_paths` record (#842).
 - **Rejected alternative:** encoding the reason inside `unsearched_scopes` (e.g. `"namespace:ns (rejected_path)"`). That would change the type of an existing field. A separate key is additive and carries the detail.
 

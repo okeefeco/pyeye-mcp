@@ -11,6 +11,7 @@ from typing import Any, NamedTuple
 import jedi
 
 from .. import file_artifact_cache, settings
+from .._ast_targets import unsubscripted
 from .._jedi_project import make_project
 from ..config import ProjectConfig
 from ..exceptions import AnalysisError, ProjectNotFoundError
@@ -1410,8 +1411,10 @@ class JediAnalyzer:
         to be positioned at ``Widget`` to follow imports to the class definition.
 
         Uses ``end_col_offset`` (present in Python 3.8+) to compute where the
-        final attribute name starts.
+        final attribute name starts. A subscripted base (``Box[int]``) is
+        positioned on the class it subscripts (#921).
         """
+        base = unsubscripted(base)
         if isinstance(base, ast.Attribute) and base.attr == leaf_name:
             end_col = getattr(base, "end_col_offset", None)
             if end_col is not None:
@@ -1420,7 +1423,14 @@ class JediAnalyzer:
 
     @staticmethod
     def _get_base_name_from_ast(base: Any) -> str | None:
-        """Extract the name from an AST base class node."""
+        """Extract the name from an AST base class node.
+
+        A subscripted base names the class it subscripts: ``Box[int]`` is
+        ``Box``, ``pydantic.RootModel[list[int]]`` is ``pydantic.RootModel``
+        (#921). Only the subscripted value counts; a class named inside the
+        type arguments (``Generic[Box[int]]``) is not a base.
+        """
+        base = unsubscripted(base)
         if isinstance(base, ast.Name):
             return base.id
         elif isinstance(base, ast.Attribute):

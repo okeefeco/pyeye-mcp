@@ -243,3 +243,109 @@ def test_configure_packages_gives_an_empty_list_for_a_clean_config(tmp_path: Pat
 
     assert not result.is_error, result.content
     assert result.structured_content["rejected_paths"] == []
+
+
+class TestNeverAnEmptyListForAnUnfinishedCheck:
+    """``rejected_paths`` present means the check ran and is trusted (#898 contract).
+
+    When the check can't complete, the response errors or omits the key; it
+    never reports ``[]``, which reads as a measured "none refused".
+    """
+
+    @pytest.fixture
+    def broken(self, tmp_path: Path) -> Path:
+        """A project whose ``.pyeye.json`` can't be parsed: its entries are unknown."""
+        root = tmp_path / "broken"
+        (root / "app").mkdir(parents=True)
+        (root / "app" / "m.py").write_text(MODEL.format(name="Main"), encoding="utf-8")
+        (root / ".pyeye.json").write_text('{"packages": ["/etc",', encoding="utf-8")
+        return root
+
+    def test_a_config_that_failed_to_load_is_not_a_measured_none(self, broken: Path) -> None:
+        from pyeye.config import ProjectConfig
+
+        config = ProjectConfig(broken.as_posix())
+
+        assert config.load_errors
+        assert config.rejected_paths() is None
+
+    def test_the_envelope_omits_the_key(self, broken: Path) -> None:
+        payload = _envelope(broken, "all")
+
+        assert "rejected_paths" not in payload
+        assert list(payload) == ["scope", "searched", "unsearched_scopes", "results"]
+
+    def test_configure_packages_omits_the_key(self, broken: Path) -> None:
+        from pyeye.mcp.server import mcp
+
+        result = asyncio.run(
+            mcp.call_tool("configure_packages", {"save": False, "project_path": broken.as_posix()})
+        )
+
+        assert not result.is_error, result.content
+        assert "rejected_paths" not in result.structured_content
+
+    def test_a_plugin_never_configured_omits_the_key(self, tmp_path: Path) -> None:
+        from mcp.server.mcpserver import MCPServer
+
+        from pyeye.mcp.server import _PLUGIN_CLASSES, register_plugin_tools
+
+        root = tmp_path / "bare"
+        (root / "app").mkdir(parents=True)
+        server = MCPServer("unconfigured")
+        register_plugin_tools(server, [cls(root.as_posix()) for cls in _PLUGIN_CLASSES], None)
+        result = asyncio.run(
+            server.call_tool(
+                "find_pydantic_models",
+                {"scope": "main", "envelope": True, "project_path": root.as_posix()},
+            )
+        )
+
+        assert "rejected_paths" not in json.loads(result.content[0].text)
+
+    def test_a_check_that_raises_part_way_is_an_error(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """configure_packages errors rather than report what it saw so far."""
+        from pyeye.config import ProjectConfig
+        from pyeye.mcp.server import mcp
+
+        calls = iter(range(100))
+
+        def flaky(*_args: object) -> str | None:
+            if next(calls) == 1:
+                raise RuntimeError("check interrupted")
+            return None
+
+        monkeypatch.setattr(ProjectConfig, "_path_refusal", flaky)
+        try:
+            result = asyncio.run(
+                mcp.call_tool(
+                    "configure_packages", {"save": False, "project_path": project.as_posix()}
+                )
+            )
+        except Exception as error:  # the server raised: an error, as required
+            assert "configure_packages" in str(error) or "check interrupted" in str(error)
+            return
+        assert result.is_error, result.structured_content
+        assert "check interrupted" in str(result.content)
+
+    def test_a_failed_reapply_leaves_not_measured_never_the_old_list(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye.config import ProjectConfig
+        from pyeye.mcp.server import _apply_plugin_paths
+        from pyeye.plugins.pydantic import PydanticPlugin
+
+        plugin = PydanticPlugin(project.as_posix())
+        _apply_plugin_paths(plugin, ProjectConfig(project.as_posix()))
+        assert plugin.rejected_paths  # measured: the fixture refuses two entries
+
+        def interrupted(*_args: object) -> None:
+            raise RuntimeError("check interrupted")
+
+        monkeypatch.setattr(ProjectConfig, "rejected_paths", interrupted)
+        with pytest.raises(RuntimeError):
+            _apply_plugin_paths(plugin, ProjectConfig(project.as_posix()))
+
+        assert plugin.rejected_paths is None

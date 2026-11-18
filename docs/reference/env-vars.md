@@ -14,13 +14,13 @@ Every `PYEYE_*` variable pyeye reads, with its default and range. `unused` means
 | `PYEYE_ENABLE_CONNECTION_POOLING` | true | true/false | deprecated, no effect: the connection pool was removed (#628) |
 | `PYEYE_ENABLE_MEMORY_PROFILING` | false | true/false | deprecated, no effect: nothing ever used it (#592) |
 | `PYEYE_ENABLE_PERFORMANCE_METRICS` | false | true/false | live |
-| `PYEYE_ISSUE` | unset |  | live |
+| `PYEYE_ISSUE` | unset |  | deprecated, no effect: accepted and ignored; nothing records sessions any more (#943) |
 | `PYEYE_LOG_FILE` | unset |  | live |
 | `PYEYE_LOG_LEVEL` | "INFO" |  | live |
 | `PYEYE_MAX_FILE_SIZE` | 1048576 | 1024-104857600 | deprecated, no effect: nothing ever used it (#592) |
 | `PYEYE_MAX_PROJECTS` | 10 | 1-1000 | live |
 | `PYEYE_MAX_WORKERS` | 4 | 1-32 | deprecated, no effect: nothing ever used it (#592) |
-| `PYEYE_PARENT_SESSION` | unset |  | live |
+| `PYEYE_PARENT_SESSION` | unset |  | deprecated, no effect: accepted and ignored; nothing records sessions any more (#943) |
 | `PYEYE_PARSO_CACHE_MAX_ENTRIES` | 600 | 1-1000000 | live |
 | `PYEYE_POOL_MAX_CONNECTIONS` | 10 | 1-100 | deprecated, no effect: the connection pool was removed (#628) |
 | `PYEYE_POOL_TTL` | 3600 | 60-86400 | deprecated, no effect: the connection pool was removed (#628) |

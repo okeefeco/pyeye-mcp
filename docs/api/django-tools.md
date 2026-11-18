@@ -26,7 +26,23 @@ see its fields.
 
 ## find_django_views
 
-The views in each app's `views.py`: class-based views and function views.
+The views in each app's `views.py`, and in every module of a `views` package,
+in files that import Django:
+
+- **class-based views**: classes with a base the module imports from Django
+  whose name contains `View`, such as `ListView`, `generic.ListView` or
+  `django.views.View`; and every project class that subclasses one of those,
+  directly or through your own classes, in any module. A view built on another
+  framework's base, such as Django REST framework's `APIView`, isn't found
+  (#947).
+- **function views**: functions, `async` or not, whose first parameter is
+  `request`.
+
+Following subclasses uses the project's class graph, which `expand` with the
+`subclasses` edge and `find_pydantic_models` share. The first call that needs
+it builds it by reading every file in scope, so it is slower on a large
+project; later calls reuse it until a file changes. A project with no Django
+class views never builds it.
 
 ```json pyeye-example tool=find_django_views fixture=docs_examples_django
 {}

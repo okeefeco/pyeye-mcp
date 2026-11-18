@@ -381,7 +381,8 @@ answer wrapped with the scopes it covered:
 - **`rejected_paths`** lists config entries the path check refused
   (`{scope, path, reason: "rejected_path", detail}`, `[]` when none). Their scopes are
   always unsearched. Tell the user which configured path was skipped and why; don't
-  retry it.
+  retry it. If the key is **missing**, the check couldn't run (a config file failed
+  to load): don't report "no paths were refused".
 
 These tools read source as text and only skip files that can't be read or parsed. A
 tool *error* means the search failed. Report it; don't treat it as an empty result.

@@ -341,7 +341,7 @@ sudo dnf install python3-devel
 **Solution**:
 
 1. Plugins auto-activate based on detection:
-   - Django: Presence of `manage.py` or `django` in requirements
+   - Django: `django` imports (a generated `manage.py` has them) or `django` in requirements
    - Flask: `flask` in imports or requirements
    - Pydantic: `pydantic` in imports or requirements
 2. Check plugin loaded in debug logs
@@ -349,7 +349,7 @@ sudo dnf install python3-devel
 
    ```python
    # In project root
-   ls manage.py  # For Django
+   grep -l "django" *.py requirements.txt  # For Django
    grep -r "from flask" . # For Flask
    ```
 
@@ -485,7 +485,8 @@ Or use the `configure_packages` tool to add them dynamically.
 
 **Answer**: Plugins activate automatically based on framework detection:
 
-- **Django**: Needs `manage.py` or `django` in requirements
+- **Django**: Needs `django` imports or `django` in requirements; a `manage.py`
+  alone isn't enough
 - **Flask**: Needs `flask` imports or in requirements
 - **Pydantic**: Needs `pydantic` imports or in requirements
 
@@ -541,8 +542,8 @@ logs a warning when they are set (#581).
 
 ### Framework detection logic
 
-**Answer**: Each plugin looks for framework-specific files (`manage.py`, Flask
-entry points such as `app.py`), framework imports in Python files, and
+**Answer**: Each plugin looks for framework imports in Python files, framework
+entry points (Flask's `app.py`), and
 requirement files (`requirements.txt`, `Pipfile`, and for Flask and Pydantic
 `pyproject.toml`), in the project root and every configured package and
 namespace path. Detection runs at server startup and again after

@@ -20,8 +20,8 @@ Where an edge needs Jedi, it says so and the fallback is measured (the
 - Relative-import resolution has one AST seam, where there used to be two
   divergent resolvers (#426).
 - The `subclasses` edge resolves bases AST-first, in the analyzer's class-graph
-  walk. Jedi forward `goto` is the documented, measured fallback, needed for
-  roughly 7% of bases on Django (#419).
+  walk. Jedi forward `goto` is the documented fallback for the bases the AST
+  can't resolve; #419 measured how often Django needs it.
 - `expand(subclasses)` builds its stubs from AST facts. It used to re-derive a
   Jedi `Name` per subclass, which brought #419's non-determinism back (#445).
 
@@ -50,7 +50,7 @@ edge can't reintroduce the #445 pattern without a test failing.
 ## One canonical handle resolver
 
 Every exact-path lookup goes through one resolver,
-`pyeye.resolver.resolve_handle(path) -> Resolved | NotFound` (#623). That covers
+`pyeye.resolver.resolve_handle(path, analyzer) -> Resolved | NotFound` (#623). That covers
 `inspect`, the `outline` root, the `expand` source, `trace` roots and interior
 nodes, `resolve` and `resolve_at`, typeref forward refs, and the external
 targets of the `imports` edge. Each tool echoes the handle the resolver returns.

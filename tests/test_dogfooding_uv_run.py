@@ -80,3 +80,22 @@ def test_setup_checks_for_uv_not_a_bare_python() -> None:
     text = (_ROOT / "scripts/setup_dogfooding.sh").read_text(encoding="utf-8")
     assert "command -v uv" in text
     assert "command -v python3" not in text
+
+
+def test_sync_is_gone_from_the_cli_and_the_docs() -> None:
+    """``sync`` always recorded 0 MCP calls and was dropped (#879); nothing may point at it."""
+    import click.testing
+
+    import scripts.dogfooding_metrics as dm
+
+    assert "sync" not in dm.cli.commands
+    result = click.testing.CliRunner().invoke(dm.cli, ["sync"])
+    assert result.exit_code != 0
+    assert not hasattr(dm.DogfoodingMetrics, "sync_mcp_metrics")
+    still_told = [
+        f"{name}:{n}"
+        for name in _FILES
+        for n, line in enumerate((_ROOT / name).read_text(encoding="utf-8").splitlines(), 1)
+        if re.search(r"dogfooding_metrics\.py\s+sync\b", line)
+    ]
+    assert not still_told, still_told

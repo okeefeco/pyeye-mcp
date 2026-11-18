@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -154,15 +155,140 @@ def _reference_scan(
     )
 
 
+_RAISED = object()  # a file whose module name or text couldn't be read
+
+
+@dataclass
+class _ScanMemo:
+    """Per-file work :func:`_reference_scan` repeats for every target (#893).
+
+    Its own dicts, built from the same calls the verbatim scan makes, so the
+    oracle stays independent of the graph it checks.
+    """
+
+    head: dict[Path, Any] = field(default_factory=dict)  # (importer module, source) | _RAISED
+    imports: dict[Path, Any] = field(default_factory=dict)  # import nodes in walk order | _RAISED
+    unparseable: tuple[str, ...] | None = None
+
+
+def _reference_scan_memo(
+    analyzer: JediAnalyzer,
+    module_path: str,
+    target_file: Path,
+    py_files: list[Path],
+    memo: _ScanMemo,
+) -> Importers:
+    """:func:`_reference_scan`, with each file's per-target work done once.
+
+    The text pre-filter and the import tests are the verbatim scan's, line for
+    line. What is memoised is what doesn't depend on the target: a file's module
+    name and source, its ``Import``/``ImportFrom`` nodes in ``ast.walk`` order
+    (the loop below only looks at those and stops at the first match, so the
+    order is the one the full walk would have seen), and the unparseable list. A
+    file is parsed only when the pre-filter first lets it through, as before.
+    ``TestTheMemoisedOracleIsTheVerbatimOne`` pins it to the verbatim scan.
+    """
+    target_root = module_path.split(".")[0]
+    importers: dict[str, Path] = {}
+    unnamed: list[Path] = []
+
+    def record(importer: str | None, py_file: Path) -> None:
+        if importer is None:
+            unnamed.append(py_file)
+        elif importer not in importers:
+            importers[importer] = py_file
+
+    for py_file in py_files:
+        if py_file == target_file:
+            continue
+        try:
+            if py_file not in memo.head:
+                try:
+                    memo.head[py_file] = (
+                        analyzer._get_import_path_for_file(py_file),
+                        py_file.read_text(encoding="utf-8"),
+                    )
+                except Exception:
+                    memo.head[py_file] = _RAISED
+            head = memo.head[py_file]
+            if head is _RAISED:
+                continue
+            importer_module, source = head
+            shares_package = bool(importer_module and importer_module.split(".")[0] == target_root)
+            parent_pkg = module_path.rsplit(".", 1)[0] if "." in module_path else None
+            if not (
+                module_path in source
+                or module_path.replace(".", "/") in source
+                or shares_package
+                or (parent_pkg is not None and parent_pkg in source)
+            ):
+                continue
+            importer_is_package = py_file.name == "__init__.py"
+            if py_file not in memo.imports:
+                try:
+                    tree = file_artifact_cache.get_ast(py_file)
+                    memo.imports[py_file] = [
+                        n for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom))
+                    ]
+                except Exception:
+                    memo.imports[py_file] = _RAISED
+            nodes = memo.imports[py_file]
+            if nodes is _RAISED:
+                continue
+            for node in nodes:
+                if isinstance(node, ast.Import):
+                    if any(
+                        a.name == module_path or a.name.startswith(module_path + ".")
+                        for a in node.names
+                    ):
+                        record(importer_module, py_file)
+                        break
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level and importer_module is None:
+                        continue
+                    resolved = analyzer._resolve_relative_import(
+                        node.level, node.module, importer_module or "", importer_is_package
+                    )
+                    if resolved and (
+                        resolved == module_path
+                        or resolved.startswith(module_path + ".")
+                        or any(
+                            f"{resolved}.{a.name}" == module_path
+                            for a in node.names
+                            if a.name != "*"
+                        )
+                    ):
+                        record(importer_module, py_file)
+                        break
+        except Exception:
+            continue
+    if memo.unparseable is None:
+        unparseable: list[str] = []
+        for py_file in py_files:
+            try:
+                file_artifact_cache.get_ast(py_file)
+            except SyntaxError:  # only a parse failure is "unparseable" (#704, #729)
+                unparseable.append(path_to_key(py_file))
+            except Exception:
+                continue
+        memo.unparseable = tuple(sorted(unparseable))
+    return Importers(
+        named=[(m, importers[m]) for m in sorted(importers)],
+        unnamed=unnamed,
+        unparseable=memo.unparseable,
+    )
+
+
 async def _assert_matches_reference(analyzer: JediAnalyzer, modules: list[str]) -> int:
     """Every module's graph answer equals the old scan's; returns importer pairs seen."""
     py_files = sorted(await analyzer.get_project_files("*.py", "all"), key=Path.as_posix)
     by_module = {analyzer._get_import_path_for_file(f): f for f in py_files}
+    memo = _ScanMemo()  # per comparison: one file list, one set of reads (#893)
     seen = 0
     for module in modules:
         target_file = by_module.get(module, Path("<none>"))
         got = await analyzer.find_importers(module, target_file, scope="all")
-        want = _reference_scan(analyzer, module, target_file, py_files)
+        want = _reference_scan_memo(analyzer, module, target_file, py_files, memo)
         assert got == want, module
         seen += len(got.named) + len(got.unnamed)
     return seen
@@ -211,6 +337,51 @@ class TestSameAnswerAsTheOldScan:
             "tests.test_cross_tool_invariants",
         ]
         assert await _assert_matches_reference(analyzer, modules) > 50
+
+
+class TestTheMemoisedOracleIsTheVerbatimOne:
+    """``_reference_scan_memo`` answers exactly what ``_reference_scan`` does (#893).
+
+    The memo only stops re-reading and re-walking each file per target; the
+    pyeye-repo comparison above uses it. These pin it to the verbatim oracle on
+    every corpus here (not on the repo: its verbatim scan is the cost being cut).
+    """
+
+    @staticmethod
+    async def _both_agree(analyzer: JediAnalyzer, modules: list[str]) -> int:
+        py_files = sorted(await analyzer.get_project_files("*.py", "all"), key=Path.as_posix)
+        by_module = {analyzer._get_import_path_for_file(f): f for f in py_files}
+        memo = _ScanMemo()
+        checked = 0
+        for module in modules:
+            target_file = by_module.get(module, Path("<none>"))
+            verbatim = _reference_scan(analyzer, module, target_file, py_files)
+            assert (
+                _reference_scan_memo(analyzer, module, target_file, py_files, memo) == verbatim
+            ), module
+            checked += 1
+        return checked
+
+    async def test_the_619_forms_corpus(self, forms: Path) -> None:
+        analyzer = JediAnalyzer(str(forms))
+        modules = sorted(
+            m for m in (analyzer._get_import_path_for_file(forms / rel) for rel in FORMS_FILES) if m
+        )
+        assert await self._both_agree(analyzer, modules) == len(modules) > 0
+
+    async def test_the_unnamed_importers_corpus(self, unnamed: dict[str, Path]) -> None:
+        analyzer = JediAnalyzer(str(unnamed["root"]))
+        assert await self._both_agree(analyzer, ["pkg", "pkg.target", "pkg.named"]) == 3
+
+    async def test_a_tree_with_an_unparseable_file(self, tmp_path: Path) -> None:
+        _write(tmp_path / "pkg" / "__init__.py", "")
+        _write(tmp_path / "pkg" / "target.py", "def f():\n    return 1\n")
+        _write(tmp_path / "pkg" / "user.py", "from pkg import target\nimport os\n")
+        _write(tmp_path / "vendor" / "tests_syntax_error.py", "def (:\n")
+        _write(tmp_path / "vendor" / "latin1.py", b"x = '\xe9'\n".decode("latin-1"))
+        (tmp_path / "vendor" / "bad_bytes.py").write_bytes(b"x = '\xff\xfe'\n")
+        analyzer = JediAnalyzer(str(tmp_path))
+        assert await self._both_agree(analyzer, ["pkg", "pkg.target", "pkg.user", "os"]) == 4
 
 
 class TestPinnedContracts:

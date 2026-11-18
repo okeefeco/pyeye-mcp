@@ -69,7 +69,7 @@ from pyeye.mcp.operations.completeness import (
     cap_items,
     check_cap,
 )
-from pyeye.mcp.operations.not_found import not_found_for
+from pyeye.mcp.operations.not_found import SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
@@ -184,11 +184,11 @@ def _parse_identifier(identifier: str) -> IdentifierForm:
     if m:
         path_part, line_str = m.group(1), m.group(2)
         # Only treat as file if the path part looks like a file path
-        if "/" in path_part or "\\" in path_part or path_part.endswith(".py"):
+        if "/" in path_part or "\\" in path_part or path_part.endswith(SOURCE_SUFFIXES):
             return {"kind": "file_with_line", "path": path_part, "line": int(line_str)}
 
-    # 2. file_only: contains a path separator or .py extension
-    if "/" in identifier or "\\" in identifier or identifier.endswith(".py"):
+    # 2. file_only: contains a path separator or a .py/.pyi extension (#885)
+    if "/" in identifier or "\\" in identifier or identifier.endswith(SOURCE_SUFFIXES):
         return {"kind": "file_only", "path": identifier}
 
     # 3. dotted_name: contains dots (but no path separators)
@@ -247,6 +247,26 @@ def _make_location(file_str: str, line: int | None, column: int | None) -> _Loca
 # ---------------------------------------------------------------------------
 # File:line resolution helper
 # ---------------------------------------------------------------------------
+
+
+def _stub_only(file_path: Path) -> bool:
+    """Whether *file_path* is a ``.pyi`` stub with no ``.py`` source beside it (#885)."""
+    return file_path.suffix == ".pyi" and not file_path.with_suffix(".py").is_file()
+
+
+def _stub_only_miss(file_path: Path) -> _Miss:
+    """The honest miss for a stub-only file (#885).
+
+    pyeye analyses ``.py`` sources, so a stub with none beside it has no handle
+    of its own: no other tool would accept one (#602).
+    """
+    return _miss(
+        "unresolved",
+        f"{file_path.as_posix()} is a stub with no .py source beside it. pyeye "
+        "resolves a file through its .py source, so this stub has no handle of "
+        "its own; if the module's source lives elsewhere, resolve it by its "
+        "dotted name.",
+    )
 
 
 def _no_source_file(file_path: Path) -> _Miss | None:
@@ -321,7 +341,10 @@ async def _resolve_at_position(
     # Canonicalise through the one resolver (#623).  A definition the resolver
     # can't place is not-found: returning Jedi's raw full_name would hand the
     # caller a handle no other tool accepts (audit row 3).
-    return _from_resolver(full_name, analyzer)
+    result = _from_resolver(full_name, analyzer)
+    if result["found"] is False and _stub_only(file_path):
+        return _stub_only_miss(file_path)  # say why, not just "unresolved" (#885)
+    return result
 
 
 async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer) -> _HelperResult:
@@ -498,9 +521,19 @@ def _success_from_resolved(resolved: Resolved) -> _SuccessResult:
 
 
 async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _HelperResult:
-    """Resolve a bare file path to its module handle."""
+    """Resolve a bare file path to its module handle.
+
+    A ``.pyi`` stub resolves as the ``.py`` source beside it: the same handle
+    and location its ``file:line`` form already lands on. A stub with no source
+    beside it has no handle (#885). The file↔module mapper stays ``.py``-only
+    (#625).
+    """
     if not file_path.exists():
         return _miss("file_not_found")
+    if file_path.suffix == ".pyi":
+        if _stub_only(file_path):
+            return _stub_only_miss(file_path)
+        file_path = file_path.with_suffix(".py")
 
     # _get_import_path_for_file matches via relative_to() against absolute
     # source_roots and project_path; a relative input would silently miss

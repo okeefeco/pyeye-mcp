@@ -60,6 +60,9 @@ class ProjectConfig:
         self.project_path = normalize_path(project_path)
         self.config: dict[str, Any] = {}
         self.has_explicit_config: bool = False
+        #: Config sources that failed to load, as ``"<path>: <error>"`` (#898):
+        #: their entries are unknown, so :meth:`rejected_paths` can't vouch for them.
+        self.load_errors: list[str] = []
         self.load_config()
 
     def load_config(self) -> None:
@@ -154,6 +157,7 @@ class ProjectConfig:
 
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
+            self.load_errors.append(f"{config_path.as_posix()}: {e}")
 
     def _load_global_config(self) -> None:
         """Load global configuration from user home.
@@ -173,6 +177,7 @@ class ProjectConfig:
                         break
                 except Exception as e:
                     logger.error(f"Error loading global config: {e}")
+                    self.load_errors.append(f"{config_path.as_posix()}: {e}")
 
     def _detect_setuptools_layout(self, tool_config: dict[str, Any]) -> list[str]:
         """Extract setuptools [tool.setuptools.packages.find.where].
@@ -444,28 +449,42 @@ class ProjectConfig:
             logger.warning(f"Skipping invalid package path {package}: {e}")
             return []
 
-    def _checked_package_dirs(self, normalised: str) -> list[str]:
-        """The directories a normalised package entry names, each checked as a scan root.
+    @staticmethod
+    def _expand_glob(normalised: str) -> list[str]:
+        """The directories a normalised config entry names: a glob's matches, or itself (#872).
 
-        A glob names its matches, a plain entry itself if it exists. The one
-        check of a package-path entry, for the getters and
-        :meth:`rejected_paths` alike (#898).
+        The ONE expansion, for packages and namespaces alike, so the two can't
+        disagree again. Matches are sorted: a namespace's order is its
+        precedence (first portion wins, #419), and ``glob`` returns them in
+        filesystem order. Only ``*`` makes a glob, so a literal path containing
+        ``?`` or ``[`` keeps its meaning. ``configure_packages``' check treats
+        ``*?[`` as glob (``mcp.server._config_entry_targets``): checking more
+        entries by their matches than are expanded is only stricter.
+        """
+        if "*" not in normalised:
+            return [normalised]
+        from glob import glob
+
+        return sorted(Path(match).as_posix() for match in glob(normalised))
+
+    def _checked_package_dirs(self, normalised: str) -> list[str]:
+        """A normalised package entry's directories, each checked as a scan root.
+
+        A glob gives its matches; a plain entry, itself if it exists. The one
+        check of a package-path entry, for the getters and :meth:`rejected_paths`
+        alike (#898).
 
         Raises:
-            ValidationError: For the first directory the path check refuses.
+            ValidationError: For the first directory the path check refuses, so
+                a glob with a refused match is skipped whole, never in part.
         """
-        if "*" in normalised:
-            from glob import glob
-
-            targets, keep_missing = glob(normalised), True
-        else:
-            targets, keep_missing = [normalised], False
+        is_glob = "*" in normalised
         paths = []
-        for target in targets:
+        for target in self._expand_glob(normalised):
             validated = PathValidator.validate_path(target)
             # A directory to scan: not "/" (or another ancestor of /etc) either.
             PathValidator.validate_scan_root(target, self.project_path)
-            if keep_missing or validated.exists():
+            if is_glob or validated.exists():
                 paths.append(validated.as_posix())
         return paths
 
@@ -547,14 +566,33 @@ class ProjectConfig:
         # collapsed.  A raw "../repo" was resolved differently by each consumer
         # (or against the server's CWD), and "app/../repo" defeated the
         # file<->module mapper.
+        # A glob entry expands to its sorted matches, through the helper the
+        # package paths use (#872). A namespace whose entries match nothing keeps
+        # its key with no directories: still configured, so its scope is
+        # reported unsearched, never silently absent (#842).
         return {
-            ns: [
-                normalised
-                for p in paths
-                if self._passes_path_check(normalised := self._normalise_config_path(p), ns)
-            ]
+            ns: list(dict.fromkeys(d for p in paths for d in self._namespace_dirs(p, ns)))
             for ns, paths in namespaces.items()
         }
+
+    def _namespace_dirs(self, entry: str, namespace: str) -> list[str]:
+        """The checked directories of one namespace *entry*; ``[]`` if any is refused (#856)."""
+        refusal = self._namespace_refusal(entry)
+        if refusal is not None:
+            logger.warning(f"Skipping config path {entry} ({namespace}): {refusal}")
+            return []
+        return self._expand_glob(self._normalise_config_path(entry))
+
+    def _namespace_refusal(self, entry: str) -> str | None:
+        """Why :meth:`get_namespaces` skips namespace *entry*, or ``None`` (#856, #872, #898).
+
+        The first refused directory the entry names (a glob's matches, #872);
+        the one check, for the getter and :meth:`rejected_paths` alike.
+        """
+        for target in self._expand_glob(self._normalise_config_path(entry)):
+            if (refusal := self._path_refusal(target)) is not None:
+                return refusal
+        return None
 
     def _passes_path_check(self, entry: str, what: str) -> bool:
         """Whether a config path *entry* passes the input check in its final form (#856).
@@ -577,7 +615,7 @@ class ProjectConfig:
             return str(error)
         return None
 
-    def rejected_paths(self) -> list[dict[str, str]]:
+    def rejected_paths(self) -> list[dict[str, str]] | None:
         """Every config path entry the path check refuses, for the caller to see (#898).
 
         The getters skip a refused entry with a warning (#856); this reports the
@@ -586,7 +624,13 @@ class ProjectConfig:
         ``{scope, path, reason: "rejected_path", detail}``, where ``scope`` is the
         scope it belongs to (``packages``, ``namespace:<name>`` or
         ``standalone``) and ``path`` is the entry as written. ``[]`` when none.
+
+        ``None`` when the check can't be complete: a config source failed to
+        load (:attr:`load_errors`), so its entries were never seen. ``[]`` is
+        always a measured "none refused", never a check that didn't finish.
         """
+        if self.load_errors:
+            return None
         rejected: list[dict[str, str]] = []
 
         def record(scope: str, raw: str, detail: str | None) -> None:
@@ -599,12 +643,11 @@ class ProjectConfig:
             record("packages", raw, self._package_refusal(raw))
         for ns, raws in (self.config.get("namespaces") or {}).items():
             for raw in raws:
-                # get_namespaces checks the entry; get_package_paths, its directories.
-                normalised = self._normalise_config_path(raw)
+                # get_namespaces and get_package_paths each check its directories.
                 record(
                     f"namespace:{ns}",
                     raw,
-                    self._path_refusal(normalised) or self._package_refusal(raw),
+                    self._namespace_refusal(raw) or self._package_refusal(raw),
                 )
         for raw in self.get_standalone_config().get("dirs", []):
             record("standalone", raw, self._path_refusal(self._standalone_dir(raw).as_posix()))

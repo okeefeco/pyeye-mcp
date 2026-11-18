@@ -29,7 +29,8 @@ class TestDogfoodingMetrics:
 
         assert session["issue"] == 123
         assert "start_time" in session
-        assert "baseline_metrics" in session
+        # The CLI can't read the server's MCP metrics, so it stores none (#915)
+        assert "baseline_metrics" not in session
         assert session["grep_count"] == 0
         assert session["mcp_queries"] == []
 
@@ -147,3 +148,42 @@ class TestDogfoodingMetrics:
         assert len(history) == 1
         assert history[0]["issue"] == 99
         assert history[0]["stats"]["time_saved_minutes"] == 15
+
+
+class TestNoInProcessMcpRead:
+    """The CLI counts MCP use from the queries it logs, nothing else (#915).
+
+    It used to read the in-process ``pyeye.metrics`` collector at start and end,
+    which is always empty outside the MCP server's process, and fall back to a
+    tool removed in #271.
+    """
+
+    def test_end_counts_the_logged_queries_and_stores_no_server_metrics(self, tmp_path):
+        metrics = DogfoodingMetrics(data_dir=tmp_path)
+        metrics.start_session(issue_number=915)
+        for tool in ("resolve", "inspect", "expand"):
+            metrics.log_mcp_query(tool, 10.0)
+        metrics.log_grep_usage()
+        session = metrics.end_session()
+        assert "final_metrics" not in session
+        assert "baseline_metrics" not in session
+        assert session["stats"]["mcp_queries_count"] == 3
+        assert session["stats"]["mcp_ratio"] == 3 / 4
+
+    def test_a_pre_915_session_still_ends(self, tmp_path):
+        """A session saved by an older CLI, with baseline_metrics, ends normally."""
+        metrics = DogfoodingMetrics(data_dir=tmp_path)
+        session = metrics.start_session(issue_number=1)
+        session["baseline_metrics"] = {"total_mcp_calls": 7}
+        metrics._save_session(session)
+        metrics.log_mcp_query("resolve", 1.0)
+        assert metrics.end_session()["stats"]["mcp_queries_count"] == 1
+
+    def test_the_dead_read_is_gone(self):
+        import importlib.util
+
+        assert not hasattr(DogfoodingMetrics, "_get_mcp_metrics")
+        assert importlib.util.find_spec("scripts.dogfooding_integration") is None
+        script = Path(__file__).resolve().parents[1] / "scripts" / "dogfooding_metrics.py"
+        source = script.read_text(encoding="utf-8")
+        assert "get_performance_metrics" not in source

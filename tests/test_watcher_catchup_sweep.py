@@ -51,6 +51,28 @@ def manager() -> Iterator[ProjectManager]:
     m.cleanup_all()
 
 
+@pytest.fixture
+def written(manager: ProjectManager, monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """Hold every sweep until the test has made its change; set it after the write (#906).
+
+    A sweep catches a change made between the watcher's start and the sweep.
+    Under load the test's own set-up (``get_analyzer``, a cold first
+    ``resolve``) can outlast both fast sweeps, so the write lands after the last
+    one: a silent watcher then never delivers it, and no wait budget helps.
+    Holding the sweeps puts the write inside the window by construction.
+    """
+    done = threading.Event()
+    real = manager._catch_up
+
+    def gated(root: Path) -> None:
+        done.wait(timeout=DELIVERY.get_threshold() / 1000)
+        real(root)
+
+    # Each sweep's Timer looks ``_catch_up`` up when it is scheduled, in get_analyzer.
+    monkeypatch.setattr(manager, "_catch_up", gated)
+    return done
+
+
 def _spy(
     manager: ProjectManager, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[list[list[str]], threading.Event]:
@@ -79,14 +101,19 @@ async def _until_found(name: str, analyzer: Any) -> bool:
 @pytest.mark.usefixtures("fast_sweeps", "silent_watchers")
 class TestCatchUpSweep:
     @pytest.mark.asyncio
+    # 0.5 s outlasts both fast sweeps: a slow start-up, as on a loaded CI runner (#906).
+    @pytest.mark.parametrize("start_up", [0.0, 0.5], ids=["fast", "slow-start-up"])
     async def test_a_change_during_start_up_is_picked_up(
-        self, tmp_path: Path, manager: ProjectManager
+        self, tmp_path: Path, manager: ProjectManager, written: threading.Event, start_up: float
     ) -> None:
         proj = _project(tmp_path / "proj")
         analyzer = manager.get_analyzer(proj.as_posix())
+        # A slow set-up builds the index only after both sweeps would have run.
+        await asyncio.sleep(start_up)
         assert (await resolve("Gamma", analyzer))["found"] is False
 
         (proj / "pkg" / "extra.py").write_text("class Gamma:\n    pass\n")
+        written.set()
 
         assert await _until_found("Gamma", analyzer), "the catch-up sweep never invalidated"
 
@@ -133,6 +160,7 @@ class TestCatchUpSweep:
         tmp_path: Path,
         manager: ProjectManager,
         monkeypatch: pytest.MonkeyPatch,
+        written: threading.Event,
     ) -> None:
         proj = _project(tmp_path / "proj")
         old = time.time() - 3600
@@ -145,6 +173,7 @@ class TestCatchUpSweep:
         venv.mkdir(parents=True)
         (venv / "site.py").write_text("X = 1\n")
         (proj / "pkg" / "new.py").write_text("Y = 2\n")
+        written.set()
 
         assert fired.wait(timeout=DELIVERY.get_threshold() / 1000)
         swept = {Path(p).name for batch in calls for p in batch}

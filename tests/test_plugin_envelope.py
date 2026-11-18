@@ -88,11 +88,14 @@ def _config(main: Path, shared: Path, extra: Path | None, **more: Any) -> Projec
 
 
 def _plugins(main: Path, config: ProjectConfig) -> list[AnalyzerPlugin]:
+    from pyeye.mcp.server import _apply_plugin_paths
+
     plugins = []
     for cls in PLUGIN_CLASSES:
         plugin = cls(str(main))
-        plugin.set_additional_paths([Path(p) for p in config.get_package_paths()])
-        plugin.set_namespace_paths(config.get_namespaces())
+        # As initialize_plugins does, rejected_paths included (#898): a plugin
+        # whose check never ran omits the key rather than report [].
+        _apply_plugin_paths(plugin, config)
         plugins.append(plugin)
     return plugins
 

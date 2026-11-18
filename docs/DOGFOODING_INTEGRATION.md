@@ -1,181 +1,110 @@
 # Dogfooding Metrics Integration
 
-This document describes the integration between MCP performance metrics and dogfooding metrics tracking, implemented in issue #170.
+How the pieces that measure our own use of pyeye fit together: the dogfooding
+session CLI, grep tracking, and the Claude Code hooks that count MCP calls.
 
-## Problem Statement
+## Where each number comes from
 
-The original dogfooding metrics system reported no MCP adoption at all despite heavy MCP tool usage during development. This was because:
+| What | Recorded by | Where it lands |
+|------|-------------|----------------|
+| MCP tool calls made by Claude | The Claude Code hooks in [`scripts/claude_hooks/`](../scripts/claude_hooks/README.md) | `~/.claude/mcp_monitoring/` |
+| Manual searches (`grep`, `rg`, …) | `scripts/grep_tracker.sh`, installed by `scripts/setup_grep_tracking.sh` | the active dogfooding session |
+| MCP queries you log by hand, time saved, bugs prevented | `scripts/dogfooding_metrics.py` (`mcp`, `saved`, `bug`) | the active dogfooding session |
 
-1. MCP tool calls from Claude were not being captured
-2. No integration existed between the MCP server's performance metrics and the dogfooding tracker
-3. Grep usage detection was incomplete
-
-## Solution Architecture
-
-### Components
-
-1. **`scripts/dogfooding_integration.py`** - Bridge between MCP metrics and dogfooding tracker
-2. **Enhanced `scripts/dogfooding_metrics.py`** - Updated to use MCP metrics integration
-3. **`scripts/grep_tracker.sh`** - Shell wrapper for detecting grep usage
-4. **`scripts/setup_grep_tracking.sh`** - Automated setup for grep detection
-
-### Data Flow
+The dogfooding CLI runs outside the MCP server's process, so it can't see the
+server's own call counts. It counts the MCP queries logged into the session
+through its `mcp` command (which `scripts/mcp_wrapper.sh` calls). For the calls
+Claude actually makes, use the hooks: `mcp-report` for usage reports and
+`mcp-logs` to watch calls live (aliases installed by
+`scripts/claude_hooks/setup_mcp_monitoring.sh`). Earlier versions read an
+in-process collector that is always empty outside the server, so they reported
+zero MCP calls (#879, #915).
 
 ```text
-Claude MCP Calls → MCP Server → MetricsCollector → DogfoodingIntegration → Session Storage
-                                                                        ↓
-Shell Commands → grep_tracker.sh → dogfooding_metrics.py → Session Storage
+Claude MCP calls → Claude Code hooks → ~/.claude/mcp_monitoring/   (mcp-report, mcp-logs)
+
+Shell searches  → grep_tracker.sh ─┐
+mcp / saved / bug commands ────────┴→ dogfooding_metrics.py → ~/.pyeye/metrics/ session
 ```
 
-## Key Features
+## Grep usage detection
 
-### Automatic MCP Tool Tracking
+- Wrapper scripts for `grep`, `egrep`, `fgrep` and `rg`.
+- Only searches that look like code searches are counted.
+- Set up with `scripts/setup_grep_tracking.sh`.
 
-- All MCP tools are decorated with `@metrics.measure()` in `server.py`
-- `DogfoodingIntegration.export_mcp_metrics_for_session()` extracts tool usage data
-- `sync` reads the pyeye metrics collector of the process that runs it, so run from the CLI it records no MCP calls: the MCP server's metrics stay inside the server process. MCP tool usage is tracked by the Claude Code hooks instead (see [`scripts/claude_hooks/README.md`](../scripts/claude_hooks/README.md)).
-
-### Grep Usage Detection
-
-- Wrapper scripts for `grep`, `egrep`, `fgrep`, `rg`
-- Intelligent filtering - only tracks code search patterns
-- Automatic setup via `scripts/setup_grep_tracking.sh`
-
-### Session Integration
-
-- Baseline metrics captured at session start
-- Delta calculation at session end
-- Real-time sync updates during active sessions
-
-## API Reference
-
-### DogfoodingIntegration Class
-
-```python
-from scripts.dogfooding_integration import get_integration
-
-integration = get_integration()
-
-# Export current MCP metrics
-metrics = integration.export_mcp_metrics_for_session()
-
-# Log individual tool calls
-integration.log_mcp_call("resolve", {"identifier": "TestClass"})
-
-# Update active session with latest metrics
-success = integration.update_session_with_mcp_stats()
-
-# Calculate MCP adoption rate
-rates = integration.get_mcp_adoption_rate()
-```
-
-### CLI Commands
+## CLI commands
 
 ```bash
-# Start session with MCP metrics baseline
+# Start a session (also started automatically on checkout of an issue branch)
 uv run --frozen python scripts/dogfooding_metrics.py start --issue 170
-
-# Sync current MCP metrics to active session
-uv run --frozen python scripts/dogfooding_metrics.py sync
 
 # Manual logging
 uv run --frozen python scripts/dogfooding_metrics.py grep
+uv run --frozen python scripts/dogfooding_metrics.py mcp resolve
 uv run --frozen python scripts/dogfooding_metrics.py saved 10 "Found refs instantly"
 uv run --frozen python scripts/dogfooding_metrics.py bug "Prevented circular import"
 
-# End session with final metrics delta
+# End the session and show its stats
 uv run --frozen python scripts/dogfooding_metrics.py end
 
-# Generate report with real MCP adoption rates
+# Report on recent sessions
 uv run --frozen python scripts/dogfooding_metrics.py report --days 7
 ```
 
-## Setup Instructions
-
-### Automatic Setup (Recommended)
+## Setup
 
 ```bash
-# Full setup including MCP integration and grep tracking
+# Git hooks, shell aliases, grep tracking and the metrics directory
 bash scripts/setup_dogfooding.sh
-```
 
-### Manual Setup
+# The Claude Code hooks that count MCP calls (mcp-report, mcp-logs)
+bash scripts/claude_hooks/setup_mcp_monitoring.sh
 
-```bash
-# Setup grep tracking only
+# Or grep tracking alone
 bash scripts/setup_grep_tracking.sh
-
-# Test MCP integration
-uv run --frozen python scripts/dogfooding_metrics.py start --issue test
-uv run --frozen python scripts/dogfooding_metrics.py sync
-uv run --frozen python scripts/dogfooding_metrics.py end
 ```
 
-## Metrics Data Structure
+## Session data
 
-### Session with MCP Integration
+An ended session, as appended to `~/.pyeye/metrics/history.jsonl`:
 
 ```json
 {
   "id": "2025-08-24T11:14:12.764119",
   "issue": 170,
   "start_time": "2025-08-24T11:14:12.764134",
-  "baseline_metrics": {
-    "total_mcp_calls": 0,
-    "tool_calls": [],
-    "cache_stats": {"hits": 0, "misses": 0},
-    "memory_stats": {"rss_mb": 64.0}
-  },
-  "final_metrics": {
-    "total_mcp_calls": 15,
-    "tool_calls": [
-      {"tool": "resolve", "count": 8, "avg_ms": 45.2},
-      {"tool": "expand", "count": 5, "avg_ms": 120.8},
-      {"tool": "inspect", "count": 2, "avg_ms": 35.1}
-    ]
-  },
+  "end_time": "2025-08-24T11:26:42.901233",
   "grep_count": 2,
+  "mcp_queries": [
+    {"tool": "resolve", "duration_ms": 45.2, "success": true, "timestamp": "2025-08-24T11:15:30"}
+  ],
+  "time_saved_estimates": [],
+  "bugs_prevented": [],
   "stats": {
-    "mcp_queries_count": 15,
+    "duration_minutes": 12.5,
+    "mcp_queries_count": 1,
     "grep_count": 2,
-    "mcp_ratio": 0.88,
-    "duration_minutes": 12.5
+    "mcp_ratio": 0.33,
+    "bugs_prevented": 0,
+    "time_saved_minutes": 0
   }
 }
 ```
 
-`mcp_ratio` is the MCP query count over all searches: 15 / (15 + 2).
-
-### MCP Tool Usage Log
-
-```jsonl
-{"timestamp": "2025-08-24T11:15:30", "tool": "resolve", "params": {"identifier": "MetricsCollector"}}
-{"timestamp": "2025-08-24T11:16:45", "tool": "expand", "params": {"handle": "pyeye.metrics.MetricsCollector", "edge": "members"}}
-```
+`mcp_ratio` is the logged MCP query count over all searches: 1 / (1 + 2).
+Sessions saved by older versions also carry `baseline_metrics` and
+`final_metrics`; nothing reads them.
 
 ## Testing
 
-The integration's tests are in `tests/test_dogfooding_integration.py`:
-
 ```bash
-# Run integration tests
-uv run pytest tests/test_dogfooding_integration.py -v
-
-# Test specific functionality
-uv run pytest tests/test_dogfooding_integration.py::test_export_mcp_metrics_for_session -v
+uv run pytest tests/test_dogfooding_metrics.py tests/test_dogfooding_workflow.py -v
 ```
 
 ## Troubleshooting
 
-### "0 MCP calls synced" Issue
-
-This typically means:
-
-1. No active dogfooding session - run `uv run --frozen python scripts/dogfooding_metrics.py start --issue <num>`
-2. MCP server instance isolation - the metrics are in a different server instance
-3. Import path issues - ensure `src/` is in PYTHONPATH
-
-### Grep Tracking Not Working
+### Grep tracking not working
 
 Check:
 
@@ -183,16 +112,8 @@ Check:
 2. `~/.local/bin` is in PATH: `echo $PATH | grep local/bin`
 3. Wrapper scripts exist: `ls -la ~/.local/bin/grep`
 
-### Performance Impact
-
-- Log file writes: one synchronous append to `mcp_calls.jsonl` per call
-- Session updates: Only on explicit `sync` calls
-
-## Hook-Based MCP Tracking
-
-Tracking MCP calls through Claude Code hooks is described in [`scripts/claude_hooks/README.md`](../scripts/claude_hooks/README.md).
-
-## Related Issues
+## Related issues
 
 - #170: Fix MCP usage tracking in dogfooding metrics
 - #135: Original dogfooding metrics implementation
+- #879, #915: The CLI no longer pretends to read the server's MCP counts

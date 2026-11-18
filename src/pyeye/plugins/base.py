@@ -5,10 +5,13 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..path_utils import normalize_path, relative_within
 from ..scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
+
+if TYPE_CHECKING:
+    from ..analyzers.jedi_analyzer import JediAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +37,10 @@ class AnalyzerPlugin(ABC):
         self.additional_paths: list[Path] = []
         self.namespace_paths: dict[str, list[Path]] = {}
         self.standalone_paths: list[Path] = []
-        #: Config entries the path check refused (``ProjectConfig.rejected_paths``, #898).
-        self.rejected_paths: list[dict[str, str]] = []
+        #: Config entries the path check refused (``ProjectConfig.rejected_paths``,
+        #: #898). ``None`` until a completed check sets it: never a ``[]`` that
+        #: nothing measured.
+        self.rejected_paths: list[dict[str, str]] | None = None
 
     # Read/parse contract shared by every plugin (#622, #637): unreadable files and
     # unparseable user source are warned about and skipped; anything else, such as an
@@ -49,6 +54,12 @@ class AnalyzerPlugin(ABC):
         except (OSError, UnicodeDecodeError) as e:
             logger.warning(f"Plugin {self.name()}: error reading {path.as_posix()}: {e}")
             return None
+
+    def _analyzer(self) -> "JediAnalyzer":
+        """The project's shared analyzer (the server's instance; no ``pyeye.mcp`` import)."""
+        from ..project_manager import get_project_manager
+
+        return get_project_manager().get_analyzer(self.project_path.as_posix())
 
     async def _read_source(self, path: Path) -> str | None:
         """Read a project file, or warn and return ``None`` if it cannot be read as text."""
@@ -165,11 +176,12 @@ class AnalyzerPlugin(ABC):
         """
         self.standalone_paths = paths
 
-    def set_rejected_paths(self, rejected: list[dict[str, str]]) -> None:
+    def set_rejected_paths(self, rejected: list[dict[str, str]] | None) -> None:
         """Set the config entries the path check refused (#898).
 
         Args:
             rejected: ``ProjectConfig.rejected_paths()``: ``{scope, path, reason, detail}``
+                records, or ``None`` when the check couldn't complete
         """
         self.rejected_paths = rejected
 
@@ -304,7 +316,11 @@ class AnalyzerPlugin(ABC):
         unsearched: list[str] = []
         for name, paths in self.configured_scopes().items():
             # A path is searched when it is, or lies under, a searched root.
-            whole = all(any(p == c or c in p.parents for c in covered) for p in paths)
+            # A scope with no directories (a namespace glob that matched nothing,
+            # #872) searched nothing: unsearched, not vacuously "all searched".
+            whole = bool(paths) and all(
+                any(p == c or c in p.parents for c in covered) for p in paths
+            )
             (searched if whole else unsearched).append(name)
         for s in [scope] if isinstance(scope, str) else scope:
             exists = (
@@ -316,7 +332,7 @@ class AnalyzerPlugin(ABC):
             # logging it, so [] can't read as a measured empty (#842).
             elif s.startswith("package:") and not exists and s not in unsearched:
                 unsearched.append(s)
-        for name in dict.fromkeys(r["scope"] for r in self.rejected_paths):
+        for name in dict.fromkeys(r["scope"] for r in self.rejected_paths or []):
             if name in searched:
                 searched.remove(name)
             if name not in unsearched:
