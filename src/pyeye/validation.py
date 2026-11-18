@@ -189,14 +189,19 @@ class PathValidator:
         - A relative path without one: anchored on the cwd, where the OS would
           resolve it (#939). The deny-list is all anchored patterns, so a path
           checked only as written ("etc/passwd") would never match.
+
+        The resolved form resolves the RAW join, never the lexical form: the OS
+        follows a symlink before ``..``, so ``l_tmp/../etc`` with ``l_tmp`` ->
+        ``/tmp`` is ``/etc`` on disk, though it collapses lexically to
+        ``<root>/etc`` (as :meth:`_final_forms` does, #856 review; #939 review).
         """
         if path.is_absolute():
-            lexical = absolute_path(path)
+            lexical, raw = absolute_path(path), path
         elif anchor_root is not None:
-            lexical = absolute_path(anchor(path, anchor_root))
+            lexical, raw = absolute_path(anchor(path, anchor_root)), Path(anchor_root) / path
         else:
-            lexical = absolute_path(path)
-        resolved = normalize_path(lexical)
+            lexical, raw = absolute_path(path), path
+        resolved = normalize_path(raw)
         return resolved, list(dict.fromkeys([lexical.as_posix(), resolved.as_posix()]))
 
     @classmethod
