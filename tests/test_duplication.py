@@ -456,6 +456,27 @@ def test_cli_dismiss_unknown_family_and_missing_state(
     assert dup.main([*base, "--state", "s.json"]) == 1
 
 
+def test_cli_exit_2_comes_before_the_scan_and_exit_1_after_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """#882: main's docstring names both exits; pin which side of the scan each is on."""
+    _write(tmp_path, "pkg/a.py", _BODY.format(name="find"))
+    monkeypatch.chdir(tmp_path)
+    scans: list[object] = []
+    real_review = dup.review
+    monkeypatch.setattr(dup, "review", lambda *a, **k: scans.append(a) or real_review(*a, **k))
+    base = ["dismiss", "pkg", "--family", "nope", "--reason", "other", "--date", "2026-11-17"]
+
+    assert dup.main(base) == 2  # no --state: a bad argument
+    assert dup.main([*base, "--state", "s.json", "--date", "someday"]) == 2  # a bad date
+    assert scans == [], "an exit-2 error must not scan"
+
+    assert dup.main([*base, "--state", "s.json"]) == 1
+    assert len(scans) == 1, "an unknown family is only known after the scan"
+    assert "no family with id 'nope'" in capsys.readouterr().err
+    assert not (tmp_path / "s.json").exists()
+
+
 def test_cli_rejects_a_bad_today(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     _write(tmp_path, "a.py", "x = 1\n")
     assert dup.main(["review", str(tmp_path), "--root", str(tmp_path), "--today", "tomorrow"]) == 2
@@ -790,6 +811,25 @@ def test_a_location_is_in_exactly_one_family(tmp_path: Path) -> None:
     assert len(seen) == len(set(seen)), [f.locations for f in families]
     (family,) = families
     assert family.locations == ["base.py::Base.helper", "m.py::one", "other.py::Other.helper"]
+
+
+def test_a_function_site_folds_only_a_cross_class_method_end(tmp_path: Path) -> None:
+    """#882: the function end stays itself; the method end folds only if it is cross-class."""
+    helper = _BODY.format(name="helper").replace("(handle", "(self, handle")
+    # Base.helper is in no cross-class pair: the function copy stays its own family.
+    _write(tmp_path, "base.py", "class Base:\n" + textwrap.indent(helper, "    "))
+    _write(tmp_path, "m.py", _BODY.format(name="one"))
+    (family,) = _review(tmp_path).families
+    assert family.locations == ["base.py::Base.helper", "m.py::one"]
+    assert len(family.sites) == 1
+
+    # Once Base.helper is also copied into another class, its end is that class
+    # family's node, so the function copy joins the class family: still one family.
+    _write(tmp_path, "other.py", "class Other:\n" + textwrap.indent(helper, "    "))
+    families = _review(tmp_path).families
+    assert [f.locations for f in families] == [
+        ["base.py::Base.helper", "m.py::one", "other.py::Other.helper"]
+    ]
 
 
 def test_module_level_code_never_links_unrelated_dismissals() -> None:

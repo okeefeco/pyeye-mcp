@@ -77,6 +77,37 @@ def _leaf(text: str) -> str:
     return text.rsplit(".", 1)[-1]
 
 
+#: The suffixes that make a lookup argument a source file, not a dotted handle.
+_SOURCE_SUFFIXES = (".py", ".pyi")
+
+
+def _as_file_path(text: str) -> str | None:
+    """*text* spelled with forward slashes if it is a file path, else ``None``.
+
+    A path has a separator or ends in a source suffix. A dotted handle whose
+    last part merely starts with ``py`` (``pkg.mod.py_thing``) is not a path.
+    Forward slashes work on every OS, so the suggested call resolves everywhere
+    (#882).
+    """
+    if "/" in text or "\\" in text or text.endswith(_SOURCE_SUFFIXES):
+        return text.replace("\\", "/")
+    return None
+
+
+def _path_hint(text: str, path: str) -> str:
+    """The next step for a file path: resolve its ``.py`` source.
+
+    ``resolve`` reads ``.py`` sources; a ``.pyi`` stub isn't one, so the hint
+    names the source beside it (``resolve`` says plainly if there is none).
+    """
+    if path.endswith(".pyi"):
+        return (
+            f"{text!r} is a stub file. pyeye reads the .py source: call "
+            f"resolve({path[:-1]!r}) to get its module's handle."
+        )
+    return f"{text!r} is a file path, not a dotted handle. Call resolve({path!r}) to get its module's handle."
+
+
 def _default_detail(operation: str, echo: Mapping[str, Any], reason: str) -> str:
     """An actionable next step for *reason*, phrased for *operation*'s input."""
     if operation == "resolve_at":
@@ -107,6 +138,14 @@ def _default_detail(operation: str, echo: Mapping[str, Any], reason: str) -> str
                 f"No symbol on the line in {identifier!r}. Use resolve_at(file, line, "
                 "column) to point at a name, or resolve() the name itself."
             )
+        path = _as_file_path(identifier)
+        if path is not None and path.endswith(".pyi"):  # its leaf would be 'pyi' (#882)
+            return _path_hint(identifier, path)
+        if path is not None:
+            return (
+                f"{identifier!r} is a file that didn't resolve to a module. Pass a .py "
+                "file inside the project or one of its configured packages."
+            )
         return (
             f"{identifier!r} did not resolve to a symbol. Check the spelling, or "
             f"call resolve({_leaf(identifier)!r}) with the bare name to search the "
@@ -120,6 +159,9 @@ def _default_detail(operation: str, echo: Mapping[str, Any], reason: str) -> str
             '(e.g. scope="all").'
         )
     handle = str(echo["handle"])
+    path = _as_file_path(handle)
+    if path is not None:  # a path, not a handle: its leaf would be 'py' (#882)
+        return _path_hint(handle, path)
     return (
         f"Handle {handle!r} did not resolve to a symbol. "
         f"Call resolve({_leaf(handle)!r}) to find its canonical handle."
