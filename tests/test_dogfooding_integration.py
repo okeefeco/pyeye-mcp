@@ -163,20 +163,6 @@ def test_get_mcp_adoption_rate_with_session(integration):
     assert result["issue"] == 170
 
 
-def test_sync_mcp_metrics_function(monkeypatch):
-    """Test the sync_mcp_metrics convenience function."""
-    from scripts.dogfooding_integration import sync_mcp_metrics
-
-    # Mock the integration methods
-    def mock_update(self):  # noqa: ARG001
-        return True
-
-    monkeypatch.setattr(DogfoodingIntegration, "update_session_with_mcp_stats", mock_update)
-
-    result = sync_mcp_metrics()
-    assert result is True
-
-
 class TestIntegrationWithRealMetrics:
     """Integration tests with real metrics collection."""
 

@@ -177,12 +177,3 @@ def get_integration() -> DogfoodingIntegration:
     if _integration is None:
         _integration = DogfoodingIntegration()
     return _integration
-
-
-def sync_mcp_metrics() -> bool:
-    """Sync current MCP metrics to dogfooding session.
-
-    This should be called periodically or after significant operations.
-    """
-    integration = get_integration()
-    return integration.update_session_with_mcp_stats()

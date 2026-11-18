@@ -149,36 +149,6 @@ class DogfoodingMetrics:
         )
         self._save_session(session)
 
-    def sync_mcp_metrics(self) -> dict[str, Any]:
-        """Sync current MCP metrics to the active session."""
-        if not self.session_file.exists():
-            return {"error": "No active session"}
-
-        try:
-            # Try to get fresh MCP metrics
-            current_metrics = self._get_mcp_metrics()
-
-            session = self._load_session()
-            session["current_metrics"] = current_metrics
-            session["last_sync"] = datetime.now().isoformat()
-
-            # Update MCP query count if we have it
-            if "total_mcp_calls" in current_metrics:
-                baseline_total = session.get("baseline_metrics", {}).get("total_mcp_calls", 0)
-                current_total = current_metrics.get("total_mcp_calls", 0)
-                session["mcp_queries_count"] = max(current_total - baseline_total, 0)
-
-            self._save_session(session)
-
-            return {
-                "synced": True,
-                "mcp_calls": session.get("mcp_queries_count", 0),
-                "session_id": session.get("id"),
-            }
-
-        except Exception as e:
-            return {"error": f"Failed to sync MCP metrics: {e}"}
-
     def generate_report(self, days: int = 7) -> dict[str, Any]:
         """Generate a report for the last N days."""
         if not self.history_file.exists():
@@ -438,21 +408,6 @@ def bug(description: str) -> None:
     metrics = DogfoodingMetrics()
     metrics.log_bug_prevented(description)
     click.echo(f"Logged prevented bug: {description}")
-
-
-@cli.command()
-def sync() -> None:
-    """Sync current MCP metrics to active session."""
-    metrics = DogfoodingMetrics()
-    result = metrics.sync_mcp_metrics()
-
-    if "error" in result:
-        click.echo(f"❌ {result['error']}")
-        return
-
-    mcp_calls = result.get("mcp_calls", 0)
-    session_id = result.get("session_id", "unknown")
-    click.echo(f"✅ Synced {mcp_calls} MCP calls for session {session_id}")
 
 
 if __name__ == "__main__":
