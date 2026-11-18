@@ -16,10 +16,9 @@ detected in the project or in one of its configured packages.
 
 The tools: <!-- fact:begin tools.plugin.pydantic -->`find_computed_fields`, `find_field_validators`, `find_model_config`, `find_pydantic_models`, `find_validators`, `get_model_schema`, `trace_model_inheritance`<!-- fact:end -->.
 
-Some fields of these results are known to come back empty when they shouldn't
-(#870): the model configuration set with `ConfigDict(...)`, `get_model_schema`'s
-`computed_fields` and `trace_model_inheritance`'s `mro`. The examples leave them
-out.
+Two fields of `trace_model_inheritance`'s result are known to come back empty
+when they shouldn't (#870): `mro` and `fields_inherited`. The examples leave
+them out.
 
 ## find_pydantic_models
 
