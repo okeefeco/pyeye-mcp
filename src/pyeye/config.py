@@ -30,6 +30,15 @@ def _unsaved_key(project_path: str | Path) -> str:
     return path_to_key(normalize_path(project_path))
 
 
+def _posix_entry(entry: str | Path) -> str:
+    """A config entry in POSIX spelling, as the config and responses carry paths (#717).
+
+    ``Path`` reads the platform's separators, so a Windows backslash becomes
+    ``/`` while a POSIX name that merely contains one is left alone.
+    """
+    return Path(entry).as_posix()
+
+
 def add_unsaved(
     project_path: str | Path,
     packages: list[str] | None = None,
@@ -44,10 +53,14 @@ def add_unsaved(
     overlay = _UNSAVED.setdefault(
         _unsaved_key(project_path), {"packages": [], "namespaces": {}, "standalone_dirs": []}
     )
-    overlay["packages"] = list(dict.fromkeys([*overlay["packages"], *(packages or [])]))
-    overlay["namespaces"].update(namespaces or {})
+    overlay["packages"] = list(
+        dict.fromkeys([*overlay["packages"], *map(_posix_entry, packages or [])])
+    )
+    overlay["namespaces"].update(
+        {ns: [_posix_entry(p) for p in paths] for ns, paths in (namespaces or {}).items()}
+    )
     overlay["standalone_dirs"] = list(
-        dict.fromkeys([*overlay["standalone_dirs"], *(standalone_dirs or [])])
+        dict.fromkeys([*overlay["standalone_dirs"], *map(_posix_entry, standalone_dirs or [])])
     )
 
 
@@ -161,14 +174,16 @@ class ProjectConfig:
             return
         if overlay["packages"]:
             packages = self.config.setdefault("packages", [])
-            packages.extend(p for p in overlay["packages"] if p not in packages)
+            have = {_posix_entry(p) for p in packages}
+            packages.extend(p for p in overlay["packages"] if p not in have)
         if overlay["namespaces"]:
             self.config.setdefault("namespaces", {}).update(overlay["namespaces"])
         if overlay["standalone_dirs"]:
             if not isinstance(self.config.get("standalone"), dict):
                 self.config["standalone"] = {}
             dirs = self.config["standalone"].setdefault("dirs", [])
-            dirs.extend(d for d in overlay["standalone_dirs"] if d not in dirs)
+            have = {_posix_entry(d) for d in dirs}
+            dirs.extend(d for d in overlay["standalone_dirs"] if d not in have)
 
     def get_ignored_top_level_keys(self) -> list[str]:
         """Return the (sorted) top-level keys in the config that pyeye ignores (#581)."""

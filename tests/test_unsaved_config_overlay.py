@@ -224,3 +224,64 @@ class TestSequenceExamples:
 
         assert examples == []
         assert len(problems) == 1
+
+
+class TestPosixSpellings:
+    """Config entries and responses carry POSIX paths, never native ones (#717).
+
+    The list inputs (``packages``, ``standalone_dirs``) reached the tool as
+    ``str(path)``: native backslashes on Windows, which the overlay, the saved
+    ``.pyeye.json`` and the response then carried.
+    """
+
+    def test_list_inputs_reach_the_tool_in_posix(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Simulates Windows: a validated path whose ``str()`` is native."""
+        from pathlib import PureWindowsPath
+
+        from pyeye.validation import PathValidator, validate_mcp_inputs
+
+        native = PureWindowsPath("C:\\repo\\pkg")  # str() -> "C:\\repo\\pkg"
+
+        def validated(*_args: object, **_kwargs: object) -> PureWindowsPath:
+            return native
+
+        monkeypatch.setattr(PathValidator, "validate_path", validated)
+        monkeypatch.setattr(PathValidator, "validate_scan_root", validated)
+
+        @validate_mcp_inputs
+        def tool(packages: list, standalone_dirs: list) -> dict:
+            return {"packages": packages, "standalone_dirs": standalone_dirs}
+
+        result = tool(["x"], ["y"])
+
+        assert result == {"packages": ["C:/repo/pkg"], "standalone_dirs": ["C:/repo/pkg"]}
+
+    def test_the_overlay_stores_posix_spellings(self, workspace: dict[str, Path]) -> None:
+        from pyeye import config as config_module
+
+        config_module.add_unsaved(
+            workspace["proj"],
+            packages=[workspace["libA"]],
+            namespaces={"co": [workspace["ns1"]]},
+            standalone_dirs=[workspace["scripts"]],
+        )
+        overlay = next(iter(config_module._UNSAVED.values()))
+
+        assert overlay["packages"] == [workspace["libA"].as_posix()]
+        assert overlay["namespaces"] == {"co": [workspace["ns1"].as_posix()]}
+        assert overlay["standalone_dirs"] == [workspace["scripts"].as_posix()]
+
+    def test_the_saved_file_and_unsaved_carry_no_backslashes(
+        self, workspace: dict[str, Path]
+    ) -> None:
+        proj = workspace["proj"]
+        unsaved = _configure(
+            proj,
+            packages=[str(workspace["libA"])],
+            standalone_dirs=[str(workspace["scripts"])],
+            save=False,
+        )["unsaved"]
+        _configure(proj, save=True)
+
+        assert "\\\\" not in json.dumps(unsaved)
+        assert "\\\\" not in (proj / ".pyeye.json").read_text(encoding="utf-8")
