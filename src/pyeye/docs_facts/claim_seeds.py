@@ -10,13 +10,6 @@ removes its entry here in the same PR. Never add one.
 from __future__ import annotations
 
 SEEDS: dict[str, tuple[str, ...]] = {
-    ".claude/instructions/08-project-specific.md": (
-        "unbacked duration '5min': - **Caching Layer**: File watchers (watchdog) + result cache (5min TTL)",
-        "unbacked N-plus '17+ core': ├── server.py # Main MCP server with 17+ core tools",
-    ),
-    ".claude/instructions/09-task-management.md": (
-        "unbacked duration '10 minute': - **Break tasks into small chunks** - 5-10 minute increments",
-    ),
     ".claude/skills/pyeye-scenarios/SKILL.md": (
         "unbacked size '350 KB': SHA. The jaraco repos are ~350 KB each (free), so a per-worktree clone is trivial.",
         "unbacked size '366 MB': django is ~366 MB — to avoid re-downloading it per worktree, clone with",

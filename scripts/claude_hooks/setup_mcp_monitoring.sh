@@ -115,7 +115,7 @@ echo "6️⃣  Testing hook configuration..."
 if command -v claude &> /dev/null; then
     echo "   Testing PreToolUse hook for MCP tools..."
     # This would test the hook but claude CLI might not have a test command
-    echo -e "${YELLOW}⚠️  Manual test required - run: claude code hook test PreToolUse mcp__pyeye__find_symbol${NC}"
+    echo -e "${YELLOW}⚠️  Manual test required - run: claude code hook test PreToolUse mcp__pyeye__resolve${NC}"
 else
     echo -e "${YELLOW}⚠️  Claude CLI not found in PATH - skipping hook test${NC}"
 fi

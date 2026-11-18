@@ -40,8 +40,8 @@ When to update: When PR requirements or quality standards change
 
 ```bash
 # MANDATORY: Run ALL tests with coverage (catches breaking changes to existing code)
-# This would have caught the ProjectCache/GranularCache issue in PR #77
-pytest --cov=src/pyeye
+# This would have caught the cache-class breakage in PR #77
+uv run pytest --cov=src/pyeye
 
 # Note: Pre-commit does NOT run tests - you MUST run them manually!
 ```
