@@ -3,11 +3,13 @@
 
 # Path to the dogfooding metrics script
 DOGFOODING_SCRIPT="$(dirname "$0")/dogfooding_metrics.py"
+# Its imports live only in the project's uv environment (#879)
+PROJECT_ROOT="$(dirname "$0")/.."
 
 # Function to log grep usage
 log_grep_usage() {
     if [[ -f "$DOGFOODING_SCRIPT" ]]; then
-        python "$DOGFOODING_SCRIPT" grep 2>/dev/null || true
+        uv run --frozen --project "$PROJECT_ROOT" python "$DOGFOODING_SCRIPT" grep 2>/dev/null || true
     fi
 }
 

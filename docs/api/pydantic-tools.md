@@ -15,6 +15,13 @@ Two fields of `trace_model_inheritance`'s result are known to come back empty
 when they shouldn't (#870): `mro` and `fields_inherited`. The examples leave
 them out.
 
+A model's configuration (`config` on a model or schema, `settings` from
+`find_model_config`) is reported only when its `model_config` can be read in
+full from source: a dict literal or a `ConfigDict(...)` /
+`SettingsConfigDict(...)` call whose entries all have plain keys. When it can't
+(a function call, a name, a `**` splat), the key is left out rather than shown
+empty or partial (#870). A model with no configuration at all has `{}`.
+
 ## find_pydantic_models
 
 Every model, with its fields, validators and base classes: the starting point

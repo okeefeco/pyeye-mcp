@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye._jedi_names import is_attribute_target
+from pyeye.exceptions import ValidationError
 from pyeye.handle import Handle
 from pyeye.mcp.operations.completeness import (
     DEFAULT_MAX_CANDIDATES,
@@ -72,6 +73,7 @@ from pyeye.mcp.operations.not_found import not_found_for
 from pyeye.path_utils import anchor, normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
+from pyeye.validation import PathValidator
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -578,13 +580,21 @@ async def _resolve_identifier(
     form = _parse_identifier(identifier)
     kind = form["kind"]
 
-    if kind == "file_with_line":
+    if kind in ("file_with_line", "file_only"):
+        # The file form is a caller path like any other: checked in the form it
+        # will be read (#856). A forbidden path is an invalid argument, never a
+        # not-found (that would write unknown as absent, #568).
+        try:
+            PathValidator.validate_final(form["path"], analyzer.project_path)
+        except ValidationError as error:
+            raise ValidationError(
+                f"Invalid identifier {identifier!r}: {error}", parameter="identifier"
+            ) from error
         # A relative path is the project's, not the server cwd's (#843).
         path = anchor(form["path"], analyzer.project_path)
-        return await _resolve_file_line(path, form["line"], analyzer)
-
-    if kind == "file_only":
-        return await _resolve_file_only(anchor(form["path"], analyzer.project_path), analyzer)
+        if kind == "file_with_line":
+            return await _resolve_file_line(path, form["line"], analyzer)
+        return await _resolve_file_only(path, analyzer)
 
     if kind == "dotted_name":
         return await _resolve_dotted_name(form["name"], analyzer)

@@ -81,14 +81,39 @@ they can't drift from it.
 - **It reads what the MCP client points it at.** Tools take a `project_path`,
   and `configure_packages` can add package, namespace and standalone-script
   paths. pyeye reads those paths with the permissions of the user running the
-  server. A path that goes through the input check is rejected for:
+  server.
+
+  Every caller-supplied path goes through the input check in the form the tool
+  will finally use: a relative path anchored on the call's `project_path` (or,
+  for `project_path` itself, on the server's working directory), checked both as
+  spelled and with symlinks followed
+  ([#856](https://github.com/okeefeco/pyeye-mcp/issues/856)). That covers:
+
+  - `project_path`, and `resolve_at`'s `file`;
+  - `resolve`'s file forms (`path/to/file.py` and `path/to/file.py:42`);
+  - a plugin tool's `scope="package:<path>"`;
+  - `configure_packages`' `packages`, `namespaces` paths and `standalone_dirs`;
+  - the `namespaces` and `standalone.dirs` paths in a `.pyeye.json` or other
+    config, which are skipped with a warning when refused, rather than failing
+    the call.
+
+  A refused tool argument is an error, never a "not found". A path is rejected
+  for:
 
   <!-- fact:begin security.path_checks -->
   - anywhere in the path: null bytes, suspicious triple dots;
   - naming one of these directories: `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`;
-  - a target matching one of these patterns: `^/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
+  - a target matching one of these patterns: `^/etc/`, `^/private/etc/`, `^/root/`, `^/proc/`, `^/sys/`, `^/dev/`, `/etc/`, `/root/`;
   - forms checked: the deny-list checks the target's lexical and resolved forms.
   <!-- fact:end -->
+
+  A directory pyeye scans (a plugin scope, or a configured package, namespace
+  or standalone directory) is also refused when it is an ancestor of one of the
+  anchored directories above: `/`, and `/private` on macOS. That includes the
+  scan `project_path="/"` implies for scope `main`. `project_path` itself and
+  single-file inputs are not affected. Every directory walk also skips a
+  directory whose resolved form is one of them, so a symlink inside a scanned
+  tree can't lead a walk into one.
 
   The directories and patterns are POSIX system paths. On Windows a resolved
   path starts with a drive letter, so the `^`-anchored patterns never match it,
@@ -96,9 +121,8 @@ they can't drift from it.
   names. This is a sanity check, **not a sandbox**:
   - any directory the server's user can read can be analysed if a client asks
     for it;
-  - not every path input goes through the check yet
-    ([#856](https://github.com/okeefeco/pyeye-mcp/issues/856) tracks closing
-    those gaps).
+  - the check is the deny-list above, nothing more: any other directory the
+    server's user can read is in reach.
 
   Run the server as a user whose read access you're comfortable exposing to your
   MCP client.
