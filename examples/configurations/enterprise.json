@@ -22,27 +22,22 @@
       "~/repos/company-devtools"
     ],
     "experiments": [
-      "~/repos/experimental-*"
+      "~/repos/experimental-search"
     ],
     "internal": [
-      "~/repos/internal-*"
+      "~/repos/internal-tools"
     ],
     "vendor": [
-      "~/repos/vendor-*"
+      "~/repos/vendor-patches"
     ]
   },
   "packages": [
-    "~/.venv/lib/python3.11/site-packages"
+    "~/repos/vendored-libs"
   ],
-  "performance": {
-    "cache_ttl": 600,
-    "lazy_load_namespaces": true,
-    "max_concurrent_searches": 20
-  },
   "scope_aliases": {
     "api-surface": [
       "namespace:company.services",
-      "namespace:company.sdk"
+      "namespace:company.tools.sdk"
     ],
     "company": [
       "namespace:company.core",
@@ -57,13 +52,19 @@
     ],
     "development": [
       "main",
-      "namespace:company",
+      "namespace:company.core",
+      "namespace:company.libs",
+      "namespace:company.services",
+      "namespace:company.tools",
       "namespace:internal",
       "namespace:experiments"
     ],
     "first-party": [
       "main",
-      "namespace:company",
+      "namespace:company.core",
+      "namespace:company.libs",
+      "namespace:company.services",
+      "namespace:company.tools",
       "namespace:internal"
     ],
     "production": [
@@ -82,7 +83,7 @@
     ]
   },
   "scope_defaults": {
-    "global": "namespace:company",
+    "global": "company",
     "methods": {
       "find_flask_routes": "namespace:company.services",
       "find_pydantic_models": "namespace:company.libs"

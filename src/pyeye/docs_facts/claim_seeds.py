@@ -39,12 +39,6 @@ SEEDS: dict[str, tuple[str, ...]] = {
         "unbacked duration '3 s': (#803's profile). 's ~3 s is today's ceiling, and it isn't profiled. For",
         "unbacked duration '1.2 s': at 0.5–1.2 s, most of it Jedi inference.",
     ),
-    "DOCUMENTATION.md": (
-        "unbacked size '10MB': 3. **File Size Limits**: Large files are rejected (default 10MB limit):",
-        "unbacked size '50MB': - Each project: ~10-50MB depending on size",
-        "unbacked size '100MB': - Cache: Configurable, default 100MB max",
-        "unbacked size '1MB': - File watchers: ~1MB per project",
-    ),
     "docs/architecture/resolution.md": (
         "unbacked percentage '7%': roughly 7% of bases on Django (#419).",
     ),

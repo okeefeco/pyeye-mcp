@@ -15,7 +15,7 @@ drive ``ProjectManager._on_files_changed``, so they need no sleeps. Four tests
 run a real watchdog observer, bounded by a wait derived from the catch-up sweep
 schedule (#715): the last sweep is what guarantees delivery at start-up. Two of
 them disable the sweeps to check post-live delivery, alone and in a burst
-(#788, xfail on macOS).
+(#788; no longer xfail on macOS after 264 clean macOS legs following #819).
 """
 
 from __future__ import annotations
@@ -385,10 +385,11 @@ def _sweep_wait_s() -> float:
 class FSEventsDiagnostic(UserWarning):
     """A real-observer test's failure diagnostics, emitted as a warning (#788).
 
-    pytest prints neither the assertion message nor the captured output of an
-    XFAIL, but its warnings summary lists every warning with the test id. So a
-    darwin-xfail failure still leaves its evidence in the CI log: grep for
-    ``FSEventsDiagnostic``. A dedicated class, so it can't meet the
+    pytest's warnings summary lists every warning with the test id, so a
+    real-observer failure leaves its evidence in the CI log even when the
+    assertion message is cut short: grep for ``FSEventsDiagnostic``. (These tests
+    were darwin-xfail until #788's evidence watch, and pytest prints neither the
+    assertion message nor the captured output of an XFAIL.) A dedicated class, so it can't meet the
     ``error::DeprecationWarning:pyeye`` filter or be confused with other warnings.
     """
 
@@ -487,11 +488,6 @@ class TestRealObserver:
             m.cleanup_all()
 
     @pytest.mark.real_watcher
-    @pytest.mark.xfail(
-        sys.platform == "darwin",
-        reason="#788: post-live event drop under investigation",
-        strict=False,
-    )
     async def test_a_create_after_the_watcher_is_live_is_delivered(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -499,8 +495,8 @@ class TestRealObserver:
 
         The catch-up sweeps are disabled, so a drop can't be masked: only a
         delivered event can make Gamma visible. On macOS CI this was missed with
-        the observer already live (#788), so darwin is xfail(strict=False) to keep
-        the evidence coming without dropping PRs.
+        the observer already live (#788). The likely cause was #817's race, fixed by
+        #819; the darwin xfail was removed after 264 clean macOS legs.
         """
         monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
         m = ProjectManager(max_projects=10)
@@ -574,11 +570,6 @@ class TestRealObserver:
             m.cleanup_all()
 
     @pytest.mark.real_watcher
-    @pytest.mark.xfail(
-        sys.platform == "darwin",
-        reason="#788: a create right after another change is missed on macOS",
-        strict=False,
-    )
     async def test_a_create_in_a_burst_is_delivered(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

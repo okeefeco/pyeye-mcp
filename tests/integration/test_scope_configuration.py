@@ -5,8 +5,9 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.config import ProjectConfig
+from pyeye.config import IGNORED_TOP_LEVEL_KEYS, ProjectConfig
 from pyeye.scope_utils import (
+    SCOPE_FORMS,
     LazyNamespaceLoader,
     ScopeDebugger,
     ScopeValidator,
@@ -358,54 +359,78 @@ class TestScopeDebugger:
         assert debug_info["cache_hit"] is True
 
 
+_EXAMPLES = sorted((Path(__file__).parents[2] / "examples" / "configurations").glob("*.json"))
+_PLAIN_SCOPES = {form.syntax for form in SCOPE_FORMS if form.prefix is None}
+_PREFIXES = tuple(form.prefix for form in SCOPE_FORMS if form.prefix is not None)
+
+
+def _scope_problem(scope: str, namespaces: set[str]) -> str | None:
+    """Why *scope* resolves to nothing under :func:`resolve_scope_paths`, or ``None``."""
+    if scope in _PLAIN_SCOPES:
+        return None
+    if not scope.startswith(_PREFIXES):
+        return f"{scope!r} is not a scope form (an unknown scope searches nothing)"
+    if scope.startswith("namespace:"):
+        parts = scope[len("namespace:") :].split(".")
+        # A namespace scope resolves through itself or a dotted parent (#690).
+        if not any(".".join(parts[: i + 1]) in namespaces for i in range(len(parts))):
+            return f"{scope!r} names no configured namespace or parent of one"
+    return None
+
+
 class TestConfigurationExamples:
-    """Test that example configurations are valid."""
+    """Every example configuration loads and names only scopes that can resolve (#830)."""
 
-    def test_monorepo_config_valid(self):
-        """Test monorepo example configuration."""
-        config_path = Path("examples/configurations/monorepo.json")
-        if config_path.exists():
-            with open(config_path) as f:
-                config = json.load(f)
+    def test_examples_exist(self):
+        assert _EXAMPLES
 
-            assert "packages" in config
-            assert "scope_defaults" in config
-            assert "scope_aliases" in config
+    @pytest.mark.parametrize("path", _EXAMPLES, ids=lambda p: p.name)
+    def test_has_no_ignored_keys(self, path):
+        config = json.loads(path.read_text())
+        assert not set(config) & set(IGNORED_TOP_LEVEL_KEYS)
 
-    def test_microservices_config_valid(self):
-        """Test microservices example configuration."""
-        config_path = Path("examples/configurations/microservices.json")
-        if config_path.exists():
-            with open(config_path) as f:
-                config = json.load(f)
+    @pytest.mark.parametrize("path", _EXAMPLES, ids=lambda p: p.name)
+    def test_namespace_entries_are_not_globs(self, path):
+        """A namespace glob isn't expanded yet (#872), so it configures nothing."""
+        config = json.loads(path.read_text())
+        globs = [
+            entry
+            for entries in config.get("namespaces", {}).values()
+            for entry in entries
+            if any(ch in entry for ch in "*?[")
+        ]
+        assert globs == []
 
-            assert "namespaces" in config
-            assert "scope_defaults" in config
-            assert "scope_aliases" in config
+    @pytest.mark.parametrize("path", _EXAMPLES, ids=lambda p: p.name)
+    def test_every_scope_can_resolve(self, path):
+        config = json.loads(path.read_text())
+        namespaces = set(config.get("namespaces", {}))
+        aliases = config.get("scope_aliases", {})
+        defaults = config.get("scope_defaults", {})
+        problems = []
+        for name, value in aliases.items():
+            for scope in [value] if isinstance(value, str) else value:
+                if scope in aliases:
+                    problems.append(f"alias {name!r}: {scope!r} is an alias (aliases don't nest)")
+                elif problem := _scope_problem(scope, namespaces):
+                    problems.append(f"alias {name!r}: {problem}")
+        for where, value in [("global", defaults.get("global"))] + [
+            (f"methods.{tool}", scope) for tool, scope in defaults.get("methods", {}).items()
+        ]:
+            if value is None:
+                continue
+            # A default is expanded through the aliases once (plugin_tool_default).
+            for scope in [value] if isinstance(value, str) else value:
+                if scope not in aliases and (problem := _scope_problem(scope, namespaces)):
+                    problems.append(f"scope_defaults.{where}: {problem}")
+        assert problems == []
 
-            # Check specific aliases make sense
-            assert "api-layer" in config["scope_aliases"]
-            assert "background-jobs" in config["scope_aliases"]
-
-    def test_enterprise_config_valid(self):
-        """Test enterprise example configuration."""
-        config_path = Path("examples/configurations/enterprise.json")
-        if config_path.exists():
-            with open(config_path) as f:
-                config = json.load(f)
-
-            assert "namespaces" in config
-            assert "scope_defaults" in config
-            assert "scope_aliases" in config
-
-            # Check complex configuration
-            assert "company.core" in config["namespaces"]
-            assert "security-critical" in config["scope_aliases"]
-
-            # Check performance settings
-            if "performance" in config:
-                assert "cache_ttl" in config["performance"]
-                assert "max_concurrent_searches" in config["performance"]
+    def test_the_check_catches_a_scope_that_resolves_to_nothing(self):
+        assert _scope_problem("namespace:company", {"company.core"}) is not None
+        assert _scope_problem("./tools/*", set()) is not None
+        assert _scope_problem("namespace:company.core.security", {"company.core"}) is None
+        assert _scope_problem("package:libs", set()) is None
+        assert _scope_problem("all", set()) is None
 
 
 class TestDeprecatedScopeUtilities:
