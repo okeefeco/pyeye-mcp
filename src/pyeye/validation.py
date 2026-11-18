@@ -466,8 +466,10 @@ def validate_mcp_inputs(func: Any) -> Any:
         raw_project = bound.arguments.get("project_path")
         project_root = raw_project if isinstance(raw_project, str | Path) else "."
 
-        # Validate based on parameter names
-        for param_name, value in bound.arguments.items():
+        # Validate based on parameter names. project_path first: the others are
+        # anchored on it, so a refusal it causes must name it, not them (#949 review).
+        arguments = sorted(bound.arguments.items(), key=lambda item: item[0] != "project_path")
+        for param_name, value in arguments:
             if value is None:
                 continue
 

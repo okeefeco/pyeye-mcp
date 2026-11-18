@@ -171,3 +171,43 @@ def test_a_home_scan_skips_the_stores(tmp_path: Path, home_at: Callable[[Path], 
     found = {p.parent.name for p in pruned_rglob("x.py", home)}
 
     assert found == {"proj", "other"}
+
+
+class TestReviewFollowUps:
+    """The #949 re-review's two follow-ups."""
+
+    def test_a_project_path_refusal_names_project_path(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """resolve_at checked ``file`` first, so it blamed the wrong argument."""
+        import asyncio
+
+        from mcp.server.mcpserver.exceptions import ToolError
+
+        from pyeye.mcp.server import mcp
+
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        (proj / "l_tmp").symlink_to("/tmp", target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+        args = {"file": "x.py", "line": 1, "column": 0, "project_path": "proj/l_tmp/../etc"}
+
+        with pytest.raises(ToolError, match="Invalid project_path"):
+            asyncio.run(mcp.call_tool("resolve_at", args))
+
+    @pytest.mark.parametrize("target", ["/etc", "lnk"])
+    def test_get_analyzer_refuses_a_restricted_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, target: str
+    ) -> None:
+        """Defence in depth: an internal caller that skips the tools' check."""
+        from pyeye.project_manager import ProjectManager
+
+        (tmp_path / "lnk").symlink_to("/etc", target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+        manager = ProjectManager(max_projects=2)
+        try:
+            with pytest.raises(ValidationError, match=REFUSED):
+                manager.get_analyzer(target)
+            assert manager.analyzers == {}
+        finally:
+            manager.cleanup_all()
