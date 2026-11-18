@@ -18,39 +18,27 @@ This is the PyEye Server - an extensible MCP (Model Context Protocol) server tha
 
 ## Key Features
 
-- **Semantic Code Navigation**: Find symbols, go to definitions, find references using Jedi
+- **Semantic Code Navigation**: Resolve names to canonical handles and walk structural edges, using Jedi. No reverse references (#333)
 - **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - **Namespace Packages**: Handle packages distributed across multiple repositories
 - **Auto-Update**: File watching automatically reflects code changes
-- **Configuration System**: Flexible configuration via files, env vars, or auto-discovery
-- **Plugin Architecture**: Extensible with custom analyzers for project patterns
+- **Configuration System**: Packages and namespaces from config files or auto-discovery; env vars tune performance and logging only
+- **Plugin Architecture**: Built-in framework plugins (Django, Pydantic, Flask)
 
 ## Architecture
 
 - **Core Server**: MCPServer-based MCP server implementation (MCP Python SDK 2.x)
-- **Project Manager**: Handles multiple projects with LRU caching (max 10)
+- **Project Manager**: Handles multiple projects with LRU eviction (`PYEYE_MAX_PROJECTS`, default <!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->10<!-- fact:end -->)
 - **Analysis Engine**: Jedi for semantic analysis and type inference
-- **Caching Layer**: File watchers (watchdog) + result cache (5min TTL)
+- **Caching Layer**: File watchers (watchdog) + in-memory caches (lookup TTL `PYEYE_CACHE_TTL`, default <!-- fact:begin env.PYEYE_CACHE_TTL.default -->300<!-- fact:end --> s)
 - **Plugin System**: Base class + framework plugins (Django, Pydantic, Flask)
 
 ## File Structure
 
-```text
-src/pyeye/
-├── server.py              # Main MCP server with 17+ core tools
-├── project_manager.py     # Multi-project management with LRU
-├── namespace_resolver.py  # Distributed package handling
-├── config.py             # Configuration system
-├── cache.py              # Caching and file watching
-├── path_utils.py         # Cross-platform path utilities
-├── analyzers/
-│   └── jedi_analyzer.py # Jedi wrapper for analysis
-└── plugins/
-    ├── base.py          # Plugin base class
-    ├── django.py        # Django framework plugin
-    ├── pydantic.py      # Pydantic models plugin
-    └── flask.py         # Flask framework plugin
-```
+Code lives in `src/pyeye/`: the MCP server in `mcp/` (`mcp/server.py` registers
+the tools, `mcp/operations/` implements the core ones), plugins in `plugins/`,
+the docs-facts system in `docs_facts/`. NEVER rely on a hand-written tree:
+`outline` the `pyeye` package with pyeye for the current layout.
 
 ## Configuration
 
@@ -102,26 +90,13 @@ If context is lost:
 
 The TodoWrite tool is your primary progress tracker - it persists across context resets without creating commits.
 
-## Current Status
-
-✅ **Fully functional** with all core features implemented:
-
-- Basic navigation tools working
-- Multi-project support with LRU caching
-- Namespace package resolution
-- Auto-updating on file changes
-- Configuration system with multiple sources
-- Plugin architecture with Django, Pydantic, and Flask plugins
-- Comprehensive documentation
-- Flask framework intelligence with 8 specialized tools
-
 ## Important Notes
 
-- The server is configured globally for Claude Code via `claude mcp add`
+- In Claude Code the server runs from the pyeye plugin or a `claude mcp add` entry
 - Each Claude instance gets its own MCP server instance (not shared)
 - File watchers automatically update when code changes
 - Configuration is loaded from multiple sources with precedence
-- Plugins auto-activate based on project detection
+- Plugin tools are registered when their framework is detected, and also run against any `project_path`
 - Framework plugins provide deep understanding beyond basic navigation
 
 ## Path Utilities Available
@@ -137,6 +112,6 @@ Always use these for cross-platform compatibility:
 
 Always use `file_path:line_number` format for easy navigation:
 
-- `src/server.py:125` - Specific line reference
-- `tests/test_validation.py:45-89` - Range reference
-- `src/plugins/flask.py:find_routes` - Function reference
+- `src/pyeye/mcp/server.py:125` - Specific line reference
+- `tests/unit/core/test_validation.py:45-89` - Range reference
+- `src/pyeye/plugins/flask.py:find_routes` - Function reference

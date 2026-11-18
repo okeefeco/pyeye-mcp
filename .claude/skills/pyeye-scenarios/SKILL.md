@@ -177,7 +177,7 @@ from jaraco.context import ExceptionTrap            # -> ../jaraco.context
 from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 ```
 
-### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #423/#444/#454, `project_path = .../jaraco.text`)*
+### Probe suite + recorded baseline *(captured 2026-06-22, build `dev416+g406783dd6` = main incl. #423/#444/#454, `project_path = .../jaraco.text`; row 5 re-recorded 2026-11-08. The other rows predate #623 and #712: re-capture before relying on exact values)*
 
 | # | Probe | Expected (baseline) | Demonstrates / tracking |
 |---|-------|---------------------|-------------------------|
@@ -190,7 +190,10 @@ from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 | 7 | `expand("jaraco", "submodules")` | 3 stubs: `jaraco.context`, `jaraco.functools`, `jaraco.text` (all `project`) | ✅ **#423 / #444** namespace union across sibling repos |
 
 **Round-trip probe** ([[pyeye-verify]] §1b) *(captured 2026-11-15, build
-`2.0.1.dev10+gd615b3a5a` = main @ `d615b3a`)*, module `jaraco.text`:
+`2.0.1.dev10+gd615b3a5a` = main @ `d615b3a`)*, module `jaraco.text`.
+**STALE:** #623 closed after this capture (2026-11-15T11:09Z), so these numbers
+predate its fix. Re-capture with [[pyeye-verify]] before treating a value as
+the baseline; until then, don't call a difference a regression.
 
 | Measure | Baseline | Tracking |
 |---------|----------|----------|
@@ -200,8 +203,8 @@ from jaraco.functools import compose, method_cache  # -> ../jaraco.functools
 | disagree | 1: `functools` (resolve finds it, inspect doesn't) | #602: the bare `functools` vs `jaraco.functools` shadowing |
 | handle mismatch | 1: `_typing.TypeVar` | #623 |
 
-All three `jaraco.*` stubs round-trip. Every miss is external. A drop toward 0 is
-the #623 acceptance signal. Any `project`-scoped miss is a regression.
+All three `jaraco.*` stubs round-trip. Every miss is external. Any
+`project`-scoped miss is a regression.
 
 Rows 2–5 + 7 are the **#423 / #444 / #454** acceptance check, and now pass. Against the
 *earlier* stale build (the 2026-06-21 global server, pre-#423/#444/#454) row 2's `jaraco.*`
