@@ -380,8 +380,11 @@ def test_plugins_alias_stays_live_after_initialize(
 
 
 #: Enriching every result of a mid-sized project (resolve_handle per symbol).
+#: The local base is sized for the load local runs actually see: dev01 runs up to
+#: two full suites at once, which pushed this to 4.3-5.2 s (#835). Alone it takes
+#: 3.2-3.5 s, so 7000 ms is about 2x the quiet cost. CI values are unchanged.
 ENRICH_MANY = PerformanceThresholds(
-    base=4000.0, linux_ci=8000.0, macos_ci=12000.0, windows_ci=12000.0
+    base=7000.0, linux_ci=8000.0, macos_ci=12000.0, windows_ci=12000.0
 )
 
 

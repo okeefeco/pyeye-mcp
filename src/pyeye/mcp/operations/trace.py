@@ -19,7 +19,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unresolved_call_sites": { handle: count, ... },  # #488 — present iff callees walked
       "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
       "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
-      "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff subclasses/imported_by/re_exports walked
+      "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff an UNPARSEABLE_FILE_EDGES edge was walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -59,10 +59,10 @@ would silently omit edges it could not resolve.
 file with no module name has no handle, so it can't be a node; it is listed per
 target node instead of being dropped.
 
-``unparseable_files`` (#729) does the same for the scans ``subclasses``,
-``imported_by`` and ``re_exports``: a file in scope that the server's interpreter
-couldn't parse may hold a subclass, importer or re-export, so it is listed per
-node (the union across those edges), present only when one of them was traced.
+``unparseable_files`` (#729) does the same for the edges in
+``edges.UNPARSEABLE_FILE_EDGES`` (#874): a file in scope that the server's
+interpreter couldn't parse may hold an adjacent, so it is listed per node (the
+union across those edges), present only when one of them was traced.
 
 ``unresolved_call_sites`` (#488) carries the same honesty *one hop in*: a
 ``callees`` walk that can't resolve a call target (dynamic/un-inferable site, or
@@ -108,7 +108,12 @@ from typing import TYPE_CHECKING, Any
 
 from pyeye.mcp import meta
 from pyeye.mcp.operations.completeness import MAX_DEPTH, MAX_NODES
-from pyeye.mcp.operations.edges import EDGE_CEILINGS, STATUS_IMPLEMENTED, edge_status
+from pyeye.mcp.operations.edges import (
+    EDGE_CEILINGS,
+    STATUS_IMPLEMENTED,
+    UNPARSEABLE_FILE_EDGES,
+    edge_status,
+)
 from pyeye.mcp.operations.expand import _unsupported_detail, expand_resolved
 from pyeye.mcp.operations.stubs import build_stub
 from pyeye.resolver import NotFound, resolve_item
@@ -381,7 +386,7 @@ async def trace(
         result["unresolved_imports"] = unresolved_imports
     if "imported_by" in walked_edges:
         result["unresolved_importers"] = unresolved_importers
-    if walked_edges & {"subclasses", "imported_by", "re_exports"}:  # #729, #393
+    if walked_edges & UNPARSEABLE_FILE_EDGES:  # #729, #874
         result["unparseable_files"] = unparseable_files
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,

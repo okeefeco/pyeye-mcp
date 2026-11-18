@@ -125,7 +125,8 @@ they can't drift from it.
 
 ## Security Checks in Development
 
-The pre-commit hooks run `detect-secrets` and `bandit` on every commit, and
-`pip-audit` (against the locked dependency set) whenever `pyproject.toml` or
+The pre-commit hooks run <!-- fact:begin precommit.hook.detect-secrets -->`detect-secrets`<!-- fact:end -->
+and <!-- fact:begin precommit.hook.bandit -->`bandit`<!-- fact:end --> on every commit, and
+<!-- fact:begin precommit.hook.pip-audit -->`pip-audit`<!-- fact:end --> (against the locked dependency set) whenever `pyproject.toml` or
 `uv.lock` changes. CI runs all three on every pull request. See
 [CONTRIBUTING.md](CONTRIBUTING.md).

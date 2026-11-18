@@ -187,6 +187,33 @@ def test_canonical_of_never_returns_a_main_handle(analyzer: JediAnalyzer, tmp_pa
     assert _canonical_of(_Anchor("__main__.f", "__main__", None, "function"), "f", analyzer) is None
 
 
+def test_canonical_of_falls_back_to_the_path_when_jedi_gives_no_name(
+    analyzer: JediAnalyzer,
+) -> None:
+    """No ``full_name`` from Jedi: the caller's path is respelled instead (#857/#814)."""
+    from pyeye.resolver import _canonical_of
+
+    anchor = _Anchor("placeholder", "__main__", _link_core(analyzer), "function")
+    anchor.full_name = None  # type: ignore[assignment]
+
+    assert _canonical_of(anchor, "mypackage.core.MyClass.method", analyzer) == (
+        "mypackage.core.MyClass.method"
+    )
+
+
+def test_canonical_of_places_nothing_for_an_unplaceable_non_dotted_name(
+    analyzer: JediAnalyzer, tmp_path: Path
+) -> None:
+    """A non-dotted Jedi name (``.hidden.…``) outside every root, and a non-dotted
+    fallback: neither respells to a handle, so nothing is placed (#814)."""
+    from pyeye.resolver import _canonical_of
+
+    outside = tmp_path / "script-dir" / ".hidden" / "tool.py"  # no root names it
+    anchor = _Anchor(".hidden.tool.f", ".hidden.tool", outside, "function")
+
+    assert _canonical_of(anchor, ".hidden.tool.f", analyzer) is None
+
+
 def test_canonical_of_keeps_external_names(analyzer: JediAnalyzer) -> None:
     from pyeye.resolver import _canonical_of
 

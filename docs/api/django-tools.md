@@ -1,16 +1,12 @@
 # Django Tools
 
 Tools for finding the parts of a Django project: models, views, URL
-configurations, templates and migrations. They're available once Django is
-detected in the project or in one of its configured packages.
+configurations, templates and migrations.
 
-- **Parameters:** every tool takes `scope`, `envelope` and `project_path`
-  ([Every plugin tool](README.md#every-plugin-tool)); the exact parameters and
-  defaults are generated in [MCP tools](../reference/tools.md#django).
-- **Examples:** each example below runs in CI against a small Django project,
-  and its output is checked against the real response (`…` marks what's left
-  out). A record that names a symbol carries a `handle` you can pass to
-  `inspect`, `outline`, `expand` or `trace`; a file record has none.
+The [plugin tools overview](README.md) says when these tools are available and
+what every plugin tool shares: its parameters, its records and how the examples
+work. Each tool's exact parameters are in
+[MCP tools](../reference/tools.md#django). The examples below run against a small Django project.
 
 The tools: <!-- fact:begin tools.plugin.django -->`find_django_migrations`, `find_django_models`, `find_django_templates`, `find_django_urls`, `find_django_views`<!-- fact:end -->.
 

@@ -330,11 +330,11 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   they can't be stubs. They are still dependents: count them when sizing fan-in.
   `expand(handle, "imported_by")` carries the same flat `unresolved_importers: [file, …]`
   list (`[]` when every importer has a handle).
-- **`unparseable_files`** (present only when you traced `subclasses`, `imported_by` or `re_exports`): a
+- **`unparseable_files`** (present only when you traced one of <!-- fact:begin edges.unparseable -->`imported_by`, `subclasses`, `re_exports`<!-- fact:end -->): a
   `{handle: [file, …]}` map of project files the server's Python **couldn't parse** (often
   newer syntax than its interpreter), so the reverse scan never read them. A subclass or
-  importer defined there is **unknown, not absent**. `expand(handle, "subclasses" |
-  "imported_by" | "re_exports")` carries the same flat `unparseable_files: [file, …]` list (`[]` when every
+  importer defined there is **unknown, not absent**. `expand` on one of those edges
+  carries the same flat `unparseable_files: [file, …]` list (`[]` when every
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**

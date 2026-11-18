@@ -28,12 +28,41 @@
       "3.13",
       "3.14"
     ],
+    "ci.uv_sync_flags": [
+      "--locked"
+    ],
     "cli.module.pyeye.mcp": {
       "command": "python -m pyeye.mcp"
     },
     "cli.script.pyeye-mcp": {
       "target": "pyeye.mcp.__main__:main"
     },
+    "config.files.global": [
+      ".config/pyeye/config.json",
+      ".pyeye.json"
+    ],
+    "config.files.override": ".pyeye.override.json",
+    "config.files.project": [
+      ".pyeye.json",
+      ".pyeye.yaml",
+      ".pyeye.yml",
+      "pyproject.toml",
+      ".claude/pyeye.json"
+    ],
+    "config.ignored_key.analysis": "analysis",
+    "config.ignored_key.cache": "cache",
+    "config.ignored_key.default_packages": "default_packages",
+    "config.ignored_key.exclude": "exclude",
+    "config.ignored_key.exclude_patterns": "exclude_patterns",
+    "config.ignored_key.logging": "logging",
+    "config.ignored_key.performance": "performance",
+    "config.ignored_key.plugins": "plugins",
+    "config.ignored_key.watch_exclude": "watch_exclude",
+    "config.key.namespaces": "namespaces",
+    "config.key.packages": "packages",
+    "config.key.scope_aliases": "scope_aliases",
+    "config.key.scope_defaults": "scope_defaults",
+    "config.key.standalone": "standalone",
     "duplication.command.dismiss": {},
     "duplication.command.review": {},
     "duplication.default.max_occurrences": 50,
@@ -362,6 +391,102 @@
       "status": "live",
       "type": "float"
     },
+    "precommit.hook.bandit": {
+      "repo": "local"
+    },
+    "precommit.hook.black": {
+      "repo": "local"
+    },
+    "precommit.hook.check-added-large-files": {
+      "repo": "local"
+    },
+    "precommit.hook.check-case-conflict": {
+      "repo": "local"
+    },
+    "precommit.hook.check-docstring-first": {
+      "repo": "local"
+    },
+    "precommit.hook.check-json": {
+      "repo": "local"
+    },
+    "precommit.hook.check-merge-conflict": {
+      "repo": "local"
+    },
+    "precommit.hook.check-toml": {
+      "repo": "local"
+    },
+    "precommit.hook.check-yaml": {
+      "repo": "local"
+    },
+    "precommit.hook.commitizen": {
+      "repo": "local"
+    },
+    "precommit.hook.conformance-linter": {
+      "repo": "local"
+    },
+    "precommit.hook.debug-statements": {
+      "repo": "local"
+    },
+    "precommit.hook.decision-log-nudge": {
+      "repo": "local"
+    },
+    "precommit.hook.decisions-check": {
+      "repo": "local"
+    },
+    "precommit.hook.detect-private-key": {
+      "repo": "local"
+    },
+    "precommit.hook.detect-secrets": {
+      "repo": "local"
+    },
+    "precommit.hook.docs-facts-generate": {
+      "repo": "local"
+    },
+    "precommit.hook.duplicate-code-report": {
+      "repo": "local"
+    },
+    "precommit.hook.end-of-file-fixer": {
+      "repo": "local"
+    },
+    "precommit.hook.markdownlint": {
+      "repo": "https://github.com/igorshubovych/markdownlint-cli"
+    },
+    "precommit.hook.mixed-line-ending": {
+      "repo": "local"
+    },
+    "precommit.hook.mypy": {
+      "repo": "local"
+    },
+    "precommit.hook.name-tests-test": {
+      "repo": "local"
+    },
+    "precommit.hook.path-ownership": {
+      "repo": "local"
+    },
+    "precommit.hook.pip-audit": {
+      "repo": "local"
+    },
+    "precommit.hook.pretty-format-json": {
+      "repo": "local"
+    },
+    "precommit.hook.pydocstyle": {
+      "repo": "local"
+    },
+    "precommit.hook.refresh-version-file": {
+      "repo": "local"
+    },
+    "precommit.hook.ruff": {
+      "repo": "local"
+    },
+    "precommit.hook.start-metrics-session": {
+      "repo": "local"
+    },
+    "precommit.hook.trailing-whitespace": {
+      "repo": "local"
+    },
+    "precommit.uv_run_flags": [
+      "--frozen"
+    ],
     "project.python_versions": [
       "3.11",
       "3.12",
