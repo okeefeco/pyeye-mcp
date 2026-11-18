@@ -74,6 +74,20 @@ def _cold_re_export_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_unsaved_config_leaks() -> Generator[None, None, None]:
+    """Each test starts with no session-only config additions (#953).
+
+    ``configure_packages(save=False)`` keeps its entries in a process-wide
+    overlay for the server's lifetime; a test's would otherwise reach the next.
+    """
+    from pyeye import config
+
+    config._UNSAVED.clear()
+    yield
+    config._UNSAVED.clear()
+
+
+@pytest.fixture(autouse=True)
 def _reset_jedi_worker() -> Generator[None, None, None]:
     """Stop the Jedi worker thread after each test (#650), so none leaks.
 
