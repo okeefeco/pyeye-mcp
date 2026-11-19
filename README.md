@@ -27,119 +27,121 @@ An extensible MCP (Model Context Protocol) server that provides intelligent Pyth
 
 ## Installation
 
-PyEye can be installed in three ways: as a Claude Code plugin (zero-config), into your project's venv, or globally.
+| You use | Recommended | Alternatives |
+|---|---|---|
+| Claude Code | [The plugin](#claude-code-plugin-recommended) | [`claude mcp add`](#claude-code-without-the-plugin) |
+| Another MCP client (Claude Desktop, VS Code, …) | [`uvx pyeye-mcp`](#other-mcp-clients) | [An installed `pyeye-mcp`](#installing-the-command) |
+| One project, pinned to a version | [Install into the project's environment](#install-into-a-projects-environment) | |
+| You're working on pyeye itself | [CONTRIBUTING](CONTRIBUTING.md#setting-up-your-environment) | |
 
-### Option 0: Claude Code Plugin (zero-config)
+pyeye needs Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->.
+The plugin and `uvx` need [uv](https://docs.astral.sh/uv/getting-started/installation/).
+pyeye analyses the directory its server starts in, and every analysis tool also
+takes a `project_path`. The [entry points](docs/reference/cli.md) list the
+commands that start the server.
 
-When PyEye is installed as a Claude Code plugin, it installs its own
-dependencies into a per-user virtual environment on the first session start, and
-reinstalls them only when its lockfile changes. No manual `pip install` is needed.
+> **Known limitation ([#993](https://github.com/okeefeco/pyeye-mcp/issues/993)):**
+> in a project with a `src/` layout, pyeye can't yet find the project's
+> installed third-party packages (`requests`, `django`, …) when it runs from
+> its own environment: the plugin, `uvx`, `uv tool` or pipx. For such a
+> project, [install pyeye into the project's environment](#install-into-a-projects-environment)
+> until #993 is fixed.
 
-- **Requirement**: `uv` must be on your `PATH`. See [uv installation](https://docs.astral.sh/uv/getting-started/installation/).
+### Claude Code plugin (recommended)
 
-This works on Linux, macOS, and Windows without OS-specific configuration.
+In Claude Code:
 
-### Option 1: Project-Specific Installation (Recommended)
-
-Install directly into your Python project's virtual environment:
-
-```bash
-# Activate your project's virtual environment
-source /path/to/your/project/venv/bin/activate
-
-# Install from PyPI
-pip install pyeye-mcp
-
-# Or install from source
-git clone https://github.com/okeefeco/pyeye-mcp.git
-pip install -e ./pyeye-mcp
+```text
+/plugin marketplace add okeefeco/pyeye-mcp
+/plugin install pyeye@pyeye-marketplace
 ```
 
-Then create a `.mcp.json` file in your project root, pointing `command` at that
-virtual environment's Python:
+From a shell, the same is `claude plugin marketplace add okeefeco/pyeye-mcp`
+followed by `claude plugin install pyeye@pyeye-marketplace`. Claude Code's
+[plugin documentation](https://code.claude.com/docs/en/plugins/install) covers
+updating and removing plugins.
+
+The plugin brings:
+
+- the pyeye MCP server;
+- the skills `python-explore`, `architecture-review`, `duplication-review` and
+  `decision-log`;
+- a session-start hook that installs pyeye's dependencies with `uv` into a
+  per-user environment, the first time and again whenever its lockfile changes.
+
+Install pyeye **either** as the plugin **or** with `claude mcp add`, not both:
+with both, every tool appears twice (`mcp__plugin_pyeye_pyeye__…` and
+`mcp__pyeye__…`). If you added it with `claude mcp add` before, run
+`claude mcp remove pyeye`.
+
+### Claude Code without the plugin
+
+```bash
+claude mcp add pyeye -s user -- uvx pyeye-mcp
+claude mcp list   # check that pyeye is connected
+```
+
+`uvx` runs the latest release from PyPI in an environment of its own. To use an
+installed command instead, see [Installing the command](#installing-the-command)
+and register `-- pyeye-mcp`. Claude Code's
+[MCP documentation](https://code.claude.com/docs/en/mcp) covers scopes and options.
+
+### Other MCP clients
+
+pyeye is a standard stdio MCP server. Give your client the command `uvx` with
+the argument `pyeye-mcp`, or an installed `pyeye-mcp`. Where that goes depends
+on the client, so follow its own documentation:
+
+- **Claude Desktop:** [Connect to local MCP servers](https://modelcontextprotocol.io/docs/develop/connect-local-servers).
+  Claude Desktop doesn't start the server in your project, so ask for the
+  project explicitly: every analysis tool takes a `project_path` argument.
+- **VS Code (GitHub Copilot):** [Add and manage MCP servers in VS Code](https://code.visualstudio.com/docs/agent-customization/mcp-servers).
+  Run **MCP: List Servers** from the Command Palette to check that `pyeye` started.
+- **JetBrains IDEs, Visual Studio, Eclipse and Xcode (GitHub Copilot):**
+  [Extending Copilot Chat with MCP](https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/extend-copilot-chat-with-mcp).
+
+For example, in a client that takes an `mcpServers` map:
+
+```json
+{
+  "mcpServers": {
+    "pyeye": {
+      "command": "uvx",
+      "args": ["pyeye-mcp"]
+    }
+  }
+}
+```
+
+### Installing the command
+
+To install `pyeye-mcp` once instead of running it through `uvx`, use
+[`uv tool install pyeye-mcp`](https://docs.astral.sh/uv/guides/tools/) or
+[`pipx install pyeye-mcp`](https://pipx.pypa.io/). The server command is then
+`pyeye-mcp`.
+
+### Install into a project's environment
+
+Install pyeye into the project's virtual environment (`pip install pyeye-mcp`,
+or `uv pip install pyeye-mcp`, with that environment active), then point your
+client at that environment's Python. For Claude Code, a `.mcp.json` in the
+project root:
 
 ```json
 {
   "mcpServers": {
     "pyeye": {
       "type": "stdio",
-      "command": "/path/to/your/project/venv/bin/python",
-      "args": ["-m", "pyeye.mcp"],
-      "env": {}
+      "command": "/path/to/your/project/.venv/bin/python",
+      "args": ["-m", "pyeye.mcp"]
     }
   }
 }
 ```
 
-The server then runs in your project's environment and can see all your
-project's dependencies. (On Windows the path is `venv\Scripts\python.exe`.) A bare
-`"command": "python"` works only if your MCP client was started from a shell
-with that virtual environment active; otherwise it runs whichever Python is
-first on the client's `PATH`.
-
-### Option 2: Global Installation
-
-For analyzing multiple projects or using with global Python:
-
-```bash
-# Install globally with pipx (recommended for isolation)
-pipx install pyeye-mcp
-
-# Or with pip
-pip install --user pyeye-mcp
-
-# Or from source
-git clone https://github.com/okeefeco/pyeye-mcp.git
-cd pyeye-mcp
-pip install --user .
-```
-
-#### Configure with Claude Code (Global)
-
-```bash
-# Add the MCP server globally (available in all projects)
-claude mcp add pyeye -s user -- pyeye-mcp
-
-# Verify it's connected
-claude mcp list
-```
-
-### Configure with Claude Desktop
-
-Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
-
-```json
-{
-  "mcpServers": {
-    "pyeye": {
-      "command": "python",
-      "args": ["-m", "pyeye.mcp"],
-      "env": {}
-    }
-  }
-}
-```
-
-Note: Use the full path to Python if needed (e.g., `/usr/local/bin/python3` or `C:\\Python311\\python.exe`).
-
-### Configure with GitHub Copilot and other MCP clients
-
-pyeye is a standard stdio MCP server, so any MCP client can run it. Point the
-client at one of the [entry points](docs/reference/cli.md) (for example
-`python -m pyeye.mcp`, using the Python that has pyeye installed).
-
-Where the server entry goes depends on the client and its version, and changes
-often, so follow the client's own documentation rather than a copy here:
-
-- **VS Code (GitHub Copilot):** [Add and manage MCP servers in VS Code](https://code.visualstudio.com/docs/agent-customization/mcp-servers).
-  Run **MCP: List Servers** from the Command Palette to check that `pyeye` started.
-- **JetBrains IDEs, Visual Studio, Eclipse and Xcode (GitHub Copilot):**
-  [Extending Copilot Chat with MCP](https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp/extend-copilot-chat-with-mcp).
-  On Copilot Business and Enterprise, an administrator must first enable the
-  organization's **MCP servers in Copilot** policy.
-
-If the server starts but can't import your project's dependencies, point the
-entry at your project's virtual-environment Python.
+On Windows the path is `.venv\Scripts\python.exe`. A bare `"command": "python"`
+works only if your MCP client was started from a shell with that environment
+active; otherwise it runs whichever Python is first on the client's `PATH`.
 
 ## Configuration
 
@@ -199,11 +201,12 @@ pyeye reads, with its default, range and status (live or deprecated). Deprecated
 variables have no effect.
 
 These are read when the server starts, from the server's own environment.
-The MCP client starts the server, so set them on its server entry (Claude
-Code: `claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- python -m pyeye.mcp`;
-other clients take an `env` map in their config), then restart the client.
-An `export` in your shell only reaches the server if the client was launched
-from that shell.
+The MCP client starts the server, so set them on its server entry and restart
+the client. In Claude Code, remove the server and add it again with `-e` flags,
+using the command you registered it with (here `uvx pyeye-mcp`):
+`claude mcp remove pyeye && claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- uvx pyeye-mcp`.
+Other clients take an `env` map in their config. An `export` in your shell only
+reaches the server if the client was launched from that shell.
 
 Packages and namespaces are not configured through environment variables. Use
 `.pyeye.json`, `pyproject.toml`, the global config file, or the
@@ -230,18 +233,21 @@ This advice comes from measurements on one large project in [#768](https://githu
 #### Performance Tuning Examples
 
 Set the variables on the server entry, so they reach the server however the
-client was started. For example, with Claude Code:
+client was started. For example, with Claude Code (remove the server first, and
+use the command you registered it with):
 
 ```bash
+claude mcp remove pyeye
+
 # Keep more projects in memory, cache longer and batch file changes more
 claude mcp add pyeye -s user \
   -e PYEYE_MAX_PROJECTS=50 -e PYEYE_CACHE_TTL=1800 -e PYEYE_WATCHER_DEBOUNCE=2.0 \
-  -- pyeye-mcp
+  -- uvx pyeye-mcp
 
-# Use less memory: fewer projects and fewer parsed files kept
+# Or use less memory: fewer projects and fewer parsed files kept
 claude mcp add pyeye -s user \
   -e PYEYE_MAX_PROJECTS=3 -e PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=250 \
-  -- pyeye-mcp
+  -- uvx pyeye-mcp
 ```
 
 Other clients take the same names in the server entry's `env` map.

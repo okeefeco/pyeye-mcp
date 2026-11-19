@@ -20,28 +20,27 @@ PyEye includes comprehensive connection diagnostics that track:
 
 ### 1. Enable File Logging
 
-Set the `PYEYE_LOG_FILE` environment variable to capture all logs to a persistent file:
+Set the `PYEYE_LOG_FILE` environment variable to capture all logs to a
+persistent file. The MCP client starts the server, so set it on the server
+entry (an `export` in your shell reaches the server only if the client was
+started from that shell). For Claude Code, remove the server and add it again
+with the variables, using the command you registered it with (here
+`uvx pyeye-mcp`):
 
 ```bash
-export PYEYE_LOG_FILE="$HOME/.pyeye/connection.log"
+claude mcp remove pyeye
+claude mcp add pyeye -s user -e PYEYE_LOG_FILE=$HOME/.pyeye/connection.log -e PYEYE_LOG_LEVEL=INFO -- uvx pyeye-mcp
 ```
 
-For Claude Code, pass the variables when adding the server, as the README shows:
-
-```bash
-claude mcp add pyeye -s user -e PYEYE_LOG_FILE=$HOME/.pyeye/connection.log -e PYEYE_LOG_LEVEL=INFO -- pyeye-mcp
-```
-
-For Claude Desktop, put the same `env` block in its `claude_desktop_config.json`
-(location as given in the README's
-[Configure with Claude Desktop](../README.md#configure-with-claude-desktop)):
+For Claude Desktop, add an `env` block to pyeye's entry in its config file (see
+the README's [Other MCP clients](../README.md#other-mcp-clients)):
 
 ```json
 {
   "mcpServers": {
     "pyeye": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye-mcp"],
+      "command": "uvx",
+      "args": ["pyeye-mcp"],
       "env": {
         "PYEYE_LOG_FILE": "/Users/yourname/.pyeye/connection.log",
         "PYEYE_LOG_LEVEL": "INFO"
@@ -53,21 +52,16 @@ For Claude Desktop, put the same `env` block in its `claude_desktop_config.json`
 
 ### 2. Enable Performance Metrics (Optional)
 
-To access the `get_connection_diagnostics` tool, enable performance metrics:
-
-```bash
-export PYEYE_ENABLE_PERFORMANCE_METRICS=true
-```
-
-Or, for Claude Code, add `-e PYEYE_ENABLE_PERFORMANCE_METRICS=true` to the
-`claude mcp add` command above. In the Claude Desktop config:
+To access the `get_connection_diagnostics` tool, enable performance metrics
+on the server entry. For Claude Code, add `-e PYEYE_ENABLE_PERFORMANCE_METRICS=true`
+to the `claude mcp add` command above. In the Claude Desktop config:
 
 ```json
 {
   "mcpServers": {
     "pyeye": {
-      "command": "uv",
-      "args": ["--directory", "/path/to/pyeye-mcp", "run", "pyeye-mcp"],
+      "command": "uvx",
+      "args": ["pyeye-mcp"],
       "env": {
         "PYEYE_LOG_FILE": "/Users/yourname/.pyeye/connection.log",
         "PYEYE_LOG_LEVEL": "INFO",

@@ -26,72 +26,10 @@ The PyEye Server provides semantic code analysis for Python projects through the
 
 ## Installation
 
-### Prerequisites
-
-- Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->
-- Git
-- uv (recommended) or pip
-
-### Install from Source
-
-```bash
-# Clone repository
-git clone https://github.com/okeefeco/pyeye-mcp.git
-cd pyeye-mcp
-
-# Install dependencies with uv
-uv sync --frozen
-
-# Or with pip
-pip install -e .
-```
-
-### Configure for Claude Code
-
-pyeye analyzes the directory the server starts in, so start it from your
-project. `uv run --project` uses pyeye's checkout for the environment without
-changing the working directory (`uv --directory` would change it, and pyeye
-would analyze its own checkout instead of your project):
-
-These commands need [uv](https://docs.astral.sh/uv/). After a pip install, use
-the installed `pyeye-mcp` command instead (see the README's
-[Installation](README.md#installation)).
-
-```bash
-# Add globally (available in all projects)
-claude mcp add pyeye -s user -- \
-  uv run --project ~/GitHub/pyeye-mcp pyeye-mcp
-
-# Or add to specific project
-cd your-project
-claude mcp add pyeye -- \
-  uv run --project ~/GitHub/pyeye-mcp pyeye-mcp
-
-# Verify connection
-claude mcp list
-```
-
-The [entry points](docs/reference/cli.md) lists the commands that start the
-server. For a PyPI install, see the README's [Installation](README.md#installation).
-
-### Configure for Claude Desktop
-
-On macOS, edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "pyeye": {
-      "command": "uv",
-      "args": ["run", "--project", "/path/to/pyeye-mcp", "pyeye-mcp"]
-    }
-  }
-}
-```
-
-Claude Desktop doesn't start the server in your project, so ask for the
-project explicitly: every analysis tool takes a `project_path` argument (the
-admin tools don't; see the [tool reference](docs/reference/tools.md)).
+See the README's [Installation](README.md#installation): the Claude Code plugin,
+`uvx pyeye-mcp` for other MCP clients, or an install into your project's
+environment. To work on pyeye itself, see
+[CONTRIBUTING](CONTRIBUTING.md#setting-up-your-environment).
 
 ## Configuration
 
@@ -286,7 +224,9 @@ plugin, follow [Adding a plugin](docs/architecture/plugin-system.md#adding-a-plu
 ### Server Not Starting
 
 1. Check the Python version: pyeye needs Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->
-2. Verify installation: `uv sync --frozen` or `pip install -e .`
+2. Run the server command yourself, from your project directory: the command in
+   your client's config, for example `uvx pyeye-mcp`. It should start and wait
+   for input (stop it with Ctrl-C); an error it prints is the real one
 3. Check logs: set `PYEYE_LOG_LEVEL=DEBUG` on the server entry, and `PYEYE_LOG_FILE` to write them to a file (see the [environment variables](docs/reference/env-vars.md))
 
 ### Packages Not Found
@@ -317,7 +257,9 @@ shorter time, lower `PYEYE_CACHE_TTL` (see the [environment variables](docs/refe
 1. Check the server's status: `/mcp` inside Claude Code
 2. Check MCP server health: `claude mcp list`
 3. Review Claude logs for connection errors
-4. Try reconnecting: `claude mcp remove pyeye && claude mcp add ...`
+4. Register it again with the command you used before, for example
+   `claude mcp remove pyeye && claude mcp add pyeye -s user -- uvx pyeye-mcp`.
+   For the plugin, disable and re-enable `pyeye` in `/plugin`
 
 ## Contributing
 
