@@ -214,8 +214,11 @@ class DjangoPlugin(AnalyzerPlugin):
             framework = records[parent]["framework"]
             result = await analyzer.find_subclasses(parent, scope=scope)
             for sub in result.get("subclasses", []):
-                handle = sub["full_name"]  # always set by find_subclasses
-                record = records.get(handle)
+                # None for a class with no handle (defined in a function, or in a
+                # file with no module path): still a view, found by its site, but
+                # not walked further, since no FQN names its subclasses (#1006).
+                handle = sub["full_name"]
+                record = records.get(handle) if handle is not None else None
                 if record is None:
                     where = (path_to_key(sub["file"]), sub["line"])
                     record = by_place.get(where)
@@ -229,11 +232,13 @@ class DjangoPlugin(AnalyzerPlugin):
                         }
                         by_place[where] = record
                         found.append(record)
-                    records[handle] = record
-                    queue.append(handle)
+                    if handle is not None:
+                        records[handle] = record
+                        queue.append(handle)
                 if framework == REST_FRAMEWORK and record["framework"] != REST_FRAMEWORK:
                     record["framework"] = REST_FRAMEWORK
-                    queue.append(handle)  # carry the upgrade to its own subclasses
+                    if handle is not None:  # carry the upgrade to its own subclasses
+                        queue.append(handle)
         return sorted(found, key=lambda v: (v["file"], v["line"]))
 
     async def _views_files(self, scope: Scope) -> list[Path]:

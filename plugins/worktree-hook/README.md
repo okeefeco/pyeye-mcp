@@ -117,8 +117,8 @@ guarantee.
 
 Plugin hooks load at session start, not retroactively. If you `/plugin install`
 (or enable) this plugin in a session that began *before* the install,
-`EnterWorktree` falls back to native behaviour (a flat `worktree-<name>`
-directory and branch) because the plugin's hook isn't loaded yet. Start a fresh
+`EnterWorktree` falls back to the native default (`.claude/worktrees/<name>` on
+a `worktree-<name>` branch, as above) because the plugin's hook isn't loaded yet. Start a fresh
 session before the hook takes effect. (Hooks defined directly in `settings.json`
 are auto-reloaded mid-session via the file watcher; only plugin hooks need the
 restart.)

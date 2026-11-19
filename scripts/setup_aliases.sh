@@ -22,6 +22,9 @@ echo "📊 Setting up dogfooding metrics aliases for $SHELL_NAME..."
 if grep -q "# Dogfooding Metrics Aliases" "$SHELL_RC" 2>/dev/null; then
     echo "⚠️  Aliases already exist in $SHELL_RC"
     echo "Remove existing aliases before re-running this script."
+    if grep -q "^alias mcp-start=" "$SHELL_RC" 2>/dev/null; then
+        echo "Your existing block still has the old mcp-start/mcp-end/mcp-report/mcp-saved/mcp-bug names; re-running installs them as dogfood-* (#982)."
+    fi
     exit 1
 fi
 
@@ -41,12 +44,13 @@ function tracked_grep() {
 }
 alias grep='tracked_grep'
 
-# Quick commands for metrics
-alias mcp-start='uv run --frozen python scripts/dogfooding_metrics.py start'
-alias mcp-end='uv run --frozen python scripts/dogfooding_metrics.py end'
-alias mcp-report='uv run --frozen python scripts/dogfooding_metrics.py report'
-alias mcp-saved='uv run --frozen python scripts/dogfooding_metrics.py saved'
-alias mcp-bug='uv run --frozen python scripts/dogfooding_metrics.py bug'
+# Quick commands for metrics, usable from any directory. Named dogfood-*, not
+# mcp-*: the Claude Code hooks' aliases own mcp-report and friends (#982).
+alias dogfood-start='uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" start'
+alias dogfood-end='uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" end'
+alias dogfood-report='uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" report'
+alias dogfood-saved='uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" saved'
+alias dogfood-bug='uv run --frozen --project "$PROJECT_ROOT" python "$PROJECT_ROOT/scripts/dogfooding_metrics.py" bug'
 
 # Auto-start metrics when cd'ing into project
 function mcp_cd() {
@@ -72,7 +76,8 @@ echo ""
 echo "Added aliases:"
 echo "  - grep: Automatically tracks usage in dogfooding projects"
 echo "  - cd: Auto-starts metrics session when entering project"
-echo "  - mcp-start, mcp-end, mcp-report: Quick metric commands"
+echo "  - dogfood-start, dogfood-end, dogfood-report, dogfood-saved, dogfood-bug: Quick metric commands"
+echo "  Renamed from mcp-start, mcp-end, mcp-report, mcp-saved and mcp-bug (#982): mcp-report is now only the Claude Code hooks' report."
 echo ""
 echo "To activate: source $SHELL_RC"
 echo "Or restart your terminal"

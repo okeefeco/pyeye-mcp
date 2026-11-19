@@ -1013,3 +1013,108 @@ class TestE8UnparseableFiles:
         bad = _with_unparseable("imported_by", [entry])
         with pytest.raises(ConformanceViolation, match="E.8 unparseable_files entry"):
             lint_response(bad, "expand")
+
+
+# ---------------------------------------------------------------------------
+# E.9 — handleless_subclass_count / handleless_subclasses (#1006)
+# ---------------------------------------------------------------------------
+
+_HANDLELESS_ENTRY: dict = {
+    "name": "Local",
+    "file": "/proj/app/tests.py",
+    "line": 7,
+    "reason": "function_local",
+}
+
+_VALID_EXPAND_SUBCLASSES: dict = {
+    "found": True,
+    "source": "app.base.Base",
+    "edge": "subclasses",
+    "stubs": [],
+    "handleless_subclass_count": 1,
+    "handleless_subclasses": [dict(_HANDLELESS_ENTRY)],
+}
+
+
+class TestE9HandlelessSubclasses:
+    """E.9 (#1006) — subclasses-only, a complete count, a capped and sorted list."""
+
+    def test_on_subclasses_passes(self) -> None:
+        lint_response(_clone(_VALID_EXPAND_SUBCLASSES), "expand")
+
+    def test_measured_zero_passes(self) -> None:
+        good = _clone(_VALID_EXPAND_SUBCLASSES)
+        good["handleless_subclass_count"] = 0
+        good["handleless_subclasses"] = []
+        lint_response(good, "expand")
+
+    def test_a_cut_list_passes(self) -> None:
+        """The count is complete; the list may be shorter (cut by max_stubs)."""
+        good = _clone(_VALID_EXPAND_SUBCLASSES)
+        good["handleless_subclass_count"] = 5
+        lint_response(good, "expand")
+
+    @pytest.mark.parametrize("key", ["handleless_subclass_count", "handleless_subclasses"])
+    def test_on_other_edge_rejected(self, key: str) -> None:
+        bad = _clone(_VALID_EXPAND_IMPORTS)
+        bad[key] = _VALID_EXPAND_SUBCLASSES[key]
+        with pytest.raises(ConformanceViolation, match=f"E.9 {key} placement"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("key", ["handleless_subclass_count", "handleless_subclasses"])
+    def test_on_unsupported_branch_rejected(self, key: str) -> None:
+        bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
+        bad[key] = _VALID_EXPAND_SUBCLASSES[key]
+        with pytest.raises(ConformanceViolation, match=f"E.9 {key} placement"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("key", ["handleless_subclass_count", "handleless_subclasses"])
+    def test_the_two_keys_come_together(self, key: str) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        del bad[key]
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses pair"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("count", [-1, True, 1.0, "1"])
+    def test_count_is_a_non_negative_int(self, count: object) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        bad["handleless_subclass_count"] = count
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclass_count type"):
+            lint_response(bad, "expand")
+
+    def test_list_longer_than_count_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        bad["handleless_subclass_count"] = 0
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses count"):
+            lint_response(bad, "expand")
+
+    def test_must_be_list(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        bad["handleless_subclasses"] = dict(_HANDLELESS_ENTRY)
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses type"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("name", ""),
+            ("file", "a\nb"),
+            ("file", 3),
+            ("line", 0),
+            ("line", True),
+            ("reason", "lost"),
+        ],
+    )
+    def test_entries_are_well_formed(self, field: str, value: object) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        bad["handleless_subclasses"][0][field] = value
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses entry"):
+            lint_response(bad, "expand")
+
+    def test_entries_are_sorted_by_file_then_line(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUBCLASSES)
+        later = {**_HANDLELESS_ENTRY, "line": 9}
+        bad["handleless_subclasses"] = [later, dict(_HANDLELESS_ENTRY)]
+        bad["handleless_subclass_count"] = 2
+        with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses order"):
+            lint_response(bad, "expand")

@@ -182,7 +182,9 @@ class TestClassGraphHonoursTheRule:
         a = JediAnalyzer(str(root))
         graph = a._build_class_graph(sorted(root.rglob("*.py")))
 
-        assert graph.children_by_key.get("lib.core.Base") == frozenset({"app.Sub"})
+        children = graph.children_by_key.get("lib.core.Base", frozenset())
+        # Children are class sites since #1006; name them by their facts.
+        assert {graph.classes[site].full_name for site in children} == {"app.Sub"}
         tables, defines, stars, alls = (
             graph.import_tables,
             graph.module_defines,

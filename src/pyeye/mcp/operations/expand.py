@@ -28,7 +28,9 @@ is then supported or unsupported, distinguished by the presence of
       "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
       "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
       "unresolved_importers": [file, ...],   # imported_by ONLY (#668) — ABSENT otherwise
-      "unparseable_files": [file, ...] }     # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
+      "unparseable_files": [file, ...],      # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
+      "handleless_subclass_count": int,      # subclasses ONLY (#1006) — ABSENT otherwise
+      "handleless_subclasses": [entry, ...] }  # subclasses ONLY (#1006) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, an unknown name, or ``not_applicable``: an implemented edge that
@@ -64,6 +66,11 @@ Design invariants
   ``edges.UNPARSEABLE_FILE_EDGES`` (#729, #874): the POSIX paths of files in
   scope that the server's interpreter couldn't parse (e.g. newer syntax), so an
   adjacent defined there is unknown, not absent.  ``[]`` when every file parsed.
+- ``handleless_subclass_count`` / ``handleless_subclasses`` are present ONLY for
+  ``subclasses`` (#1006): the direct subclasses no handle can name, as
+  ``{name, file, line, reason}`` sorted by file then line.  The count is always
+  complete (``0`` when every subclass has a handle); the list is capped by
+  ``max_stubs`` as its own budget, so a cut shows as ``count > len(list)``.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
@@ -123,8 +130,8 @@ if TYPE_CHECKING:
 #: Static discoverability pointer attached to a CLASS ``subclasses`` result
 #: (#422).  ``expand(subclasses)`` returns DIRECT children only (one hop); this
 #: constant tells the agent where the full transitive closure lives.  It is
-#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count, as
-#: counting deeper subclasses is the expensive reverse scan gated on #333/#397.
+#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count:
+#: that is the full transitive walk, which ``trace`` serves with its own caps.
 SUBCLASSES_TRANSITIVE_HINT = (
     "expand returns DIRECT subclasses only; for the full transitive closure use "
     "trace(follow=['subclasses'], max_depth=k, max_nodes=N)"
@@ -342,6 +349,16 @@ async def expand_resolved(
     # defined there is unknown, not absent.  Absent on every other edge.
     if edge_result.unparseable_files is not None:
         result["unparseable_files"] = edge_result.unparseable_files
+    # handleless_subclasses (#1006): subclasses ONLY — the direct subclasses no
+    # handle can name, reported instead of dropped. The count is always complete;
+    # the list is capped by max_stubs as its own budget (the stubs' truncation
+    # fields don't cover it), so a cut list shows as count > len(list).
+    if edge_result.handleless_subclasses is not None:
+        handleless = edge_result.handleless_subclasses
+        result["handleless_subclass_count"] = len(handleless)
+        result["handleless_subclasses"] = (
+            handleless if max_stubs is None else handleless[:max_stubs]
+        )
     # subclasses is direct-only (#422); its (class-only, #626) result carries a
     # static pointer to the trace route for the full closure.
     if edge == "subclasses":
