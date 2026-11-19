@@ -20,6 +20,7 @@ from pyeye import (
 )
 from pyeye.plugins.pydantic import PydanticPlugin
 from pyeye.project_manager import ProjectManager
+from tests.utils.environment import give_installed_packages
 
 
 @pytest.fixture(autouse=True)
@@ -56,6 +57,7 @@ def project(tmp_path: Path) -> Path:
         "class BaseModel:  # NOT pydantic's\n    pass\n\n\n"
         "class Lookalike(BaseModel):\n    pass\n"
     )
+    give_installed_packages(tmp_path)  # pydantic is installed, as in a real project (#993)
     return tmp_path
 
 

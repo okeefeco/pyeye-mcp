@@ -40,12 +40,19 @@ pyeye analyses the directory its server starts in, and every analysis tool also
 takes a `project_path`. The [entry points](docs/reference/cli.md) list the
 commands that start the server.
 
-> **Known limitation ([#993](https://github.com/okeefeco/pyeye-mcp/issues/993)):**
-> in a project with a `src/` layout, pyeye can't yet find the project's
-> installed third-party packages (`requests`, `django`, …) when it runs from
-> its own environment: the plugin, `uvx`, `uv tool` or pipx. For such a
-> project, [install pyeye into the project's environment](#install-into-a-projects-environment)
-> until #993 is fixed.
+**Your project's environment.** pyeye reads the project's installed
+third-party packages (`requests`, `django`, …) from the project's own Python
+environment, whichever way pyeye itself runs. It uses the first of:
+
+1. the `environment` setting in the project's pyeye config: the path to a
+   virtualenv, or `false` for none;
+2. a virtualenv in the project: `.venv`, `venv` or `env`;
+3. the activated environment (`VIRTUAL_ENV`, or `CONDA_PREFIX` for conda), as
+   Poetry, Pipenv and Hatch set it for an environment outside the project.
+
+It reads the environment's packages from disk and never runs its Python. When
+it finds none, a third-party import doesn't resolve, and `resolve` and
+`inspect` say that no environment was found (#993).
 
 ### Claude Code plugin (recommended)
 
@@ -170,10 +177,10 @@ Configuration is loaded in the following order (later sources override earlier o
 1. **Global Config**: the first of <!-- fact:begin config.files.global -->`~/.config/pyeye/config.json`, `~/.pyeye.json`<!-- fact:end --> that exists - User defaults
 2. **Project Config**: the first of <!-- fact:begin config.files.project -->`.pyeye.json`, `.pyeye.yaml`, `.pyeye.yml`, `pyproject.toml`, `.claude/pyeye.json`<!-- fact:end --> in the project root (in `pyproject.toml`, the `[tool.pyeye]` section)
 3. **Override File**: <!-- fact:begin config.files.override -->`.pyeye.override.json`<!-- fact:end --> - Local development overrides (keep it out of git)
-4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages and the project's virtualenv site-packages are added
+4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages are added. (The project's virtualenv isn't a package: pyeye reads it as the project's environment, above.)
 5. **This session's unsaved additions**: packages, namespaces and standalone directories added with `configure_packages(save=false)`. They're applied last and don't stop auto-discovery
 
-The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`<!-- fact:end -->.
+The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`, `environment`<!-- fact:end -->.
 
 ### Using Override Files
 

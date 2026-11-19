@@ -74,7 +74,12 @@ they can't drift from it.
   analysed project's code. Calls in the server's code that start a process:
   <!-- fact:begin security.subprocesses -->none<!-- fact:end -->.
   Jedi itself runs a helper process, the server's own Python interpreter, to
-  introspect compiled modules. pyeye's Jedi setting `load_unsafe_extensions` is
+  introspect compiled modules. It is always the server's own, even when
+  `VIRTUAL_ENV` or `CONDA_PREFIX` names another environment. The project's
+  environment (its virtualenv) is read from disk, its `site-packages` and the
+  plain-path lines of its `.pth` files, and its Python is never run; a `.pth`
+  line that would run code is skipped
+  ([#993](https://github.com/okeefeco/pyeye-mcp/issues/993)). pyeye's Jedi setting `load_unsafe_extensions` is
   <!-- fact:begin security.jedi_unsafe_extensions -->off<!-- fact:end -->, so Jedi
   loads compiled extensions only from the server's Python environment, never
   from the analysed project or a configured package.

@@ -149,9 +149,15 @@ project's starting point: the project itself is the first package.
 
 ```json pyeye-output
 {"packages": ["<omitted>"], "namespaces": {}, "standalone": {"dirs": []},
+ "environment": {"path": "<project>/.venv", "source": "project"},
  "unsaved": {"packages": [], "namespaces": {}, "standalone": {"dirs": []}},
  "rejected_paths": [], "config_file": "<omitted>"}
 ```
+
+`environment` is where the project's third-party packages are read from: the
+virtualenv's `path` (or `null`), and its `source`: `config` (the `environment`
+setting), `project` (a `.venv`, `venv` or `env` in the project), `VIRTUAL_ENV` or
+`CONDA_PREFIX` (an activated environment), or `none` (#993).
 
 `unsaved` lists the entries that live only in this session, not in a config
 file, in the same shape as `packages`, `namespaces` and `standalone`, so each

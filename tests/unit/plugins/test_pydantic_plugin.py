@@ -24,8 +24,11 @@ def isolated_manager(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def temp_project():
-    """Create a temporary project directory."""
+    """A temporary project whose environment has pydantic installed, as a real one does (#993)."""
+    from tests.utils.environment import give_installed_packages
+
     with tempfile.TemporaryDirectory() as tmpdir:
+        give_installed_packages(Path(tmpdir))
         yield Path(tmpdir)
 
 
@@ -1181,12 +1184,17 @@ class TestInheritanceCost:
     """The base walk runs per model, in trace_model_inheritance only; keep it bounded."""
 
     @pytest.mark.asyncio
-    async def test_a_warm_trace_is_bounded(self):
+    async def test_a_warm_trace_is_bounded(self, tmp_path):
+        import shutil
         import time
 
+        from tests.utils.environment import give_installed_packages
         from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
 
-        fixture = Path(__file__).parents[2] / "fixtures" / "docs_examples"
+        # A copy with an environment of its own (#993): never a .venv in the repo.
+        fixture = tmp_path / "docs_examples"
+        shutil.copytree(Path(__file__).parents[2] / "fixtures" / "docs_examples", fixture)
+        give_installed_packages(fixture)
         plugin = PydanticPlugin(fixture)
         models = await plugin.find_models()
         target = next(m for m in models if m["name"] == "User")

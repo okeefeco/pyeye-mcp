@@ -25,12 +25,24 @@ def _base(project: jedi.Project) -> list[str]:
     return list(raw)
 
 
-def test_base_sys_path_drops_only_jedis_own_directory(tmp_path: Path) -> None:
+def test_base_sys_path_is_the_interpreters_stdlib_without_jedis_directory(
+    tmp_path: Path,
+) -> None:
+    """Jedi's own directory (#722) and pyeye's own site-packages (#993) are both dropped."""
+    import sys
+
     project = make_project(tmp_path)
     env_path = [p for p in project.get_environment().get_sys_path() if p]
-    expected = [p for p in env_path if not Path(p).resolve().is_relative_to(_JEDI_DIR)]
-    assert len(expected) < len(env_path), "precondition: Jedi leaks its subprocess dir"
-    assert _base(project) == expected
+    assert any(
+        Path(p).resolve().is_relative_to(_JEDI_DIR) for p in env_path
+    ), "precondition: Jedi leaks its subprocess dir"
+    assert any("site-packages" in Path(p).parts for p in env_path), "precondition"
+    base = _base(project)
+
+    assert base, "the standard library stays"
+    assert not any(Path(p).resolve().is_relative_to(_JEDI_DIR) for p in base)
+    assert not any("site-packages" in Path(p).parts for p in base)
+    assert all(Path(p).resolve().is_relative_to(Path(sys.base_prefix).resolve()) for p in base)
 
 
 def test_project_root_and_added_paths_still_apply(tmp_path: Path) -> None:
@@ -75,17 +87,18 @@ def test_configured_package_is_not_shadowed_by_jedis_directory(tmp_path: Path) -
     assert Path(target.module_path).resolve() == (extra / "functions.py").resolve()
 
 
-def test_unreadable_environment_keeps_jedis_default_base_path(
+def test_an_unreadable_interpreter_path_leaves_only_the_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Analysis never fails over the filter: no explicit sys_path, Jedi's default."""
+    """Analysis never fails over the filter, and never falls back to pyeye's own path (#993)."""
 
-    def boom() -> None:
-        raise RuntimeError("no environment")
+    class Unreadable:
+        def get_sys_path(self) -> list[str]:
+            raise RuntimeError("no environment")
 
-    monkeypatch.setattr(_jedi_project, "get_cached_default_environment", boom)
-    project = make_project(tmp_path, added_sys_path=["/x"])
-    assert project._sys_path is None
+    monkeypatch.setattr(_jedi_project, "own_environment", Unreadable)
+    project = make_project(tmp_path, added_sys_path=["/x"], environment_paths=["/venv/site"])
+    assert project._sys_path == ["/venv/site"]
     assert project.added_sys_path == ["/x"]
 
 

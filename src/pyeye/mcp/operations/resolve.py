@@ -61,6 +61,7 @@ from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye._jedi_names import is_attribute_target
+from pyeye.environment import not_found_note as environment_not_found_note
 from pyeye.exceptions import ValidationError
 from pyeye.handle import Handle
 from pyeye.mcp.operations.completeness import (
@@ -69,7 +70,7 @@ from pyeye.mcp.operations.completeness import (
     cap_items,
     check_cap,
 )
-from pyeye.mcp.operations.not_found import SOURCE_SUFFIXES, not_found_for
+from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
@@ -602,6 +603,11 @@ async def resolve(
         )
         if result.get("note"):
             response["detail"] = f"{response['detail']} {result['note']}"
+        # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
+        if result["reason"] == NOT_FOUND_REASON and (
+            env_note := environment_not_found_note(analyzer, identifier)
+        ):
+            response["detail"] = f"{response['detail']} {env_note}"
         return response
     return result
 

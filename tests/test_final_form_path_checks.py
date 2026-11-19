@@ -575,10 +575,14 @@ class TestRulingWalksPrune:
         assert set(pruned_rglob("*.html", tpl)) == set(tpl.rglob("*.html"))
 
     def test_venv_site_packages_discovery_still_works(self, tmp_path: Path) -> None:
-        from pyeye.config import ProjectConfig
+        """Since #993 the venv is the project environment, read statically, not a package."""
+        from pyeye.environment import discover
 
-        site = tmp_path / "proj" / ".venv" / "lib" / "python3.12" / "site-packages"
+        venv = tmp_path / "proj" / ".venv"
+        site = venv / "lib" / "python3.12" / "site-packages"
         site.mkdir(parents=True)
-        config = ProjectConfig((tmp_path / "proj").as_posix())
+        (venv / "pyvenv.cfg").write_text("version = 3.12.4\n", encoding="utf-8")
 
-        assert site.as_posix() in [Path(p).as_posix() for p in config._discover_venv_packages()]
+        environment = discover(tmp_path / "proj")
+
+        assert site.resolve().as_posix() in environment.site_paths

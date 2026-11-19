@@ -25,6 +25,7 @@ import pytest
 from pyeye.docs_facts import docs
 from pyeye.docs_facts.examples import Example, allows_examples, match_shown, parse_examples
 from tests.conformance.response_linter import lint_response
+from tests.utils.environment import give_installed_packages
 
 ROOT = Path(__file__).parent.parent
 FIXTURES = ROOT / "tests" / "fixtures"
@@ -53,6 +54,9 @@ def projects(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     for name in sorted({example.fixture for _, example in EXAMPLES}):
         target = tmp_path_factory.mktemp(f"docs-example-{name}") / "project"
         shutil.copytree(FIXTURES / name, target)
+        # The examples describe projects whose packages are installed (#993):
+        # each copy gets an environment, as a real project has.
+        give_installed_packages(target)
         copies[name] = target
     return copies
 
