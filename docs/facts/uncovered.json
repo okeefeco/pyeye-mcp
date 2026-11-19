@@ -109,131 +109,131 @@
   "new": [
     {
       "fact_id": "env.PYEYE_ISSUE",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "env.PYEYE_PARENT_SESSION",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "env.PYEYE_RESOLVE_CACHE_MAX_ENTRIES",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.black",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-added-large-files",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-case-conflict",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-docstring-first",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-json",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-merge-conflict",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-toml",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.check-yaml",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.commitizen",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.conformance-linter",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.debug-statements",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.decision-log-nudge",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.decisions-check",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.detect-private-key",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.docs-facts-generate",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.duplicate-code-report",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.end-of-file-fixer",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.markdownlint",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.mixed-line-ending",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.mypy",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.name-tests-test",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.path-ownership",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.pretty-format-json",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.pydocstyle",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.refresh-version-file",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.ruff",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.start-metrics-session",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "precommit.hook.trailing-whitespace",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     },
     {
       "fact_id": "tool.find_pydantic_models.param.max_unplaced",
-      "first_seen": "unreleased"
+      "first_seen": "2.2.0"
     }
   ]
 }
