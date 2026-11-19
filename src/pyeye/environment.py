@@ -60,7 +60,8 @@ _PTH_IMPORT = re.compile(r"^import[ \t]")
 #: Hitting one logs a warning and reads no further.
 MAX_PTH_BYTES = 1 << 20  # per .pth file; the rest of the file is ignored
 MAX_PTH_LINES = 1000  # paths per .pth file
-MAX_SITE_PATHS = 1000  # per environment: .pth paths looked up (found or not), at least 1 per file
+MAX_SITE_PATHS = 1000  # per environment: import roots that exist (junk lines can't use it up)
+MAX_PTH_LOOKUPS = 20_000  # per environment: .pth paths looked up, found or not; bounds the time
 
 
 @dataclass(frozen=True)
@@ -141,7 +142,10 @@ def _project_bases(root: Path) -> list[Path]:
 
 
 def _trusted_dir(directory: Path) -> bool:
-    """Whether only the current user can have created *directory*'s entries (POSIX)."""
+    """Whether only the current user can have created *directory*'s entries (POSIX).
+
+    Not when another user owns it or can write to it: world- OR group-writable.
+    """
     getuid = getattr(os, "getuid", None)
     if getuid is None:  # Windows: no owner/mode model to test
         return True
@@ -149,10 +153,10 @@ def _trusted_dir(directory: Path) -> bool:
         info = directory.stat()
     except OSError:
         return False
-    if info.st_mode & stat.S_IWOTH or info.st_uid != getuid():
+    if info.st_mode & (stat.S_IWOTH | stat.S_IWGRP) or info.st_uid != getuid():
         logger.warning(
             f"Not looking for a venv in {directory.as_posix()}: "
-            "it is world-writable or owned by another user"
+            "it is group- or world-writable, or owned by another user"
         )
         return False
     return True
@@ -204,25 +208,37 @@ def site_paths(env: Path) -> list[str]:
     ``site-packages``, a ``.pth`` line naming ``/etc``, a home's ``.ssh``, or
     climbing to ``/``) is dropped with a warning, and a dropped
     ``site-packages``' ``.pth`` files are never read. The work is bounded:
-    :data:`MAX_SITE_PATHS`, and per file :data:`MAX_PTH_BYTES` and
-    :data:`MAX_PTH_LINES`.
+    :data:`MAX_SITE_PATHS` roots that exist and :data:`MAX_PTH_LOOKUPS` lookups
+    per environment, and per file :data:`MAX_PTH_BYTES` and :data:`MAX_PTH_LINES`.
+    Only roots that exist count toward :data:`MAX_SITE_PATHS`, so a junk
+    ``.pth`` can't starve a later file's real entries; the lookup ceiling,
+    far higher, bounds the time a set of junk files can take.
     """
     out: dict[str, None] = {}
-    budget = MAX_SITE_PATHS
+    lookups = MAX_PTH_LOOKUPS
     for site_dir in _site_packages_dirs(env):
         if not _allowed(site_dir, site_dir, what="site-packages"):
             continue
         out[site_dir.as_posix()] = None
         for pth in sorted(site_dir.glob("*.pth")):
-            if budget <= 0:
+            if lookups <= 0:
                 logger.warning(
-                    f"Environment {env.as_posix()} names over {MAX_SITE_PATHS} "
-                    ".pth paths; reading no further"
+                    f"Environment {env.as_posix()}: over {MAX_PTH_LOOKUPS} .pth paths "
+                    "looked up; reading no further"
                 )
                 return list(out)
-            entries, looked_up = _cached_pth_paths(pth, budget)
-            budget -= max(1, looked_up)
-            out.update(dict.fromkeys(entries))
+            entries, looked_up = _cached_pth_paths(pth, lookups)
+            lookups -= max(1, looked_up)
+            for entry in entries:
+                if entry in out:
+                    continue
+                if len(out) >= MAX_SITE_PATHS:
+                    logger.warning(
+                        f"Environment {env.as_posix()} adds over {MAX_SITE_PATHS} "
+                        "import roots; reading no further"
+                    )
+                    return list(out)
+                out[entry] = None
     return list(out)
 
 
@@ -253,6 +269,12 @@ def _cached_pth_paths(pth: Path, budget: int) -> tuple[tuple[str, ...], int]:
 
     Each analyzer rebuild and each ``configure_packages`` reads the environment
     again. Keyed on the file and its stat, only a changed ``.pth`` is re-read.
+
+    A directory a ``.pth`` line names but that is created only AFTER the file
+    was first read is missed until the ``.pth`` changes (#993 re-review). That
+    is fine: installers write the target first (an editable install's source
+    tree exists before its ``.pth`` is written), and a new analyzer for a new
+    session reads it afresh.
     """
     try:
         info = pth.stat()

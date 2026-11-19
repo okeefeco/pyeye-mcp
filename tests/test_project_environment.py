@@ -390,14 +390,31 @@ class TestBounds:
         with caplog.at_level(logging.WARNING, logger="pyeye.environment"):
             paths = site_paths(tmp_path / ".venv")
 
-        assert paths[1:] == [(tmp_path / f"d{i}").resolve().as_posix() for i in range(3)]
-        assert ".pth paths; reading no further" in caplog.text
+        # The cap counts roots that exist, site-packages included.
+        assert paths[1:] == [(tmp_path / f"d{i}").resolve().as_posix() for i in range(2)]
+        assert "import roots; reading no further" in caplog.text
 
-    def test_missing_paths_count_toward_the_total_cap(
+    def test_a_junk_pth_cannot_starve_a_later_files_real_entries(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Files full of paths that don't exist can't make lookups unbounded."""
-        monkeypatch.setattr(env_module, "MAX_SITE_PATHS", 10)
+        """Only roots that exist count toward MAX_SITE_PATHS (#993 re-review)."""
+        monkeypatch.setattr(env_module, "MAX_SITE_PATHS", 2)
+        site = _venv(tmp_path / ".venv")
+        junk = "".join(f"{(tmp_path / f'missing{k}').as_posix()}\n" for k in range(50))
+        (site / "a_junk.pth").write_text(junk, encoding="utf-8")
+        (tmp_path / "real").mkdir()
+        (site / "z_real.pth").write_text(f"{(tmp_path / 'real').as_posix()}\n", encoding="utf-8")
+
+        assert site_paths(tmp_path / ".venv") == [
+            site.resolve().as_posix(),
+            (tmp_path / "real").resolve().as_posix(),
+        ]
+
+    def test_lookups_have_a_ceiling_found_or_not(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Many files of paths that don't exist can't make lookups unbounded."""
+        monkeypatch.setattr(env_module, "MAX_PTH_LOOKUPS", 10)
         site = _venv(tmp_path / ".venv")
         for i in range(20):
             missing = "".join(f"{(tmp_path / f'missing{i}-{k}').as_posix()}\n" for k in range(4))
@@ -412,10 +429,12 @@ class TestBounds:
             return real_is_dir(self)
 
         monkeypatch.setattr(Path, "is_dir", counting_is_dir)
-        paths = site_paths(tmp_path / ".venv")
+        with caplog.at_level(logging.WARNING, logger="pyeye.environment"):
+            paths = site_paths(tmp_path / ".venv")
 
         assert paths == [site.resolve().as_posix()]  # zz.pth was never reached
         assert sum("missing" in p.name for p in looked_up) == 10
+        assert "looked up; reading no further" in caplog.text
 
     def test_an_unchanged_pth_file_is_not_read_again(self, tmp_path: Path) -> None:
         site = _venv(tmp_path / ".venv")
@@ -461,7 +480,19 @@ class TestParentLookup:
             shared.chmod(0o755)
 
         assert found.source == "none"
-        assert "world-writable or owned by another user" in caplog.text
+        assert "group- or world-writable, or owned by another user" in caplog.text
+
+    def test_a_group_writable_parent_is_not_searched(self, tmp_path: Path) -> None:
+        shared = tmp_path / "team"
+        shared.mkdir()
+        pkg = self._package_under(shared)
+        shared.chmod(0o775)
+        try:
+            found = discover(pkg)
+        finally:
+            shared.chmod(0o755)
+
+        assert found.source == "none"
 
     def test_a_parent_owned_by_another_user_is_not_searched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

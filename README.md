@@ -48,7 +48,7 @@ environment, whichever way pyeye itself runs. It uses the first of:
    virtualenv, or `false` for none;
 2. a virtualenv in the project: `.venv`, `venv` or `env` (for a project that is
    itself a package, in its parent directory too, unless that directory is
-   shared: world-writable, or owned by another user);
+   shared: group- or world-writable, or owned by another user);
 3. the activated environment (`VIRTUAL_ENV`, or `CONDA_PREFIX` for conda), as
    Poetry, Pipenv and Hatch set it for an environment outside the project.
    One activated environment serves every project that has none of its own.
