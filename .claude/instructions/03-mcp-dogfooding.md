@@ -46,8 +46,10 @@ honest-limits rule (callers/references are deferred to the Pyright backend, #333
 Do **not** restate tool usage here. When you need the mechanics, use the skill —
 this is the repo dogfooding its own shipped guide, and keeping one copy is what
 stops the guidance from rotting (the failure that prompted #374). The skill's
-supported-edge list is conformance-tested against the live edge registry
-(`tests/test_python_explore_skill_conformance.py`).
+supported-edge list is the `edges.implemented` fact block: `docs_facts generate`
+writes it from the live edge registry and `docs_facts check` verifies it.
+`tests/test_docs_facts_skills.py` checks that the skill still binds it and that
+its edge table explains every edge.
 
 ## Measuring Success
 
