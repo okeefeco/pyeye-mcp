@@ -130,8 +130,8 @@ if TYPE_CHECKING:
 #: Static discoverability pointer attached to a CLASS ``subclasses`` result
 #: (#422).  ``expand(subclasses)`` returns DIRECT children only (one hop); this
 #: constant tells the agent where the full transitive closure lives.  It is
-#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count, as
-#: counting deeper subclasses is the expensive reverse scan gated on #333/#397.
+#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count:
+#: that is the full transitive walk, which ``trace`` serves with its own caps.
 SUBCLASSES_TRANSITIVE_HINT = (
     "expand returns DIRECT subclasses only; for the full transitive closure use "
     "trace(follow=['subclasses'], max_depth=k, max_nodes=N)"

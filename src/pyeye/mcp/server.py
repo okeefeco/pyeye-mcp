@@ -1097,10 +1097,9 @@ async def expand(
         max_nodes=N)``, which carries the cap + ``truncated`` contract.  A class
         result includes a static ``transitive_hint`` field pointing to that trace
         route.  ``subclasses`` is an expand-only edge: ``inspect`` does NOT
-        measure it (dropped in #392); a cheap direct count is gated on the Pyright
-        reference backend / class-graph cache (#333/#397), because even the direct
-        count is a reverse query needing the same project-wide scan as
-        ``callers``/``references``.  A subclass no handle can name (defined in a
+        measure it, by design: the edge reads the whole-project class graph, and
+        ``inspect`` stays independent of whole-project indices, which every edit
+        drops (#392, ruled 2026-11-20).  A subclass no handle can name (defined in a
         function, in a file with no module path, or under a name the ASCII-only
         handle grammar rejects) can't be a stub: it is counted in
         ``handleless_subclass_count`` (always complete) and listed in

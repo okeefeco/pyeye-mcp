@@ -15,9 +15,10 @@ Design notes
 ------------
 - ``edge_counts`` is ALWAYS present.  It measures only edges derivable from the
   symbol's own definition: ``members`` (class/module) and ``superclasses``
-  (class).  ``subclasses`` is intentionally OMITTED — counting it requires a
-  project-wide inheritance scan with no cheap-preview value, so it is an
-  expand-only edge (``expand(handle, "subclasses")``) (#392).  ``callers`` and
+  (class).  ``subclasses`` is OMITTED by design: it reads the whole-project
+  class graph, and ``inspect`` stays independent of whole-project indices,
+  which every edit drops (#392, ruled 2026-11-20).  It is an expand-only edge
+  (``expand(handle, "subclasses")``).  ``callers`` and
   ``references`` are likewise OMITTED — deferred to the Pyright reference backend
   (#333).  Unmeasured edge types are ABSENT (not 0).
 - ``re_exports`` (non-module kinds) — **deprecated** in favour of
@@ -691,9 +692,9 @@ async def _build_edge_counts(
     - ``members``: count of direct members (class and module handles)
     - ``superclasses``: count of direct superclasses (class handles)
 
-    **``subclasses`` is intentionally NOT measured** (see #392).  Counting
-    project-internal subclasses requires the same project-wide inheritance scan
-    as listing them, so it has no cheap-preview value and is an expand-only edge
+    **``subclasses`` is NOT measured, by design** (#392, ruled 2026-11-20).  It
+    reads the whole-project class graph, and ``inspect`` stays independent of
+    whole-project indices, which every edit drops.  It is an expand-only edge
     (``expand(handle, "subclasses")``).
 
     **``callers`` and ``references`` are intentionally NOT measured** (see #332).
@@ -738,11 +739,11 @@ async def _build_edge_counts(
             coros["members"] = _count_module_members(jedi_name, analyzer)
     if edge_applies("superclasses", jedi_name):
         coros["superclasses"] = _count_superclasses(jedi_name, analyzer, superclasses)
-        # subclasses is intentionally NOT measured here — counting subclasses
-        # requires the same project-wide inheritance scan as listing them, so it
-        # has no cheap-preview value (#392).  It is an expand-only edge:
-        # expand(handle, "subclasses").  inspect's edge_counts reports only edges
-        # derivable from the symbol's own definition (members, superclasses).
+        # subclasses is NOT measured here, by design (#392, ruled 2026-11-20): it
+        # reads the whole-project class graph, and inspect stays independent of
+        # whole-project indices, which every edit drops.  It is an expand-only
+        # edge: expand(handle, "subclasses").  inspect's edge_counts reports only
+        # edges derivable from the symbol's own definition (members, superclasses).
 
     if edge_applies("submodules", jedi_name):
         # submodules is counted only for a PACKAGE (#423): present (possibly a measured
@@ -791,9 +792,10 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 
     Always includes ``edge_counts`` (measures only edges derivable from the
     symbol's own definition: members, superclasses — for relevant kinds).
-    ``subclasses`` is OMITTED — it is an expand-only edge
-    (``expand(handle, "subclasses")``), since counting it needs a project-wide
-    scan (#392).  ``callers`` and ``references`` are likewise OMITTED (deferred
+    ``subclasses`` is OMITTED by design — it is an expand-only edge
+    (``expand(handle, "subclasses")``): it reads the whole-project class graph,
+    and ``inspect`` stays independent of whole-project indices (#392, ruled
+    2026-11-20).  ``callers`` and ``references`` are likewise OMITTED (deferred
     to the Pyright reference backend, #333).
     Edges that exceed their per-measurement budget are OMITTED, not zero.
     ``re_exports`` — for non-module kinds (class, function, method, property,

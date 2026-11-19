@@ -1025,8 +1025,9 @@ class JediAnalyzer:
         return result
 
     # LIVE (not deprecated): the AST class-graph walk backing ``expand(handle,
-    # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts`` (#392,
-    # direct count gated on #333/#397). Do not remove.
+    # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts``, by
+    # design: inspect stays independent of whole-project indices (#392, ruled
+    # 2026-11-20). Do not remove.
     async def find_subclasses(
         self,
         base_class: str,

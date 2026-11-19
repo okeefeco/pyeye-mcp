@@ -1023,10 +1023,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     forward ``goto``/``resolver.resolve_handle`` (NO ``Script.get_references``, the
     same load-bearing trust constraint as ``callees`` / ``imported_by``).
     ``subclasses`` is an **expand-only** edge: ``inspect``
-    does NOT measure it (dropped in #392; a cheap direct count is gated on the
-    Pyright reference backend / class-graph cache — #333/#397 — because even the
-    DIRECT count needs the same project-wide scan, exactly like ``callers`` /
-    ``references``).
+    does NOT measure it, by design: the edge reads the whole-project class graph,
+    and ``inspect`` stays independent of whole-project indices, which every edit
+    drops (#392, ruled 2026-11-20).
 
     Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
     neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1;
