@@ -31,6 +31,7 @@ from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
 from ..plugins.pydantic import PydanticPlugin
+from ..project_layout import mark_stub
 from ..project_manager import get_project_manager
 from ..scope_utils import SmartScopeResolver
 from ..settings import settings
@@ -245,7 +246,8 @@ def all_plugin_tool_names(project_path: str) -> set[str]:
 PLUGIN_PROJECT_PATH_NOTE = """
 
 Each record also carries ``scope`` (project or external) and an absolute
-``location`` (#627).  A record that names a symbol carries its canonical
+``location`` (#627), plus ``stub: true`` when it is declared in a ``.pyi``
+(absent means source; #933).  A record that names a symbol carries its canonical
 ``handle``, ready for ``inspect`` or ``expand``, or ``unresolved``
 (``{reason, detail}``) when it can't be placed.
 
@@ -489,7 +491,15 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
 
     if len(matches) > 1:
         candidates = [
-            {"handle": m["handle"], "kind": "class", "scope": m["scope"], "location": m["location"]}
+            mark_stub(
+                {
+                    "handle": m["handle"],
+                    "kind": "class",
+                    "scope": m["scope"],
+                    "location": m["location"],
+                },
+                m["location"].get("file"),
+            )
             for m in matches
             if "handle" in m
         ]
@@ -920,7 +930,9 @@ async def resolve(
     Returns:
         ResolveResult dict — one of:
         - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external",
-          "location": {...}} (the definition site, a pointer: no source content)
+          "location": {...}} (the definition site, a pointer: no source content),
+          plus ``stub: true`` when that site is a ``.pyi`` (absent means source,
+          a measured no; #933). Each ambiguous candidate carries it the same way.
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
           At most ``max_candidates`` (default 50; ``None`` for all) candidates
           come back, in sorted order (#435).  When more match, the result also
@@ -1004,7 +1016,9 @@ async def inspect(
 
     Returns:
         Node dict with ``found: True``, universal fields (handle, kind, scope,
-        location, docstring, edge_counts) plus kind-dependent fields.
+        location, docstring, edge_counts) plus kind-dependent fields, and
+        ``stub: true`` when the definition is declared in a ``.pyi`` (absent
+        means source, a measured no; #933).
         ``edge_counts`` counts only the edges cheap to measure from the
         definition itself.  An edge it didn't measure, including one that ran
         past its time budget, is ABSENT, never ``0``.  Follow an edge with
@@ -1196,7 +1210,9 @@ async def expand(
 
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
     ``line_end``, and ``signature`` when Jedi yields one (always for
-    class/function/method; also any name whose inferred type is callable).
+    class/function/method; also any name whose inferred type is callable),
+    plus ``stub: true`` when the definition is declared in a ``.pyi`` (absent
+    means source, a measured no; #933).
     A ``re_exports`` stub also carries ``bindings``, the public names it binds.
 
     A call, import or base whose definition Jedi can't pin to exactly one
@@ -1358,8 +1374,10 @@ async def outline(
 
     Returns a nested ``OutlineTree`` — the ``members`` hierarchy of *handle* as a
     tree of lightweight structural nodes (``Stub``).  Each node carries
-    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``, and
-    ``signature`` when Jedi yields one.  No source content anywhere in the tree.
+    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``,
+    ``signature`` when Jedi yields one, and ``stub: true`` when it is declared
+    in a ``.pyi`` (absent means source; #933).  No source content anywhere in
+    the tree.
 
     Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
     ``outline()`` to see the structural skeleton in one call — the single-call

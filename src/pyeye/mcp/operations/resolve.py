@@ -56,7 +56,7 @@ import logging
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Required, TypedDict, TypeVar, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
@@ -72,6 +72,7 @@ from pyeye.mcp.operations.completeness import (
 )
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
+from pyeye.project_layout import mark_stub
 from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
 from pyeye.scope import classify_scope
 from pyeye.validation import PathValidator
@@ -98,6 +99,7 @@ class _Candidate(TypedDict):
     handle: str
     kind: str
     scope: Literal["project", "external"]
+    stub: NotRequired[Literal[True]]  # #933: declared in a .pyi; absent = source
     location: _Location
 
 
@@ -106,6 +108,7 @@ class _SuccessResult(TypedDict):
     handle: str
     kind: str
     scope: Literal["project", "external"]
+    stub: NotRequired[Literal[True]]  # #933: declared in a .pyi; absent = source
     location: _Location
 
 
@@ -612,6 +615,17 @@ async def resolve(
         ):
             response["detail"] = f"{response['detail']} {env_note}"
         return response
+    return _mark_stubs(result)
+
+
+_R = TypeVar("_R")
+
+
+def _mark_stubs(result: _R) -> _R:
+    """*result* with ``stub: true`` on it, or on each candidate, declared in a ``.pyi`` (#933)."""
+    found = cast(dict[str, Any], result)
+    for node in found.get("candidates") or [found]:
+        mark_stub(node, (node.get("location") or {}).get("file"))
     return result
 
 
@@ -681,4 +695,4 @@ async def resolve_at(
         # The helper's own detail (e.g. "is a directory", #775) wins over the
         # reason's default, as in resolve().
         return not_found_for("resolve_at", echo, result["reason"], result.get("detail"))
-    return result
+    return _mark_stubs(result)

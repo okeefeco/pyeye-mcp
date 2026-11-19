@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye.path_utils import normalize_path
-from pyeye.project_layout import module_name_for_file
+from pyeye.project_layout import mark_stub, module_name_for_file
 from pyeye.resolver import NotFound, resolve_item
 from pyeye.scope import classify_scope
 
@@ -157,6 +157,7 @@ def _enrich_record(
         location["line_end"] = line
     record["location"] = location
     record["scope"] = classify_scope(path, analyzer)
+    mark_stub(record, path)  # #933
 
     if symbol is None:
         return
@@ -176,6 +177,7 @@ def _enrich_record(
         placed = _anchor_location(outcome.anchor)
         if placed is not None:
             record["location"] = placed
+            mark_stub(record, placed.get("file"))  # #933: the placed definition site
 
 
 def _anchor_location(anchor: Any) -> dict[str, Any] | None:

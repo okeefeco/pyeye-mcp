@@ -192,17 +192,24 @@ def pruned_rglob(pattern: str, path: Path) -> list[Path]:
         here / name
         for here, dirnames, filenames in pruned_walk(path)
         for name in (*dirnames, *filenames)
-        if _tail_matches(here / name, path, pattern)
+        if _tail_matches(here / name, path, (pattern,))
     ]
 
 
-def _tail_matches(candidate: Path, path: Path, pattern: str) -> bool:
-    """``rglob(pattern)`` semantics: *pattern* matches *candidate*'s tail below *path*."""
+#: One glob pattern, or several matched in the same walk (#933).
+Patterns = str | tuple[str, ...]
+
+
+def _tail_matches(candidate: Path, path: Path, patterns: tuple[str, ...]) -> bool:
+    """``rglob`` semantics: any of *patterns* matches *candidate*'s tail below *path*."""
     below = relative_within(candidate, path)
-    return below is not None and PurePosixPath(below.as_posix()).match(pattern)
+    if below is None:
+        return False
+    tail = PurePosixPath(below.as_posix())
+    return any(tail.match(p) for p in patterns)
 
 
-def filtered_rglob(pattern: str, path: Path) -> list[Path]:
+def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
     """Recursively glob under *path*, excluding non-project directories (#507, #517).
 
     The ONE home of the project-scan exclusion rule: :func:`rglob_async` and
@@ -236,13 +243,15 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
     normally.
 
     Args:
-        pattern: Glob pattern
+        pattern: Glob pattern, or a tuple of them matched in ONE walk: listing
+            ``.py`` and ``.pyi`` with two calls walks the tree twice (#933).
         path: Base path to search in
 
     Returns:
         List of matching paths (excludes .venv, __pycache__, .git, nested
         worktrees, nested independent clones, etc.)
     """
+    patterns = (pattern,) if isinstance(pattern, str) else pattern
     from .constants import EXCLUDED_DIRS
 
     def _excluded(name: str) -> bool:
@@ -269,12 +278,12 @@ def filtered_rglob(pattern: str, path: Path) -> list[Path]:
             and not _is_nested_repo(here / d, declared)
         ]
         for name in (*dirnames, *filenames):
-            if not _excluded(name) and _tail_matches(here / name, path, pattern):
+            if not _excluded(name) and _tail_matches(here / name, path, patterns):
                 results.append(here / name)
     return results
 
 
-async def rglob_async(pattern: str, path: Path) -> list[Path]:
+async def rglob_async(pattern: Patterns, path: Path) -> list[Path]:
     """:func:`filtered_rglob` on a worker thread.
 
     Args:

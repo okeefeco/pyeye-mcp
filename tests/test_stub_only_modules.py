@@ -11,8 +11,10 @@ The maintainer's ruling (option A):
    ``stub_declaration``: a stub has no bodies to read. That holds for an
    external stub (typeshed) too.
 
-The ``declared_in`` marker (2) waits for the designer's placement ruling; its
-one predicate, :func:`pyeye.project_layout.declaration_kind`, is tested here.
+2. The marker is a documented flag (the maintainer's ruling, via designer):
+   ``stub: true`` on every node whose definition site is a ``.pyi``, absent
+   for source. Whether a file is a stub is always measured, so its absence is
+   a measured "no". The conformance linter's Check D enforces it.
 """
 
 from __future__ import annotations
@@ -24,7 +26,8 @@ from typing import Any
 import pytest
 
 from pyeye.mcp.server import mcp
-from pyeye.project_layout import declaration_kind
+from pyeye.project_layout import declaration_kind, mark_stub
+from tests.conformance.response_linter import lint_response
 
 FIXTURE = Path(__file__).parent / "fixtures" / "stub_only"
 
@@ -212,6 +215,32 @@ class TestVendoredStubsPackage:
         assert "pkg/mixed.pyi" not in listed  # a stub beside its source isn't a module file
 
 
+class TestModuleFiles:
+    """The scans list ``.py`` and stub-only ``.pyi`` in one walk (#933)."""
+
+    @pytest.mark.asyncio
+    async def test_one_listing_for_both_suffixes(
+        self, project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+        analyzer = JediAnalyzer(project.as_posix())
+        patterns: list[Any] = []
+        real = analyzer.get_project_files
+
+        async def counting(pattern: Any = "*.py", *args: Any, **kwargs: Any) -> list[Path]:
+            patterns.append(pattern)
+            return await real(pattern, *args, **kwargs)
+
+        monkeypatch.setattr(analyzer, "get_project_files", counting)
+        files = await analyzer.get_module_files(scope="main")
+
+        assert patterns == [("*.py", "*.pyi")]
+        listed = {f.relative_to(project).as_posix() for f in files}
+        assert {"pkg/stubonly.pyi", "pkg/mixed.py", "app.py"} <= listed
+        assert "pkg/mixed.pyi" not in listed and not any(p.startswith("foo-stubs/") for p in listed)
+
+
 class TestBodyEdges:
     """(5) A stub has no bodies: ``callees`` on its declarations is refused, never ``[]``."""
 
@@ -246,8 +275,84 @@ class TestBodyEdges:
         assert "pkg.stubonly.f" in _stub_handles(measured)
 
 
+class TestStubFlag:
+    """(2) ``stub: true`` on every node declared in a ``.pyi``; absent for source."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_and_inspect(self, project: Path) -> None:
+        for tool, args in (
+            ("resolve", {"identifier": "pkg.stubonly.S"}),
+            ("inspect", {"handle": "pkg.stubonly.S"}),
+            ("resolve_at", {"file": "pkg/stubonly.pyi", "line": 3, "column": 6}),
+        ):
+            response = await _call(tool, project, **args)
+            lint_response(response, tool)
+            assert response["stub"] is True, (tool, response)
+        source = await _call("resolve", project, identifier="pkg.base.Base")
+        assert "stub" not in source
+
+    @pytest.mark.asyncio
+    async def test_a_stub_beside_its_source_is_located_at_the_source(self, project: Path) -> None:
+        assert "stub" not in await _call("resolve", project, identifier="pkg/mixed.pyi")
+
+    @pytest.mark.asyncio
+    async def test_edge_stubs_outline_and_trace_nodes(self, project: Path) -> None:
+        imports = await _call("expand", project, handle="app", edge="imports")
+        outline = await _call("outline", project, handle="pkg.stubonly")
+        graph = await _call("trace", project, start="app", follow=["imports"], max_depth=1)
+        lint_response(imports, "expand")
+        lint_response(outline, "outline")
+        lint_response(graph, "trace")
+
+        flags = {s["handle"]: s.get("stub") for s in imports["stubs"]}
+        assert flags["pkg.stubonly.S"] is True and flags["pkg.stubonly.f"] is True
+        assert outline["node"]["stub"] is True
+        assert all(c["node"]["stub"] is True for c in outline["children"])
+        assert graph["nodes"]["pkg.stubonly.S"]["stub"] is True
+        assert "stub" not in graph["nodes"]["app"]
+
+    @pytest.mark.asyncio
+    async def test_a_submodule_stub_and_a_subclass_stub(self, project: Path) -> None:
+        """Sentinel-built stubs (directory scans, the class graph) carry it too."""
+        submodules = await _call("expand", project, handle="pkg", edge="submodules")
+        subclasses = await _call("expand", project, handle="pkg.base.Base", edge="subclasses")
+
+        flags = {s["handle"]: s.get("stub") for s in submodules["stubs"]}
+        assert flags == {
+            "pkg.base": None,
+            "pkg.declared": True,
+            "pkg.mixed": None,
+            "pkg.stubonly": True,
+        }
+        assert subclasses["stubs"][0]["stub"] is True
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_candidates_are_flagged_one_by_one(self, project: Path) -> None:
+        (project / "pkg" / "other.py").write_text("class S:\n    pass\n", encoding="utf-8")
+
+        found = await _call("resolve", project, identifier="S")
+
+        lint_response(found, "resolve")
+        flags = {c["handle"]: c.get("stub") for c in found["candidates"]}
+        assert flags == {"pkg.other.S": None, "pkg.stubonly.S": True}
+
+    @pytest.mark.asyncio
+    async def test_an_external_typeshed_declaration(self, project: Path) -> None:
+        found = await _call("resolve", project, identifier="math.sqrt")
+
+        assert found["location"]["file"].endswith(".pyi"), found
+        assert found["stub"] is True
+
+    def test_mark_stub_sets_and_clears(self) -> None:
+        node: dict[str, Any] = {"handle": "h", "scope": "project"}
+
+        assert mark_stub(node, "/p/m.pyi")["stub"] is True
+        assert "stub" not in mark_stub(node, "/p/m.py")
+        assert "stub" not in mark_stub(node, None)
+
+
 class TestDeclarationKind:
-    """The ``declared_in`` marker's one predicate (#933); its placement is pending."""
+    """The flag's one predicate (#933)."""
 
     @pytest.mark.parametrize(
         ("file", "expected"),

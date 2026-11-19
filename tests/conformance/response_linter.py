@@ -189,6 +189,15 @@ K.1 Every handle-bearing dict anywhere in a response (one carrying ``handle``,
     independent oracle; ``tests/unit/test_kinds.py`` pins
     ``pyeye.kinds.KINDS`` to the same set.
 
+Check D — the stub declaration flag (#933)
+------------------------------------------
+D.1 On every node (a dict carrying ``handle`` and ``scope``, anywhere in a
+    response), ``stub`` is either absent or exactly ``True``. It is a
+    documented flag: absent means declared in source, a measured "no", so a
+    ``False`` / ``None`` / string value is never valid.
+D.2 When the node carries ``location.file``, ``stub`` is present exactly when
+    that file is a ``.pyi`` (any case). An edge stub has no file; D.1 covers it.
+
 Usage
 -----
 ::
@@ -2066,6 +2075,37 @@ def _check_kind_vocabulary(response: dict[str, Any], violations: list[str]) -> N
             )
 
 
+_NODE_KEYS: frozenset[str] = frozenset({"handle", "scope"})
+
+
+def _check_stub_flag(response: dict[str, Any], violations: list[str]) -> None:
+    """D.1 + D.2 — the ``stub`` flag is ``True`` or absent, and matches the file (#933).
+
+    Args:
+        response: The operation response dict.
+        violations: Mutable list to append violation messages to.
+    """
+    for path, obj in _iter_dicts(response, ""):
+        if not set(obj) >= _NODE_KEYS:
+            continue
+        where = f"{path}.stub" if path else "stub"
+        if "stub" in obj and obj["stub"] is not True:
+            violations.append(
+                f"[D.1 stub flag value] {where}: {_truncate(obj['stub'])} — the flag is "
+                "present only as true; absent means declared in source (#933)."
+            )
+        location = obj.get("location")
+        file = location.get("file") if isinstance(location, dict) else None
+        if not isinstance(file, str):
+            continue
+        is_stub_file = file.lower().endswith(".pyi")
+        if is_stub_file != ("stub" in obj):
+            violations.append(
+                f"[D.2 stub flag vs file] {where}: {'missing' if is_stub_file else 'present'} "
+                f"for a node located at {_truncate(file)} (#933)."
+            )
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -2102,6 +2142,7 @@ def lint_response(response: dict[str, Any], operation: str) -> None:
     violations: list[str] = []
     _check_layering(response, operation, violations)
     _check_kind_vocabulary(response, violations)
+    _check_stub_flag(response, violations)
 
     is_not_found = operation in _FOUND_DISCRIMINATED_OPERATIONS and _check_found_discriminator(
         response, operation, violations

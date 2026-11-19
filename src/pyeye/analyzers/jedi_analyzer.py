@@ -505,7 +505,7 @@ class JediAnalyzer:
 
     async def get_project_files(
         self,
-        pattern: str = "*.py",
+        pattern: str | tuple[str, ...] = "*.py",
         scope: Scope | None = None,
         method_name: str | None = None,
     ) -> list[Path]:
@@ -579,16 +579,20 @@ class JediAnalyzer:
         module's declarations (``subclasses``); one that counts runtime
         behaviour (``imported_by``) reads ``.py`` files only.
         """
-        sources = await self.get_project_files("*.py", scope, method_name=method_name)
-        stubs = await self.get_project_files(f"*{STUB_SUFFIX}", scope, method_name=method_name)
+        # One walk for both suffixes (#933): two calls walk every root twice.
+        files = await self.get_project_files(
+            ("*.py", f"*{STUB_SUFFIX}"), scope, method_name=method_name
+        )
         root = self.project_path
-        kept = [
+        return [
             f
-            for f in stubs
-            if is_module_file(f)
-            and not in_stubs_package(f, root if relative_within(f, root) is not None else None)
+            for f in files
+            if f.suffix == ".py"
+            or (
+                is_module_file(f)
+                and not in_stubs_package(f, root if relative_within(f, root) is not None else None)
+            )
         ]
-        return [*sources, *kept]
 
     def scope_layout(self) -> ScopeLayout:
         """This analyzer's search-scope layout (the one :func:`resolve_scope_paths` reads)."""

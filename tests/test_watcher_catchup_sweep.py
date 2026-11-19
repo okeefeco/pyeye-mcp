@@ -172,6 +172,52 @@ class TestCatchUpSweep:
         assert calls == []
 
     @pytest.mark.asyncio
+    async def test_an_unchanged_tree_with_stubs_triggers_nothing(
+        self,
+        tmp_path: Path,
+        manager: ProjectManager,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With ``.pyi`` watched (#933), unchanged stubs are no change either."""
+        proj = _project(tmp_path / "proj")
+        (proj / "pkg" / "declared.pyi").write_text("class Delta: ...\n")
+        (proj / "pkg" / "extra.pyi").write_text("class Epsilon: ...\n")
+        old = time.time() - 3600
+        for path in [*proj.rglob("*.py"), *proj.rglob("*.pyi")]:
+            os.utime(path, (old, old))
+        calls, fired = _spy(manager, monkeypatch)
+
+        manager.get_analyzer(proj.as_posix())
+        fired.wait(timeout=1.5)
+
+        assert calls == []
+
+    def test_a_sweep_walks_each_root_once(
+        self, tmp_path: Path, manager: ProjectManager, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every watched suffix in one walk (#933): two walks doubled a sweep on a large root."""
+        proj = _project(tmp_path / "proj")
+        walks: list[Any] = []
+        real = project_manager_module.filtered_rglob
+
+        def counting(pattern: Any, root: Path) -> list[Path]:
+            walks.append(pattern)
+            return real(pattern, root)
+
+        monkeypatch.setattr(project_manager_module, "filtered_rglob", counting)
+        root = proj.resolve()
+        with manager._watch_lock:
+            manager.watchers[root] = object()  # type: ignore[assignment]
+            manager._catchup_cutoff_ns[root] = 0
+        try:
+            manager._catch_up(root)
+        finally:
+            with manager._watch_lock:
+                manager.watchers.pop(root, None)
+
+        assert walks == [("*.py", "*.pyi")]
+
+    @pytest.mark.asyncio
     async def test_excluded_dirs_are_not_swept(
         self,
         tmp_path: Path,

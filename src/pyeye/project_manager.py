@@ -454,7 +454,9 @@ class ProjectManager:
             # The next sweep only needs changes since this one started.
             self._catchup_cutoff_ns[root] = sweep_ns - CATCHUP_MTIME_MARGIN_NS
         changed = []
-        swept = [p for suffix in WATCHED_SUFFIXES for p in filtered_rglob(f"*{suffix}", root)]
+        # One walk for every watched suffix (#933): a walk per suffix doubled the
+        # sweep's cost on a large root.
+        swept = filtered_rglob(tuple(f"*{suffix}" for suffix in WATCHED_SUFFIXES), root)
         for path in swept:
             try:
                 if path.stat().st_mtime_ns >= cutoff:

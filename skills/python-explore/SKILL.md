@@ -125,7 +125,9 @@ Notes that matter:
   with no `children`; `inspect` leaves the count out. That is unknown, not empty: `Read`
   the file (the `detail` names the line), or run pyeye on a newer Python.
 - **Stubs:** a module that exists only as a `.pyi` stub has handles like any other,
-  located at the stub; a `.py` beside a stub always wins. A stub has no bodies, so
+  located at the stub; a `.py` beside a stub always wins. Every node declared in a
+  `.pyi` (a project stub, typeshed, an installed stub package) carries `stub: true`;
+  its absence means source, a measured "no", not an unknown. A stub has no bodies, so
   `callees` on a stub declaration (also typeshed's, e.g. `math.sqrt`) answers
   `reason: "stub_declaration"`: unknown, not "calls nothing". A stub's own imports
   are declarations, so `imported_by` doesn't count them. A `foo-stubs/` package

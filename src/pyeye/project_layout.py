@@ -187,6 +187,28 @@ def declaration_kind(file: str | Path) -> DeclarationKind:
     return "stub" if Path(file).suffix.lower() == STUB_SUFFIX else "source"
 
 
+#: The node key that marks a definition declared in a stub (#933): ``True``
+#: when present, absent for source. A documented flag, not a measurement left
+#: out: whether a definition site is a ``.pyi`` is always known, so its absence
+#: is a measured "no" (the maintainer's ruling, as resolve's ``truncated``).
+STUB_KEY = "stub"
+
+
+def mark_stub(node: dict[str, Any], file: str | Path | None) -> dict[str, Any]:
+    """Set ``stub: true`` on *node* when *file*, its definition site, is a stub; else drop it.
+
+    The one place the flag is written (#933): every node that carries
+    ``scope`` passes through here with the file it is located at. Returns
+    *node*, changed in place. A *file* of ``None`` (no definition file, e.g.
+    a compiled builtin with no stub) is not a stub.
+    """
+    if file is not None and declaration_kind(file) == "stub":
+        node[STUB_KEY] = True
+    else:
+        node.pop(STUB_KEY, None)
+    return node
+
+
 def in_stubs_package(file: str | Path, root: str | Path | None = None) -> bool:
     """Whether *file* is inside a ``foo-stubs`` directory (below *root*, when given).
 
@@ -236,7 +258,7 @@ def iter_module_files(root: Path) -> list[Path]:
 
     files = [
         f
-        for f in filtered_rglob("*.py", root) + filtered_rglob(f"*{STUB_SUFFIX}", root)
+        for f in filtered_rglob(("*.py", f"*{STUB_SUFFIX}"), root)  # one walk (#933)
         if is_module_file(f) and not in_stubs_package(f, root)
     ]
     return sorted(files, key=lambda f: f.as_posix())
