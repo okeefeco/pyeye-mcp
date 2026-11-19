@@ -153,8 +153,20 @@ they can't drift from it.
   either name. A credential store below the server's home that is itself a
   symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
   matched where it points, so a file reached through the target is refused
-  and a walk skips it. Like the home, these links are read once, when the
-  process starts (#1019). Homes anywhere other than directly in `/home`, `/Users` or
+  and a walk skips it. A store linked, removed or repointed while the server
+  runs (a profile switcher relinking `~/.aws`) is matched at its new target
+  at once: the change is noticed through the times of `~` and `~/.config`,
+  which also catch an mtime set back with `touch -d` on Linux and macOS,
+  since the inode change time can't be set back. A walk looks at the stores
+  once, so a relink during a walk applies from the next one. Two limits
+  (#1019):
+  - a store that links to a second link outside `~` and `~/.config`, where
+    that second link is repointed, keeps its old target until `~` or
+    `~/.config` next changes, or the server restarts; paths spelled through
+    the store itself are still refused;
+  - on Windows, where a directory's change time isn't available, a relink
+    whose directory's modification time is then set back to exactly its
+    old value isn't noticed. Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
   `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
   user; other users' homes there are not (#909).

@@ -202,3 +202,201 @@ class TestOnePredicateForInputsAndResults:
         assert restricted_reason("/ETC") == "^/etc/"  # case is ignored (#939)
         assert ".ssh" in (restricted_reason((tmp_path / "home" / ".ssh").as_posix()) or "")
         assert restricted_reason((tmp_path / "proj" / "mod.py").as_posix()) is None
+
+
+class TestTheStoreCacheIsKeyed:
+    """A build is served only for the home and store links it was made from (#1019 review).
+
+    A sweep on a background thread could store a build made under the real home
+    after a test had patched its own and cleared the cache, and a store linked
+    or relinked after the first build wasn't seen until a restart.
+    """
+
+    def test_a_build_for_another_home_is_never_served(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_at: Callable[[Path], None]
+    ) -> None:
+        home_at(tmp_path / "first")
+        assert credential_path(tmp_path / "first" / ".ssh" / "id_rsa") == ".ssh"
+
+        # No cache_clear: the new home's spelling alone forces a rebuild.
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "second")
+        assert credential_path(tmp_path / "second" / ".ssh" / "id_rsa") == ".ssh"
+
+    def test_a_stale_build_stored_after_a_clear_is_not_served(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """The race: a background build for the real home lands after the test's clear."""
+        validation._credential_pattern.cache_clear()
+        stale_key = validation._store_key()  # the real home
+        stale = (stale_key, validation._build_credential_stores(stale_key[0][0]))
+        home_at(tmp_path / "home")
+        validation._credential_pattern._built = stale
+
+        assert credential_path(tmp_path / "home" / ".aws" / "credentials") == ".aws"
+
+    def test_a_store_linked_after_the_first_build_is_seen(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        home = tmp_path / "home"
+        home.mkdir()
+        home_at(home)
+        gpg = tmp_path / "gpg"
+        gpg.mkdir()
+        assert restricted_path(gpg / "secring.gpg") is False  # built: no link yet
+
+        (home / ".gnupg").symlink_to(gpg, target_is_directory=True)
+
+        assert restricted_path(gpg / "secring.gpg") is True
+
+    def test_a_repointed_store_moves_with_its_link(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """A profile switcher relinks ``~/.aws``: the new target is the store, the old isn't."""
+        home = tmp_path / "home"
+        home.mkdir()
+        first, second = tmp_path / "profile-a", tmp_path / "profile-b"
+        first.mkdir()
+        second.mkdir()
+        (home / ".aws").symlink_to(first, target_is_directory=True)
+        home_at(home)
+        assert restricted_path(first / "credentials") is True
+
+        (home / ".aws").unlink()
+        (home / ".aws").symlink_to(second, target_is_directory=True)
+
+        assert restricted_path(second / "credentials") is True
+        assert restricted_path(first / "credentials") is False
+
+    def test_a_relinked_parent_of_a_store_is_seen(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """``.config/gh`` moves when ``~/.config`` is linked elsewhere."""
+        home = tmp_path / "home"
+        home.mkdir()
+        home_at(home)
+        config = tmp_path / "dotfiles" / "config"
+        (config / "gh").mkdir(parents=True)
+        assert restricted_path(config / "gh" / "hosts.yml") is False
+
+        (home / ".config").symlink_to(config, target_is_directory=True)
+
+        assert restricted_path(config / "gh" / "hosts.yml") is True
+
+    def test_the_cheap_key_watches_the_home_and_dot_config(self) -> None:
+        assert validation._STORE_LINK_DIRS == ("", ".config")
+
+    def test_an_old_unchanged_home_is_served_without_the_full_check(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        home_at: Callable[[Path], None],
+    ) -> None:
+        """The walkers' fast path: two ``stat`` calls, no ``readlink`` per store."""
+        home = tmp_path / "home"
+        (home / ".config").mkdir(parents=True)
+        old = 1_000_000_000  # 2001: far older than the recent window
+        for directory in (home, home / ".config"):
+            os.utime(directory, ns=(old, old))
+        home_at(home)
+        # A fresh directory's ctime is always recent; take the window away so
+        # only the key decides, as for a home that has been quiet a while.
+        monkeypatch.setattr(validation, "_RECENT_NS", 0)
+        validation._credential_pattern()  # built
+        calls = []
+        monkeypatch.setattr(validation, "_store_key", lambda: calls.append(1))
+
+        assert credential_path(home / ".ssh" / "id_rsa") == ".ssh"
+        assert calls == []
+
+    def test_a_change_in_a_store_directory_forces_the_full_check(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """A new link changes its directory's mtime, so the cheap key changes too."""
+        home = tmp_path / "home"
+        home.mkdir()
+        old = 1_000_000_000
+        os.utime(home, ns=(old, old))
+        home_at(home)
+        keys = tmp_path / "keys"
+        keys.mkdir()
+        assert restricted_path(keys / "id_rsa") is False
+
+        (home / ".ssh").symlink_to(keys, target_is_directory=True)
+        os.utime(home, ns=(old + 1, old + 1))  # still old: only the mtime differs
+
+        assert restricted_path(keys / "id_rsa") is True
+
+    def test_an_mtime_set_back_after_a_relink_is_still_seen(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_at: Callable[[Path], None]
+    ) -> None:
+        """``touch -d`` restoring the exact old mtime: the ctime still moves (POSIX)."""
+        home = tmp_path / "home"
+        home.mkdir()
+        old = 1_000_000_000
+        os.utime(home, ns=(old, old))
+        home_at(home)
+        monkeypatch.setattr(validation, "_RECENT_NS", 0)
+        keys = tmp_path / "keys"
+        keys.mkdir()
+        assert restricted_path(keys / "id_rsa") is False
+
+        (home / ".ssh").symlink_to(keys, target_is_directory=True)
+        os.utime(home, ns=(old, old))  # the mtime is exactly what the build saw
+
+        assert restricted_path(keys / "id_rsa") is True
+
+    def test_a_repointed_second_hop_outside_the_home_is_a_documented_limit(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """``~/.ssh -> hop -> keys``; repointing ``hop`` (outside ``~``) changes nothing watched.
+
+        Only the store's own link and the directories holding the stores are
+        watched. The new target is matched after the next change to ``~`` or
+        ``~/.config``, or a restart (SECURITY.md). Paths spelled through
+        ``~/.ssh`` are always refused by their spelling.
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        first, second = tmp_path / "keys-a", tmp_path / "keys-b"
+        first.mkdir()
+        second.mkdir()
+        hop = tmp_path / "hop"
+        hop.symlink_to(first, target_is_directory=True)
+        (home / ".ssh").symlink_to(hop, target_is_directory=True)
+        old = 1_000_000_000
+        os.utime(home, ns=(old, old))
+        home_at(home)
+        assert restricted_path(first / "id_rsa") is True
+
+        hop.unlink()
+        hop.symlink_to(second, target_is_directory=True)
+
+        assert restricted_path(home / ".ssh" / "id_rsa") is True  # by its spelling
+        # The limit, on the cheap path and the full one alike: the full key
+        # reads only the store's own link, and ``readlink(~/.ssh)`` is unchanged.
+        assert restricted_path(second / "id_rsa") is False
+
+    def test_with_no_home_only_the_fixed_roots_apply(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``Path.home()`` failing (no ``$HOME``) still leaves every fixed user home covered."""
+
+        def no_home() -> Path:
+            raise RuntimeError("Could not determine home directory.")
+
+        monkeypatch.setattr(Path, "home", no_home)
+        validation._credential_pattern.cache_clear()
+        try:
+            assert validation._store_key() == ((None, ()), ())
+            assert validation._dir_key(None) == (None, ())
+            assert credential_path("/home/someone/.ssh/id_rsa") == ".ssh"
+            assert credential_path((tmp_path / "x" / ".ssh" / "id_rsa").as_posix()) is None
+            assert credential_path("/Users/someone/.aws/credentials") == ".aws"  # served again
+        finally:
+            monkeypatch.undo()
+            validation._credential_pattern.cache_clear()
+
+    def test_every_store_and_its_parents_are_watched(self) -> None:
+        assert ".config" in validation._STORE_LINK_PATHS
+        assert ".config/gcloud" in validation._STORE_LINK_PATHS
+        assert set(PathValidator.CREDENTIAL_PATHS) <= set(validation._STORE_LINK_PATHS)

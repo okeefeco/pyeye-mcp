@@ -1,8 +1,10 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import contextlib
-import functools
+import os
 import re
+import threading
+import time
 from pathlib import Path, PurePath, PurePosixPath
 from typing import Any
 
@@ -103,8 +105,9 @@ class PathValidator:
         (#939). Results are checked by the same predicate, on the same forms
         (``resolver.restricted_path``, #1019).
         """
+        stores = credential_stores()  # one look at the stores for every form
         for form in forms:
-            reason = restricted_reason(form)
+            reason = restricted_reason(form, stores)
             if reason is not None:
                 raise ValidationError(f"Path resolves to restricted location: {reason}")
 
@@ -319,47 +322,203 @@ class _CredentialStores:
         return None
 
 
-@functools.cache
-def _credential_pattern() -> _CredentialStores:
-    """Every user home followed by a credential store, plus each linked store (#909, #1019).
+#: Every path below a home whose link state decides where a store is: each
+#: store and each of its parents below the home (``.config`` for
+#: ``.config/gcloud``). The cache key reads them, so a relink rebuilds (#1019).
+_STORE_LINK_PATHS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        PurePosixPath(*PurePosixPath(store).parts[: depth + 1]).as_posix()
+        for store in PathValidator.CREDENTIAL_PATHS
+        for depth in range(len(PurePosixPath(store).parts))
+    )
+)
 
-    Built once per process: :data:`PathValidator.USER_HOMES` plus the server's
-    own home, as spelled and resolved, whose ``$HOME`` can't move for a running
-    process. A store below that home which is itself a link
-    (``~/.ssh -> /data/keys``) is also matched at its resolved location: a file
-    in it resolves there, spelled below no home. A link made after this is
-    built isn't seen until the process restarts.
+#: The directories holding those entries, relative to the home ("" is the home).
+_STORE_LINK_DIRS: tuple[str, ...] = tuple(
+    dict.fromkeys(
+        "" if (parent := PurePosixPath(rel).parent.as_posix()) == "." else parent
+        for rel in _STORE_LINK_PATHS
+    )
+)
+
+#: A directory changed this recently may change again within the same
+#: timestamp tick (ext4 uses a coarse clock; FAT has 2 s), so its times can't
+#: be trusted to show the next change: the full link check runs instead.
+_RECENT_NS = 2_000_000_000
+
+#: Whether ``st_ctime`` is the inode CHANGE time, which ``touch`` and
+#: ``os.utime`` can't set back: POSIX. On Windows it is the creation time.
+_CTIME_IS_CHANGE = os.name != "nt"
+
+#: ``(home spelling or None, the times of each _STORE_LINK_DIRS entry)``: cheap.
+_DirKey = tuple[str | None, tuple[tuple[int, int] | None, ...]]
+#: ``(dir key, link target of the home and of each _STORE_LINK_PATHS entry)``.
+_StoreKey = tuple[_DirKey, tuple[str | None, ...]]
+
+
+def _home_spelling() -> str | None:
+    """The server's home as ``$HOME`` spells it (POSIX), or ``None`` if it can't be found."""
+    try:
+        return Path.home().as_posix()
+    except (RuntimeError, KeyError, OSError):
+        return None
+
+
+def _dir_times(path: str) -> tuple[int, int] | None:
+    """``(mtime, ctime)`` of directory *path* in ns (ctime 0 on Windows), or ``None``.
+
+    The ctime is what makes the key hard to fool on POSIX: a link made, removed
+    or repointed moves it, and so does setting the mtime back with ``touch -d``,
+    which can't set it.
     """
+    try:
+        st = os.stat(path)
+    except (OSError, ValueError):
+        return None
+    return (st.st_mtime_ns, st.st_ctime_ns if _CTIME_IS_CHANGE else 0)
+
+
+def _dir_key(home: str | None) -> _DirKey:
+    """The home's spelling and the times of the directories its stores sit in (two ``stat``).
+
+    Making, removing or repointing a link in a directory changes its mtime and
+    (POSIX) its ctime, so this changes whenever a store's own link does, except
+    within one tick of an earlier change (see :data:`_RECENT_NS`).
+    """
+    if home is None:
+        return (None, ())
+    root = home.rstrip("/")
+    return (home, tuple(_dir_times(f"{root}/{d}" if d else root) for d in _STORE_LINK_DIRS))
+
+
+def _link_target(path: str) -> str | None:
+    """Where the symlink or junction *path* points, or ``None`` if it isn't one."""
+    try:
+        return os.readlink(path)
+    except (OSError, ValueError):
+        return None
+
+
+def _store_key() -> _StoreKey:
+    """What the stores' locations depend on: the home, its store directories, every link.
+
+    The full key: :func:`_dir_key` plus one ``readlink`` of the home and of
+    each :data:`_STORE_LINK_PATHS` entry.
+    """
+    home = _home_spelling()
+    if home is None:
+        return ((None, ()), ())
+    root = home.rstrip("/")
+    links = (_link_target(root),) + tuple(
+        _link_target(f"{root}/{rel}") for rel in _STORE_LINK_PATHS
+    )
+    return (_dir_key(home), links)
+
+
+def _build_credential_stores(home_spelling: str | None) -> _CredentialStores:
+    """The stores for the server's home *home_spelling* (see :class:`_StoreCache`)."""
     homes = list(PathValidator.USER_HOMES)
     linked: dict[str, str] = {}
     # The home both as spelled ($HOME) and resolved: with a symlinked home
     # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
     # the resolved check see, names neither the spelling nor a fixed root
     # (#909 review). No resolvable home: the fixed roots still apply.
-    with contextlib.suppress(RuntimeError, KeyError, OSError):
-        home = Path.home()
-        resolved_home = normalize_path(home)
-        for spelling in dict.fromkeys([home.as_posix(), resolved_home.as_posix()]):
-            homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
-        for store in PathValidator.CREDENTIAL_PATHS:
-            with contextlib.suppress(RuntimeError, OSError):
-                location = normalize_path(home / store).as_posix().rstrip("/").lower()
-                if location != (resolved_home / store).as_posix().rstrip("/").lower():
-                    linked.setdefault(location, store)
+    if home_spelling is not None:
+        with contextlib.suppress(RuntimeError, OSError):
+            home = Path(home_spelling)
+            resolved_home = normalize_path(home)
+            for spelling in dict.fromkeys([home.as_posix(), resolved_home.as_posix()]):
+                homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
+            for store in PathValidator.CREDENTIAL_PATHS:
+                with contextlib.suppress(RuntimeError, OSError):
+                    location = normalize_path(home / store).as_posix().rstrip("/").lower()
+                    if location != (resolved_home / store).as_posix().rstrip("/").lower():
+                        linked.setdefault(location, store)
     stores = "|".join(re.escape(name) for name in PathValidator.CREDENTIAL_PATHS)
     pattern = re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
     return _CredentialStores(pattern, tuple(linked.items()))
 
 
-def credential_path(form: str | Path) -> str | None:
+class _StoreCache:
+    """Every user home followed by a credential store, plus each linked store (#909, #1019).
+
+    :data:`PathValidator.USER_HOMES` plus the server's own home, as spelled and
+    resolved. A store below that home which is itself a link
+    (``~/.ssh -> /data/keys``) is also matched at its resolved location: a file
+    in it resolves there, spelled below no home.
+
+    A build is served only for the :func:`_store_key` it was built from: the
+    home's spelling, and every link of a store or of one of its parents below
+    the home. So a build made for one home is never served for another (a
+    build racing a test's patched home can't leave a stale answer), and a store
+    linked, removed or repointed after start-up (a profile switcher relinking
+    ``~/.aws``) is seen at once. The build runs under a lock.
+
+    The full key costs a ``readlink`` per store path, too much for the walkers'
+    per-entry prune (#1028 review), so each call checks the cheap
+    :func:`_dir_key` first: unchanged, and no store directory changed in the
+    last :data:`_RECENT_NS`, means no link changed either. Otherwise the full
+    key decides. ``cache_clear()`` forgets the last build.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._built: tuple[_StoreKey, _CredentialStores] | None = None
+
+    def __call__(self) -> _CredentialStores:
+        built = self._built
+        if built is not None:
+            dir_key = _dir_key(_home_spelling())
+            if dir_key == built[0][0] and not _recently_changed(dir_key):
+                return built[1]
+        key = _store_key()
+        if built is not None and built[0] == key:
+            return built[1]
+        with self._lock:
+            built = self._built
+            if built is None or built[0] != key:
+                built = (key, _build_credential_stores(key[0][0]))
+                self._built = built
+        return built[1]
+
+    def cache_clear(self) -> None:
+        """Forget the last build, so the next call rebuilds."""
+        with self._lock:
+            self._built = None
+
+
+def _recently_changed(dir_key: _DirKey) -> bool:
+    """Whether a store directory changed within :data:`_RECENT_NS`, so its times can't vouch."""
+    now = time.time_ns()
+    return any(times is not None and now - max(times) < _RECENT_NS for times in dir_key[1])
+
+
+_credential_pattern = _StoreCache()
+
+
+def credential_stores() -> _CredentialStores:
+    """Where the credential stores are now (:class:`_StoreCache`), to check several forms with.
+
+    A caller checking many paths in one go (a walk, every form of one path)
+    takes one snapshot and passes it to :func:`credential_path`,
+    :func:`restricted_reason` or :func:`restricted_dir`, so the stores' links
+    are looked at once rather than per path (#1028 review).
+    """
+    return _credential_pattern()
+
+
+def credential_path(form: str | Path, stores: _CredentialStores | None = None) -> str | None:
     """The credential store *form* is, or is inside, below a user home; else ``None`` (#909).
 
-    A store below the server's home that is a link counts at its target too (#1019).
+    A store below the server's home that is a link counts at its target too
+    (#1019). *stores* is a :func:`credential_stores` snapshot; ``None`` takes one.
     """
-    return _credential_pattern().match(Path(form).as_posix().rstrip("/") + "/")
+    if stores is None:
+        stores = _credential_pattern()
+    return stores.match(Path(form).as_posix().rstrip("/") + "/")
 
 
-def restricted_reason(form: str | Path) -> str | None:
+def restricted_reason(form: str | Path, stores: _CredentialStores | None = None) -> str | None:
     """Why the path *form* is restricted, or ``None``: the ONE predicate (#1019).
 
     *form* is one spelling of a path (lexical or resolved; callers check every
@@ -369,18 +528,19 @@ def restricted_reason(form: str | Path) -> str | None:
     credential store (:func:`credential_path`). Case is ignored (#939). Inputs
     (:meth:`PathValidator._check_targets`), results (``resolver.restricted_path``)
     and the walkers (:func:`restricted_dir`) all apply it, so they can't drift.
+    *stores* is a :func:`credential_stores` snapshot; ``None`` takes one.
     """
     as_dir = Path(form).as_posix().rstrip("/") + "/"
     lowered = as_dir.lower()
     for directory in _RESTRICTED_DIRS:
         if lowered.startswith(directory.lower() + "/"):
             return f"^{directory}/"
-    if (name := credential_path(as_dir)) is not None:
+    if (name := credential_path(as_dir, stores)) is not None:
         return f"the credential store {name} in a user home"
     return None
 
 
-def restricted_dir(resolved: str | Path) -> bool:
+def restricted_dir(resolved: str | Path, stores: _CredentialStores | None = None) -> bool:
     """Whether the RESOLVED directory *resolved* is, or is inside, a restricted directory.
 
     The prune test every directory walk applies (#856 ruling): a route the
@@ -388,8 +548,9 @@ def restricted_dir(resolved: str | Path) -> bool:
     descend into a system directory or a credential store (#909), including a
     store that is itself a link (#1019). It is :func:`restricted_reason`, so
     walks, inputs and results agree. POSIX forms only, as the deny-list is.
+    A walk passes one :func:`credential_stores` snapshot for all its entries.
     """
-    return restricted_reason(resolved) is not None
+    return restricted_reason(resolved, stores) is not None
 
 
 def unwalkable_root(resolved: str | Path) -> bool:

@@ -155,9 +155,10 @@ def restricted_path(path: str | Path) -> bool:
     (#1005). The credential stores do apply on Windows, below the server's
     own home, so the check can't simply be skipped there.
     """
-    from pyeye.validation import restricted_reason
+    from pyeye.validation import credential_stores, restricted_reason
 
-    if restricted_reason(absolute_path(path)) is not None:
+    stores = credential_stores()  # one look at the stores for both forms
+    if restricted_reason(absolute_path(path), stores) is not None:
         return True
     try:
         resolved = normalize_path_strict(path)
@@ -170,7 +171,7 @@ def restricted_path(path: str | Path) -> bool:
             resolved = normalize_path(path)
         except (OSError, RuntimeError):
             return True
-    return restricted_reason(resolved) is not None
+    return restricted_reason(resolved, stores) is not None
 
 
 #: Whether the server runs on Windows: patched by tests of the Windows policy.

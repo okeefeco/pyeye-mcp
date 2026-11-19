@@ -10,7 +10,7 @@ from pathlib import Path, PurePosixPath
 import aiofiles
 
 from .path_utils import normalize_path, path_to_key, relative_within
-from .validation import restricted_dir
+from .validation import credential_stores, restricted_dir
 
 logger = logging.getLogger(__name__)
 
@@ -153,19 +153,22 @@ def pruned_walk(path: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
         real_root = normalize_path(path)
     except (OSError, RuntimeError):
         return
-    if restricted_dir(real_root):
+    # One look at the credential stores for the whole walk (#1028 review): a
+    # store relinked mid-walk is seen by the next walk.
+    stores = credential_stores()
+    if restricted_dir(real_root, stores):
         logger.warning(f"Not walking {path.as_posix()}: it resolves into a restricted location")
         return
     real_of: dict[str, Path] = {}
     for dirpath, dirnames, filenames in os.walk(path):
         real_here = real_of.pop(dirpath, real_root)
         dirnames[:] = [
-            d for d in dirnames if not restricted_dir(_entry_target(dirpath, d, real_here))
+            d for d in dirnames if not restricted_dir(_entry_target(dirpath, d, real_here), stores)
         ]
         for d in dirnames:
             real_of[os.path.join(dirpath, d)] = real_here / d
         filenames[:] = [
-            f for f in filenames if not restricted_dir(_entry_target(dirpath, f, real_here))
+            f for f in filenames if not restricted_dir(_entry_target(dirpath, f, real_here), stores)
         ]
         yield Path(dirpath), dirnames, filenames
 
