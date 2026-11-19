@@ -78,7 +78,9 @@ they can't drift from it.
   `VIRTUAL_ENV` or `CONDA_PREFIX` names another environment. The project's
   environment (its virtualenv) is read from disk, its `site-packages` and the
   plain-path lines of its `.pth` files, and its Python is never run; a `.pth`
-  line that would run code is skipped
+  line that would run code is skipped. Each path it adds is checked once its
+  symlinks are resolved: one that is, is inside, or contains a restricted
+  directory or credential store is dropped with a warning
   ([#993](https://github.com/okeefeco/pyeye-mcp/issues/993)). pyeye's Jedi setting `load_unsafe_extensions` is
   <!-- fact:begin security.jedi_unsafe_extensions -->off<!-- fact:end -->, so Jedi
   loads compiled extensions only from the server's Python environment, never

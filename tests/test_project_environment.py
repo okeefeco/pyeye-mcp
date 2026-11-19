@@ -198,6 +198,73 @@ class TestStaticReading:
         assert not marker.exists()  # the import line was skipped, not executed
 
 
+_POSIX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="the deny-list is POSIX forms")
+
+
+class TestPathChecks:
+    """A repository can ship its own venv, so its import roots are path-checked (#993)."""
+
+    @_POSIX_ONLY
+    @pytest.mark.parametrize("line", ["/etc", "/", "/proc/self"])
+    def test_a_pth_line_into_a_restricted_dir_is_dropped(
+        self, tmp_path: Path, line: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        site = _venv(tmp_path / ".venv")
+        (site / "evil.pth").write_text(f"{line}\n", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING, logger="pyeye.environment"):
+            paths = site_paths(tmp_path / ".venv")
+
+        assert paths == [site.resolve().as_posix()]
+        assert "Skipping environment path" in caplog.text
+
+    @_POSIX_ONLY
+    def test_a_pth_line_climbing_with_dotdot_is_dropped(self, tmp_path: Path) -> None:
+        site = _venv(tmp_path / ".venv")
+        climb = "../" * (len(site.resolve().parts) + 2)
+        (site / "evil.pth").write_text(f"{climb}etc\n{climb}\n", encoding="utf-8")
+
+        assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
+
+    @_POSIX_ONLY
+    def test_a_pth_line_into_a_home_credential_store_is_dropped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from pyeye import validation
+
+        home = tmp_path / "home"
+        (home / ".ssh").mkdir(parents=True)
+        monkeypatch.setattr(Path, "home", lambda: home)
+        validation._credential_pattern.cache_clear()
+        try:
+            site = _venv(tmp_path / ".venv")
+            (site / "evil.pth").write_text(f"{(home / '.ssh').as_posix()}\n", encoding="utf-8")
+
+            assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
+        finally:
+            monkeypatch.undo()
+            validation._credential_pattern.cache_clear()
+
+    @_POSIX_ONLY
+    def test_a_site_packages_symlinked_into_etc_is_dropped_unread(self, tmp_path: Path) -> None:
+        venv = tmp_path / ".venv"
+        venv.mkdir()
+        (venv / "pyvenv.cfg").write_text("home = /usr/bin\n", encoding="utf-8")
+        (venv / "lib" / PYTHON).mkdir(parents=True)
+        (venv / "lib" / PYTHON / "site-packages").symlink_to("/etc", target_is_directory=True)
+
+        assert site_paths(venv) == []
+        assert discover(tmp_path).site_paths == ()
+
+    def test_an_ordinary_pth_target_outside_the_project_is_kept(self, tmp_path: Path) -> None:
+        site = _venv(tmp_path / "proj" / ".venv")
+        elsewhere = tmp_path / "shared-src"
+        elsewhere.mkdir()
+        (site / "ok.pth").write_text(f"{elsewhere.as_posix()}\n", encoding="utf-8")
+
+        assert site_paths(tmp_path / "proj" / ".venv")[-1] == elsewhere.resolve().as_posix()
+
+
 class TestJedi:
     def test_jedi_runs_pyeyes_interpreter_whatever_is_activated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

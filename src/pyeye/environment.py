@@ -145,9 +145,18 @@ def site_paths(env: Path) -> list[str]:
     ``.pth`` line that starts with ``import`` is code that ``site`` would run:
     it is skipped, never executed. Nothing here runs the environment's
     interpreter.
+
+    The environment can come from the repository, so every root is path-checked
+    on its RESOLVED form, as the walkers prune (#856, #909): one that is, is
+    inside, or is an ancestor of a restricted directory (a symlinked
+    ``site-packages``, a ``.pth`` line naming ``/etc``, a home's ``.ssh``, or
+    climbing to ``/``) is dropped with a warning, and its ``.pth`` files are
+    never read.
     """
     out: list[str] = []
     for site_dir in _site_packages_dirs(env):
+        if not _allowed(site_dir, env):
+            continue
         out.append(site_dir.as_posix())
         for pth in sorted(site_dir.glob("*.pth")):
             out.extend(_pth_paths(site_dir, pth))
@@ -189,8 +198,23 @@ def _pth_paths(site_dir: Path, pth: Path) -> list[str]:
             continue
         entry = Path(line) if Path(line).is_absolute() else site_dir / line
         if entry.is_dir():
-            out.append(normalize_path(entry).as_posix())
+            resolved = normalize_path(entry)
+            if _allowed(resolved, pth):
+                out.append(resolved.as_posix())
     return out
+
+
+def _allowed(resolved: Path, source: Path) -> bool:
+    """Whether the RESOLVED import root *resolved* passes the walkers' prune test (#993)."""
+    from .validation import unwalkable_root
+
+    if not unwalkable_root(resolved):
+        return True
+    logger.warning(
+        f"Skipping environment path {resolved.as_posix()} (from {source.as_posix()}): "
+        "it is, is inside, or contains a restricted directory"
+    )
+    return False
 
 
 #: Projects already warned about having no environment (one warning each).

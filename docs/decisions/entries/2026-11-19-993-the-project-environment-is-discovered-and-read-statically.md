@@ -38,7 +38,7 @@ superseded_by: []
   - third-party paths are `external` by `scope.py`'s existing site-packages rule.
 - **The venv is no longer a configured package:** `_discover_venv_packages` is removed. Flat projects' `packages` stop listing site-packages; plugin scans and saved configs stop including it.
 - **Caches:** the environment's site paths join `layout_key` (#618), so a venv that appears or changes is another layout.
-- **Path checks:** a configured `environment` is path-checked like other config entries (#856, #909). A refused one is skipped with a warning, and discovery continues.
+- **Path checks:** a configured `environment` is path-checked like other config entries (#856, #909). A refused one is skipped with a warning, and discovery continues. Every import root read from an environment (each `site-packages` dir and `.pth` target) is checked on its RESOLVED form with the walkers' prune test, `validation.unwalkable_root`: one that is, is inside, or is an ancestor of a restricted directory or credential store is dropped with a warning, and a dropped `site-packages`' `.pth` files are never read. An ancestor counts because `/` on the import path would make `/etc/*.py` importable as a namespace package.
 - **Disclosure:**
   - `configure_packages` gains an always-present `environment: {path|null, source}`, with `source` one of "config" | "project" | "VIRTUAL_ENV" | "CONDA_PREFIX" | "none";
   - a once-per-project warning is logged when none is found;
@@ -57,6 +57,7 @@ superseded_by: []
 
 - the full precedence, including the deviation, `false`, a refused config path, and pyeye's own `sys.prefix` ignored;
 - the POSIX and Windows layouts, `pyvenv.cfg` version preference, and `.pth` plain lines added with an import line NOT executed (a marker file stays absent);
+- a `.pth` line naming `/etc`, `/`, `/proc/self`, a home's `.ssh`, or climbing with `..`, and a `site-packages` symlinked into `/etc`, are all dropped; an ordinary path outside the project is kept;
 - Jedi's environment is pyeye's own even with `VIRTUAL_ENV` set;
 - `src/` and flat projects resolve a venv package as external;
 - pyeye's own pydantic never resolves for a project lacking it;
