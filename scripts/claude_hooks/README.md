@@ -1,6 +1,6 @@
 # MCP Monitoring for Claude Code
 
-Automatic tracking system for monitoring MCP Python Intelligence tool usage vs traditional grep/find patterns using Claude Code's hook system.
+Claude Code hooks that count pyeye's MCP tool calls against grep/find-style searches.
 
 ## 🚀 Quick Start
 
@@ -96,35 +96,37 @@ This system is where MCP calls are counted. The dogfooding CLI (`scripts/dogfood
 
 If you prefer manual setup:
 
-1. **Merge hooks into Claude settings**:
+1. **Merge the hooks into your Claude Code settings.** They are in
+   `scripts/claude_hooks/hooks.json`, written for a checkout at
+   `~/GitHub/pyeye-mcp`. `merge_hooks.py` substitutes your checkout's path,
+   keeps your other settings and hooks, and replaces only pyeye's. From the
+   repository root:
 
    ```bash
-   # Backup existing settings
    cp ~/.claude/settings.json ~/.claude/settings.json.backup
-
-   # Add hooks to settings.json (requires manual JSON merge)
-   # The hooks go inside ~/.claude/settings.json, not a separate file
+   python3 scripts/claude_hooks/merge_hooks.py ~/.claude/settings.json scripts/claude_hooks/hooks.json "$PWD"
    ```
 
-2. **Update paths in settings.json**:
-   - Replace `~/GitHub/pyeye-mcp` with your repo path
-   - Ensure hooks are at the top level of the JSON alongside other settings
-
-3. **Make scripts executable**:
+2. **Make scripts executable**:
 
    ```bash
    chmod +x scripts/claude_hooks/*.py
    ```
 
-4. **Create monitoring directory**:
+3. **Create monitoring directory**:
 
    ```bash
    mkdir -p ~/.claude/mcp_monitoring
    ```
 
+The `mcp-*` aliases below are written only by the setup script (to
+`~/.claude/mcp_monitoring/aliases.sh`). Without them, run the report directly:
+`python3 scripts/claude_hooks/mcp_analytics.py --days 7`.
+
 ## 📋 Available Commands
 
-After sourcing aliases:
+After `source ~/.claude/mcp_monitoring/aliases.sh` (the dogfooding CLI's own
+aliases are `dogfood-*`, #982):
 
 - `mcp-report` - 7-day analytics report
 - `mcp-report-week` - Weekly report
@@ -160,6 +162,8 @@ To improve the monitoring system:
 ## 📝 Notes
 
 - Hooks run with your user permissions
-- Data is stored locally in `~/.claude/`
-- No sensitive information is logged
+- Data is stored locally in `~/.claude/mcp_monitoring/`
+- The logs hold what you searched for: each grep-like Bash command with its
+  description, each Grep tool call's pattern and path, and every pyeye call's
+  arguments (`tool_input`). Treat them like your shell history
 - Hooks are per-user, not per-project
