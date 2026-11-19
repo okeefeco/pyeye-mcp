@@ -98,8 +98,9 @@ async def test_jedi_analyzer_finds_symbols():
 async def test_complete_refactoring_workflow():
     """Test complete refactoring workflow."""
     # Setup project
-    # Find symbol
-    # Get references
+    # resolve the symbol to a handle
+    # expand its forward edges (members, callees, subclasses): pyeye has no
+    # reverse references, so don't test for callers
     # Perform refactoring
     # Verify results
 ```
@@ -172,13 +173,21 @@ def test_windows_paths():
 
 ### Path Handling
 
-Always use `.as_posix()` for cross-platform compatibility:
+Use `.as_posix()` when a path is displayed or stored as a string, so it has the
+same separators on every platform. Compare paths with `paths_equal()` and key
+them with `path_to_key()` from `pyeye.path_utils`, never by comparing strings.
+Pass `str(path)` only to an OS call.
 
 ```python
-# Correct
+from pyeye.path_utils import paths_equal
+
+# Correct: a path in a message or a response
 path_str = path.as_posix()
 
-# Wrong
+# Correct: comparing two paths
+assert paths_equal(result_path, expected_path)
+
+# Wrong: OS-dependent separators in a string
 path_str = str(path)
 ```
 

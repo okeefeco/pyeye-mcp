@@ -33,7 +33,7 @@ Fixes #
 
 ## Coverage Requirements
 <!-- CI fails below the coverage threshold set by --cov-fail-under in pyproject.toml. Every PR must maintain or improve coverage. -->
-- [ ] Coverage maintained or improved from baseline (run `pytest --cov=src/pyeye --cov-report=term`)
+- [ ] Coverage maintained or improved from baseline (run `uv run pytest --cov=src/pyeye --cov-report=term`)
 - [ ] No significant coverage drops in modified files
 
 ## Code Quality Metrics
@@ -41,15 +41,15 @@ Fixes #
 
 ### Complexity & Maintainability
 
-- [ ] No functions with cyclomatic complexity >10 (run `ruff check --select C90 <changed_files>`)
-- [ ] No functions with >5 parameters (run `ruff check --select PLR0913 <changed_files>`)
-- [ ] No functions longer than 50 lines (excluding docstrings)
-- [ ] No excessive branching (run `ruff check --select PLR0912 <changed_files>`)
+- [ ] No functions with cyclomatic complexity >10 (run `uv run ruff check --select C90 <changed_files>`)
+- [ ] No functions with >5 parameters (run `uv run ruff check --select PLR0913 <changed_files>`)
+- [ ] No functions longer than 50 lines, excluding docstrings (a guideline: no check enforces it)
+- [ ] No excessive branching (run `uv run ruff check --select PLR0912 <changed_files>`)
 
 ### Code Clarity
 
-- [ ] No magic numbers or strings - use named constants (run `ruff check --select PLR2004 <changed_files>`)
-- [ ] No code duplication (the `duplicate-code-report` ratchet passes: it fails on a new copy; see `docs/development/duplicate-code-check.md`)
+- [ ] No magic numbers or strings - use named constants (run `uv run ruff check --select PLR2004 <changed_files>`)
+- [ ] No new copies of existing logic. The `duplicate-code-report` ratchet catches new copies only in its targets, the MCP operations and `canonicalization.py` (see `docs/development/duplicate-code-check.md`); elsewhere, check by hand
 - [ ] Clear variable and function names
 - [ ] Appropriate abstractions used
 

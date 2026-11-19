@@ -166,7 +166,7 @@ uv run python -m setuptools_scm
 # Output: 0.2.1.dev0+g1234abc.d20250826
 
 # Version is available in code
-python -c "from pyeye import __version__; print(__version__)"
+uv run python -c "from pyeye import __version__; print(__version__)"
 ```
 
 ### In Tagged Releases
@@ -178,7 +178,7 @@ uv run python -m setuptools_scm
 
 # Built packages have clean version
 ls dist/
-# python_code_intelligence_mcp-0.3.0-py3-none-any.whl
+# pyeye_mcp-0.3.0-py3-none-any.whl  (and pyeye_mcp-0.3.0.tar.gz)
 ```
 
 ## No More Version Sync Issues
