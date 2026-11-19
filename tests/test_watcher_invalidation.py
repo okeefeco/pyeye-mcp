@@ -283,6 +283,17 @@ class TestEveryAnalyzerIsWatched:
 # ---------------------------------------------------------------------------
 
 
+def _assert_indexed(*roots: Path) -> None:
+    """Every project in *roots* has a name index, and no other project does (#1001).
+
+    The invalidation checks below are only meaningful when the builds happened,
+    and the autouse ``_cold_project_graph`` fixture means nothing else is there.
+    """
+    keys = set(project_graph._name_indices)
+    expected = {project_graph._normalize(root.as_posix()) for root in roots}
+    assert keys == expected, f"name indices before the change: {sorted(keys)}"
+
+
 class TestPerProjectInvalidation:
     @pytest.mark.usefixtures("fake_watchers")
     async def test_scoped_cache_sees_a_new_file_before_the_ttl(
@@ -308,6 +319,7 @@ class TestPerProjectInvalidation:
         b = _project(tmp_path / "b")
         for root in (a, b):
             await manager.get_analyzer(root.as_posix()).find_symbol("Alpha")
+        _assert_indexed(a, b)
         index_b = project_graph._name_indices[project_graph._normalize(b.as_posix())]
 
         manager._on_files_changed(a.resolve(), [(a / "pkg" / "mod.py").as_posix()])
@@ -327,6 +339,8 @@ class TestPerProjectInvalidation:
         other = _project(tmp_path / "other")
         for root in (a, b, other):
             await manager.get_analyzer(root.as_posix()).find_symbol("Alpha")
+        # Without this, a build that didn't happen would pass both `not in` checks (#1001).
+        _assert_indexed(a, b, other)
 
         manager._on_files_changed(shared.resolve(), [(shared / "pkg" / "mod.py").as_posix()])
 

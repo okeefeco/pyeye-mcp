@@ -74,6 +74,20 @@ def _cold_re_export_cache() -> None:
 
 
 @pytest.fixture(autouse=True)
+def _cold_project_graph() -> None:
+    """Each test starts with no project name/member index or class/import graph (#1001).
+
+    ``project_graph`` holds them process-wide, keyed on project. A test that
+    builds one and doesn't clean up left its key behind, and a later test that
+    inspects ``_name_indices`` read it (a Windows CI failure showed only another
+    test's key there).
+    """
+    from pyeye.analyzers import project_graph
+
+    project_graph.invalidate()
+
+
+@pytest.fixture(autouse=True)
 def _no_unsaved_config_leaks() -> Generator[None, None, None]:
     """Each test starts with no session-only config additions (#953).
 
