@@ -67,7 +67,7 @@ from pyeye.mcp.operations.edges import (
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.project_layout import package_kind
-from pyeye.resolver import NotFound, resolve_handle
+from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -315,7 +315,9 @@ def _build_signature(jedi_name: Any) -> str | None:
         A non-empty single-line signature string, or ``None``.
     """
     try:
-        sigs = jedi_name.get_signatures()
+        # A signature Jedi infers from a definition in a restricted directory (an
+        # inherited __init__, an alias of a function there) isn't shown (#999).
+        sigs = [s for s in jedi_name.get_signatures() if not _restricted_signature(s)]
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
@@ -334,6 +336,21 @@ def _build_signature(jedi_name: Any) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _restricted_signature(signature: Any) -> bool:
+    """Whether *signature*, or any of its parameters, is defined in a restricted directory (#999).
+
+    A subclass's signature belongs to the subclass, but its parameters (and
+    their defaults) come from the ``__init__`` it inherits, so each is checked.
+    """
+    if in_restricted_dir(signature):
+        return True
+    try:
+        params = signature.params
+    except Exception:
+        return True  # unreadable: fail closed
+    return any(in_restricted_dir(param) for param in params)
 
 
 async def _extract_return_type(

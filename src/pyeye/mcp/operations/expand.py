@@ -353,26 +353,21 @@ async def expand_resolved(
 def _without_restricted(edge: str, result: EdgeResult) -> EdgeResult:
     """*result* with every adjacent whose file resolves into a restricted directory removed (#999).
 
-    A removed adjacent is reported in the edge's own loss field, never dropped
-    silently: ``imports`` lists it in ``unresolved_imports``, ``superclasses`` in
-    ``unresolved_superclasses``, and ``callees`` counts it in
-    ``unresolved_call_sites``. The other edges read the source's own file or
-    the pruned project walks, so they don't reach one; if one ever did, it is
-    dropped with a warning, since those edges have no loss field.
+    The backstop behind the resolvers: ``imports``, ``callees`` and
+    ``superclasses`` already refuse such a target where it is produced, and
+    report it in their loss field by the source's own spelling (a canonical
+    handle here could name the restricted file's internals). An adjacent that
+    still reaches this point is dropped with a warning, and counted for
+    ``callees``, whose loss field is a count.
     """
     refused = [str(handle) for handle, name in result.adjacents if in_restricted_dir(name)]
     if not refused:
         return result
     kept = [(handle, name) for handle, name in result.adjacents if str(handle) not in refused]
     changes: dict[str, Any] = {"adjacents": kept}
-    if result.unresolved_imports is not None:
-        changes["unresolved_imports"] = sorted({*result.unresolved_imports, *refused})
-    elif result.unresolved_superclasses is not None:
-        changes["unresolved_superclasses"] = [*result.unresolved_superclasses, *refused]
-    elif result.unresolved_call_sites is not None:
+    if result.unresolved_call_sites is not None:
         changes["unresolved_call_sites"] = result.unresolved_call_sites + len(refused)
-    else:
-        logger.warning(
-            "expand(%s): dropped %d adjacent(s) in a restricted directory", edge, len(refused)
-        )
+    logger.warning(
+        "expand(%s): dropped %d adjacent(s) in a restricted directory", edge, len(refused)
+    )
     return dataclasses.replace(result, **changes)

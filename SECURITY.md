@@ -131,8 +131,11 @@ they can't drift from it.
   `site-packages`, can point a lookup into one of these directories. A
   definition whose file resolves into one is refused: it is reported as not
   found, with a detail saying it is in a restricted directory, and an edge
-  that would point at it lists it among the edge's unresolved targets instead
-  (#999). A symlink into any other directory works as before.
+  that would point at it lists it among the edge's unresolved targets, by the
+  source's own spelling, instead. Nothing is drawn from it through a project
+  symbol either: no inherited signature or parameter default, and no base
+  class or inherited field (#999). A symlink into any other directory works as
+  before.
 
   The credential stores are different: they define no ancestors. A scan of
   `~`, `/home` or `/Users` works and simply skips them. A project placed inside

@@ -118,15 +118,22 @@ def in_restricted_dir(name: Any) -> bool:
     A name with no file (a builtin, a namespace sentinel without one) is never
     restricted.
     """
+    module_path = getattr(name, "module_path", None)
+    return module_path is not None and restricted_path(module_path)
+
+
+def restricted_path(path: str | Path) -> bool:
+    """Whether *path* RESOLVES into a restricted directory (#999).
+
+    Fails closed: a path that can't be resolved (a symlink loop, a permission
+    error) counts as restricted, so an unreadable route never returns a result.
+    """
     from pyeye.validation import restricted_dir
 
-    module_path = getattr(name, "module_path", None)
-    if module_path is None:
-        return False
     try:
-        resolved = normalize_path(module_path)
+        resolved = normalize_path(path)
     except (OSError, RuntimeError):
-        return False
+        return True
     return restricted_dir(resolved)
 
 
@@ -215,7 +222,8 @@ def resolve_external_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFo
     if not isinstance(cache, ScopedCache):
         return resolve_item(path, analyzer)
     hit = cache.get_recent(path, EXTERNAL_RESOLVE_SCOPE)
-    if isinstance(hit, Resolved):
+    # Re-checked on a hit: a symlink can be repointed after the answer was cached (#999).
+    if isinstance(hit, Resolved) and not in_restricted_dir(hit.anchor):
         return hit
     epoch = cache.epoch()
     resolved = resolve_item(path, analyzer)
@@ -363,7 +371,9 @@ def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:
     for root in project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE):
         for candidate in (root / bare / "__init__.py", root / f"{bare}.py"):
             if candidate.is_file():
-                files.setdefault(path_to_key(candidate), candidate)
+                # A copy that resolves into a restricted directory is no candidate (#999).
+                if not restricted_path(candidate):
+                    files.setdefault(path_to_key(candidate), candidate)
                 break
     if len(files) < 2:
         return []

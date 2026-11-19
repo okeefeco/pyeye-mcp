@@ -16,19 +16,25 @@ One reads the real ``/etc`` when it has a ``.py`` to follow.
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
 
-from pyeye import validation
+from pyeye import (
+    project_manager as project_manager_module,
+    validation,
+)
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
 from pyeye.mcp.operations.resolve import resolve, resolve_at
 from pyeye.mcp.operations.trace import trace
+from pyeye.project_manager import ProjectManager
 
 pytestmark = pytest.mark.skipif(os.name == "nt", reason="the deny-list and symlinks are POSIX")
 
@@ -56,6 +62,14 @@ def restricted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     secret = _secret_package(tmp_path / "secret" / "pkg").parent
     monkeypatch.setattr(validation, "_RESTRICTED_DIRS", (secret.resolve().as_posix(),))
     return secret
+
+
+@pytest.fixture
+def isolated_manager(monkeypatch: pytest.MonkeyPatch) -> Iterator[ProjectManager]:
+    manager = ProjectManager(max_projects=10)
+    monkeypatch.setattr(project_manager_module, "_project_manager", manager)
+    yield manager
+    manager.cleanup_all()
 
 
 @pytest.fixture
@@ -204,7 +218,8 @@ class TestOtherEdges:
 
         bases = await expand("app.Child", "superclasses", analyzer)
         assert bases["stubs"] == []
-        assert "etcmod2.keys.Base" in bases["unresolved_superclasses"]
+        # Reported by the class's own spelling, never a name from the restricted file.
+        assert bases["unresolved_superclasses"] == ["Base"]
         calls = await expand("app.run", "callees", analyzer)
         assert "etcmod2.keys.leak" not in {s["handle"] for s in calls["stubs"]}
         assert calls["unresolved_call_sites"] >= 1
@@ -229,3 +244,124 @@ def test_an_edge_without_a_loss_field_drops_with_a_warning(
 
     assert [str(h) for h, _ in kept.adjacents] == ["a.outside"]
     assert "restricted directory" in caplog.text
+
+
+@pytest.fixture
+def inherited(tmp_path: Path, restricted: Path) -> Path:
+    """The #1003 review's setup: project symbols that inherit or alias restricted ones."""
+    pkg = restricted / "pkg"
+    (pkg / "__init__.py").write_text("from ._hidden_impl import thing\n", encoding="utf-8")
+    (pkg / "_hidden_impl.py").write_text("def thing():\n    pass\n", encoding="utf-8")
+    (pkg / "keys.py").write_text(
+        "class Base:\n    def __init__(self, marker='LEAKMARK'):\n        pass\n\n\n"
+        "def leak(secret_arg):\n    return 1\n",
+        encoding="utf-8",
+    )
+    project = _project(
+        tmp_path,
+        "from etcmod2.keys import Base, leak\nfrom etcmod2 import thing\n\n\n"
+        "class Child(Base):\n    pass\n\n\nalias = leak\n",
+    )
+    (project / "etcmod2").symlink_to(pkg, target_is_directory=True)
+    return project
+
+
+class TestThroughProjectSymbols:
+    """Content inferred from a restricted definition through a PROJECT symbol (#1003 review)."""
+
+    @pytest.mark.asyncio
+    async def test_an_inherited_signature_is_not_shown(self, inherited: Path) -> None:
+        analyzer = JediAnalyzer(str(inherited))
+
+        node = await inspect("app.Child", analyzer)
+
+        assert node["found"] is True
+        assert "LEAKMARK" not in json.dumps(node) and "signature" not in node, node
+
+    @pytest.mark.asyncio
+    async def test_stub_signatures_in_outline_members_and_trace(self, inherited: Path) -> None:
+        analyzer = JediAnalyzer(str(inherited))
+
+        results = (
+            await outline("app", analyzer),
+            await expand("app", "members", analyzer),
+            await trace("app", ["members"], analyzer, max_depth=1),
+        )
+        for result in results:
+            text = json.dumps(result)
+            assert "LEAKMARK" not in text and "secret_arg" not in text, text
+
+    @pytest.mark.asyncio
+    async def test_a_restricted_base_is_unresolved_everywhere(self, inherited: Path) -> None:
+        """inspect's field and count agree with the edge, by the class's own spelling."""
+        analyzer = JediAnalyzer(str(inherited))
+
+        node = await inspect("app.Child", analyzer)
+        edge = await expand("app.Child", "superclasses", analyzer)
+
+        assert node["superclasses"] == ["Base"], node
+        assert node["edge_counts"].get("superclasses", 0) == len(edge["stubs"]) == 0
+        assert edge["unresolved_superclasses"] == ["Base"]
+
+    @pytest.mark.asyncio
+    async def test_loss_fields_use_the_importers_spelling(self, inherited: Path) -> None:
+        """A canonical handle would name the restricted file's internals (_hidden_impl)."""
+        analyzer = JediAnalyzer(str(inherited))
+
+        edge = await expand("app", "imports", analyzer)
+
+        assert "_hidden_impl" not in json.dumps(edge), edge
+        assert "etcmod2.thing" in edge["unresolved_imports"]
+
+    @pytest.mark.asyncio
+    async def test_a_restricted_copy_is_no_shadow_candidate(self, inherited: Path) -> None:
+        (inherited / "src" / "shadowpkg").mkdir(parents=True)
+        (inherited / "src" / "shadowpkg" / "__init__.py").write_text("", encoding="utf-8")
+        (inherited / "shadowpkg").symlink_to(inherited / "etcmod2", target_is_directory=True)
+        analyzer = JediAnalyzer(str(inherited))
+
+        result = await resolve("shadowpkg", analyzer)
+
+        assert result["found"] is True and not result.get("ambiguous"), result
+        assert result["location"]["file"].endswith("src/shadowpkg/__init__.py")
+
+
+@pytest.mark.usefixtures("isolated_manager")
+@pytest.mark.asyncio
+async def test_pydantic_inheritance_doesnt_read_a_restricted_ancestor(
+    tmp_path: Path, restricted: Path
+) -> None:
+    """trace_model_inheritance reported a restricted ancestor and its field defaults."""
+    from pyeye.plugins.pydantic import PydanticPlugin
+
+    (restricted / "pkg" / "models.py").write_text(
+        "from pydantic import BaseModel\n\n\n"
+        "class SecretModel(BaseModel):\n    db_note: str = 'LEAKMARK'\n",
+        encoding="utf-8",
+    )
+    project = _project(tmp_path, "")
+    (project / "models_app.py").write_text(
+        "from pydantic import BaseModel\n\nfrom etcmod2.models import SecretModel\n\n\n"
+        "class Child(SecretModel, BaseModel):\n    own: int = 1\n",
+        encoding="utf-8",
+    )
+    (project / "etcmod2").symlink_to(restricted / "pkg", target_is_directory=True)
+    # The test's own environment, so pydantic resolves as it would in a real venv.
+    (project / ".pyeye.json").write_text(
+        json.dumps({"environment": Path(sys.prefix).as_posix()}), encoding="utf-8"
+    )
+
+    result = await PydanticPlugin(str(project)).trace_model_inheritance("Child", scope="all")
+
+    text = json.dumps(result)
+    assert "LEAKMARK" not in text and "db_note" not in text, text
+    assert "fields_inherited" not in result or not result["fields_inherited"], result
+
+
+def test_an_unresolvable_path_fails_closed(tmp_path: Path) -> None:
+    from pyeye.resolver import restricted_path
+
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+
+    assert restricted_path(loop / "x.py") is True
