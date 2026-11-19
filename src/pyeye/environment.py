@@ -27,15 +27,17 @@ deviation, recorded in the decision entry):
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
+import stat
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .path_utils import normalize_path, paths_equal
+from .path_utils import absolute_path, normalize_path, paths_equal
 
 logger = logging.getLogger(__name__)
 
@@ -52,17 +54,28 @@ SOURCE_NONE = "none"
 
 _PTH_IMPORT = re.compile(r"^import[ \t]")
 
+#: Bounds on what one environment's ``.pth`` files may cost (#993 review): the
+#: environment can come from the repository. Each is far above a real
+#: environment's (an editable install adds one line; a large conda env, tens).
+#: Hitting one logs a warning and reads no further.
+MAX_PTH_BYTES = 1 << 20  # per .pth file; the rest of the file is ignored
+MAX_PTH_LINES = 1000  # paths per .pth file
+MAX_SITE_PATHS = 1000  # per environment: .pth paths looked up (found or not), at least 1 per file
+
 
 @dataclass(frozen=True)
 class ProjectEnvironment:
     """A project's environment: where it is, how it was found, and its import roots.
 
     Attributes:
-        path: The environment's directory, or ``None`` when none was found.
+        path: The environment's directory in the caller's spelling (#717): no
+            symlink resolved, as configured, found under the project root as
+            given, or as the activation variable names it. ``None`` when none
+            was found.
         source: ``config``, ``project``, ``VIRTUAL_ENV``, ``CONDA_PREFIX`` or ``none``.
         site_paths: Its import roots, as Python's ``site`` module computes them:
             its ``site-packages`` and the plain-path lines of the ``.pth`` files
-            there, resolved, POSIX. ``[]`` with no environment.
+            there, resolved, POSIX, each path-checked. ``[]`` with no environment.
     """
 
     path: Path | None
@@ -77,6 +90,10 @@ class ProjectEnvironment:
 def discover(project_path: str | Path, configured: Any = None) -> ProjectEnvironment:
     """The project's environment, by the precedence in this module's docstring.
 
+    Every candidate is path-checked on its RESOLVED form, whatever its source
+    (#993 review): a refused one is skipped with a warning and discovery
+    continues to the next.
+
     Args:
         project_path: The project root.
         configured: The config's ``environment`` value: a path (absolute, or
@@ -84,56 +101,91 @@ def discover(project_path: str | Path, configured: Any = None) -> ProjectEnviron
             ``None`` when unset. A path the path check refuses is skipped with
             a warning, like any refused config entry (#856, #909).
     """
-    root = normalize_path(project_path)
+    spelled_root = absolute_path(project_path)
     if configured is False:
         return ProjectEnvironment(None, SOURCE_CONFIG)
     if configured:
-        env = _checked_config_environment(root, str(configured))
-        if env is not None:
-            return _environment(env, SOURCE_CONFIG)
-    for base in _project_bases(root):
+        found = _checked_config_environment(spelled_root, str(configured))
+        if found is not None:
+            return found
+    for base in _project_bases(spelled_root):
         for name in VENV_NAMES:
             candidate = base / name
             if (candidate / "pyvenv.cfg").is_file():
-                return _environment(normalize_path(candidate), SOURCE_PROJECT)
+                found = _environment(candidate, SOURCE_PROJECT)
+                if found is not None:
+                    return found
     own = normalize_path(sys.prefix)
     for var in ACTIVATION_VARS:
         value = os.environ.get(var)
         if not value:
             continue
-        env = normalize_path(value)
-        if env.is_dir() and not paths_equal(env, own):
-            return _environment(env, var)
+        spelled = absolute_path(Path(value).expanduser())
+        if spelled.is_dir() and not paths_equal(spelled, own):
+            found = _environment(spelled, var)
+            if found is not None:
+                return found
     return ProjectEnvironment(None, SOURCE_NONE)
 
 
 def _project_bases(root: Path) -> list[Path]:
-    """Where an in-project venv may be: the root, and its parent if the root is a package."""
-    return [root, root.parent] if (root / "__init__.py").is_file() else [root]
+    """Where an in-project venv may be: the root, and its parent if the root is a package.
+
+    The parent is skipped when someone else could have planted a venv there
+    (#993 review): on POSIX, a world-writable parent (the sticky ``/tmp``) or
+    one the current user doesn't own.
+    """
+    if not (root / "__init__.py").is_file():
+        return [root]
+    return [root, root.parent] if _trusted_dir(root.parent) else [root]
 
 
-def _checked_config_environment(root: Path, configured: str) -> Path | None:
-    """The configured environment's directory, if it exists and passes the path check."""
+def _trusted_dir(directory: Path) -> bool:
+    """Whether only the current user can have created *directory*'s entries (POSIX)."""
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:  # Windows: no owner/mode model to test
+        return True
+    try:
+        info = directory.stat()
+    except OSError:
+        return False
+    if info.st_mode & stat.S_IWOTH or info.st_uid != getuid():
+        logger.warning(
+            f"Not looking for a venv in {directory.as_posix()}: "
+            "it is world-writable or owned by another user"
+        )
+        return False
+    return True
+
+
+def _checked_config_environment(spelled_root: Path, configured: str) -> ProjectEnvironment | None:
+    """The configured environment, if it exists and passes the path checks."""
     from .exceptions import ValidationError
     from .validation import PathValidator
 
     path = Path(configured).expanduser()
-    if not path.is_absolute():
-        path = root / path
+    spelled = path if path.is_absolute() else absolute_path(spelled_root / path)
     try:
-        PathValidator.validate_final(path.as_posix(), root)
+        PathValidator.validate_final(spelled.as_posix(), spelled_root)
     except ValidationError as error:
         logger.warning(f"Skipping config environment {configured}: {error}")
         return None
-    resolved = normalize_path(path)
-    if not resolved.is_dir():
+    if not spelled.is_dir():
         logger.warning(f"Config environment {configured} does not exist; ignoring it")
         return None
-    return resolved
+    return _environment(spelled, SOURCE_CONFIG)
 
 
-def _environment(path: Path, source: str) -> ProjectEnvironment:
-    return ProjectEnvironment(path, source, tuple(site_paths(path)))
+def _environment(spelled: Path, source: str) -> ProjectEnvironment | None:
+    """The environment at *spelled*, or ``None`` when its RESOLVED form is refused.
+
+    A venv symlinked into a credential store, or ``VIRTUAL_ENV=/etc``, is
+    refused (#993 review); so is an ancestor of a restricted directory.
+    """
+    resolved = normalize_path(spelled)
+    if not _allowed(resolved, spelled, what=f"{source} environment"):
+        return None
+    return ProjectEnvironment(spelled, source, tuple(site_paths(resolved)))
 
 
 def site_paths(env: Path) -> list[str]:
@@ -150,17 +202,28 @@ def site_paths(env: Path) -> list[str]:
     on its RESOLVED form, as the walkers prune (#856, #909): one that is, is
     inside, or is an ancestor of a restricted directory (a symlinked
     ``site-packages``, a ``.pth`` line naming ``/etc``, a home's ``.ssh``, or
-    climbing to ``/``) is dropped with a warning, and its ``.pth`` files are
-    never read.
+    climbing to ``/``) is dropped with a warning, and a dropped
+    ``site-packages``' ``.pth`` files are never read. The work is bounded:
+    :data:`MAX_SITE_PATHS`, and per file :data:`MAX_PTH_BYTES` and
+    :data:`MAX_PTH_LINES`.
     """
-    out: list[str] = []
+    out: dict[str, None] = {}
+    budget = MAX_SITE_PATHS
     for site_dir in _site_packages_dirs(env):
-        if not _allowed(site_dir, env):
+        if not _allowed(site_dir, site_dir, what="site-packages"):
             continue
-        out.append(site_dir.as_posix())
+        out[site_dir.as_posix()] = None
         for pth in sorted(site_dir.glob("*.pth")):
-            out.extend(_pth_paths(site_dir, pth))
-    return list(dict.fromkeys(out))
+            if budget <= 0:
+                logger.warning(
+                    f"Environment {env.as_posix()} names over {MAX_SITE_PATHS} "
+                    ".pth paths; reading no further"
+                )
+                return list(out)
+            entries, looked_up = _cached_pth_paths(pth, budget)
+            budget -= max(1, looked_up)
+            out.update(dict.fromkeys(entries))
+    return list(out)
 
 
 def _site_packages_dirs(env: Path) -> list[Path]:
@@ -185,33 +248,70 @@ def _pyvenv_version(env: Path) -> str | None:
     return f"{match.group(1)}.{match.group(2)}" if match else None
 
 
-def _pth_paths(site_dir: Path, pth: Path) -> list[str]:
-    """The directories *pth* adds, as ``site.addpackage`` reads them, minus its code lines."""
+def _cached_pth_paths(pth: Path, budget: int) -> tuple[tuple[str, ...], int]:
+    """:func:`_pth_paths`, cached while the file is unchanged (#993 review).
+
+    Each analyzer rebuild and each ``configure_packages`` reads the environment
+    again. Keyed on the file and its stat, only a changed ``.pth`` is re-read.
+    """
     try:
-        lines = pth.read_text(encoding="utf-8", errors="replace").splitlines()
+        info = pth.stat()
     except OSError:
-        return []
-    out = []
-    for raw in lines:
+        return (), 0
+    return _pth_paths(pth, min(budget, MAX_PTH_LINES), info.st_mtime_ns, info.st_size)
+
+
+@functools.lru_cache(maxsize=512)
+def _pth_paths(pth: Path, limit: int, _mtime_ns: int, _size: int) -> tuple[tuple[str, ...], int]:
+    """The directories *pth* adds, as ``site.addpackage`` reads them, minus its code lines.
+
+    Returns them with the number of paths looked up on disk. Bounded: at most
+    :data:`MAX_PTH_BYTES` are read and *limit* distinct paths looked up; lines
+    are deduplicated first. Each directory is path-checked on its RESOLVED
+    form. *_mtime_ns* and *_size* only key the cache.
+    """
+    try:
+        with pth.open("rb") as handle:
+            data = handle.read(MAX_PTH_BYTES + 1)
+    except OSError:
+        return (), 0
+    if len(data) > MAX_PTH_BYTES:
+        logger.warning(f"{pth.as_posix()} is over {MAX_PTH_BYTES} bytes; reading only the start")
+        data = data[:MAX_PTH_BYTES]
+    lines: dict[str, None] = {}
+    for raw in data.decode("utf-8", errors="replace").splitlines():
         line = raw.rstrip()
         if not line or line.startswith("#") or _PTH_IMPORT.match(line):
             continue
-        entry = Path(line) if Path(line).is_absolute() else site_dir / line
+        if line in lines:
+            continue
+        if len(lines) >= limit:
+            logger.warning(f"{pth.as_posix()}: path limit ({limit}) reached; reading no further")
+            break
+        lines[line] = None
+    out: dict[str, None] = {}
+    for line in lines:
+        entry = Path(line) if Path(line).is_absolute() else pth.parent / line
         if entry.is_dir():
             resolved = normalize_path(entry)
-            if _allowed(resolved, pth):
-                out.append(resolved.as_posix())
-    return out
+            if _allowed(resolved, pth, what=".pth path"):
+                out[resolved.as_posix()] = None
+    return tuple(out), len(lines)
 
 
-def _allowed(resolved: Path, source: Path) -> bool:
-    """Whether the RESOLVED import root *resolved* passes the walkers' prune test (#993)."""
+def _allowed(resolved: Path, source: Path, *, what: str) -> bool:
+    """Whether the RESOLVED *resolved* passes the walkers' prune test (#856, #909, #993).
+
+    Refused when it is, is inside, or is an ancestor of a restricted directory
+    or a credential store: ``/`` on the import path would make ``/etc``'s
+    modules importable as a namespace package.
+    """
     from .validation import unwalkable_root
 
     if not unwalkable_root(resolved):
         return True
     logger.warning(
-        f"Skipping environment path {resolved.as_posix()} (from {source.as_posix()}): "
+        f"Skipping {what} {resolved.as_posix()} (from {source.as_posix()}): "
         "it is, is inside, or contains a restricted directory"
     )
     return False

@@ -29,6 +29,10 @@ superseded_by: []
   4. none.
 
   **The deviation:** an in-project venv ranks ABOVE an activated one. One server answers for many projects (#665), and the shell's activated environment would otherwise be applied to every project. This matches editors' workspace-venv preference.
+
+  **Known consequence (security review, LOW):** one activated environment serves EVERY project that has no venv of its own and no config. That is intended by this precedence; the disclosure shows it (`source: "VIRTUAL_ENV"` / `"CONDA_PREFIX"`), and a project opts out with `environment: false` or chooses with a path.
+
+  **The parent lookup** for a root-is-package project is skipped when the parent could hold someone else's venv (security review, LOW): on POSIX, a world-writable parent (the sticky `/tmp`) or one not owned by the current user.
 - **Read statically, never run** (`site_paths`): the environment's `site-packages` (POSIX `lib/pythonX.Y`, preferring `pyvenv.cfg`'s version; Windows `Lib`), then the plain-path lines of its `.pth` files, as Python's `site` module computes them. A `.pth` line starting `import` is code; it is skipped, never executed. A repository can ship its own `.venv`, and pyeye never runs project code.
 - **Jedi** (`make_project`):
   - it always runs pyeye's own interpreter: one cached `SameEnvironment` (`own_environment`), attached to every project, never Jedi's `VIRTUAL_ENV`-driven default;
@@ -38,7 +42,9 @@ superseded_by: []
   - third-party paths are `external` by `scope.py`'s existing site-packages rule.
 - **The venv is no longer a configured package:** `_discover_venv_packages` is removed. Flat projects' `packages` stop listing site-packages; plugin scans and saved configs stop including it.
 - **Caches:** the environment's site paths join `layout_key` (#618), so a venv that appears or changes is another layout.
-- **Path checks:** a configured `environment` is path-checked like other config entries (#856, #909). A refused one is skipped with a warning, and discovery continues. Every import root read from an environment (each `site-packages` dir and `.pth` target) is checked on its RESOLVED form with the walkers' prune test, `validation.unwalkable_root`: one that is, is inside, or is an ancestor of a restricted directory or credential store is dropped with a warning, and a dropped `site-packages`' `.pth` files are never read. An ancestor counts because `/` on the import path would make `/etc/*.py` importable as a namespace package.
+- **Path checks** (security review, HIGH and MEDIUM): the environment can come from the repository, so every directory discovery uses is checked on its RESOLVED form with the walkers' prune test, `validation.unwalkable_root`. That covers the environment itself from EVERY source (config, in-project, `VIRTUAL_ENV`, `CONDA_PREFIX`), each `site-packages` dir, and each `.pth` target. One that is, is inside, or is an ancestor of a restricted directory or credential store is skipped with a warning: a refused candidate lets discovery continue, a dropped `site-packages`' `.pth` files are never read. An ancestor counts because `/` on the import path makes `/etc/*.py` importable as a namespace package. A configured `environment` is also path-checked like other config entries (#856, #909).
+- **Bounds** (security review, MEDIUM; a 600k-line `.pth` set took 47 s per analyzer build): `.pth` lines are deduplicated before any disk lookup, and reading is capped by module constants that warn when hit: `MAX_PTH_BYTES` and `MAX_PTH_LINES` per file, and `MAX_SITE_PATHS` lookups (found or not, at least one per file) per environment. Each file's result is cached on its stat (`_cached_pth_paths`), so analyzer rebuilds and `configure_packages` re-read only a changed `.pth`. **Rejected:** caching `discover()` per `layout_key`: the key is built FROM the environment's site paths, so it can't key their discovery, and a stat key also notices a changed `.pth` while the project's layout is unchanged.
+- **Spelling (#717):** `environment.path` is in the caller's spelling (not resolved), as the other response paths are; the site paths given to Jedi stay resolved.
 - **Disclosure:**
   - `configure_packages` gains an always-present `environment: {path|null, source}`, with `source` one of "config" | "project" | "VIRTUAL_ENV" | "CONDA_PREFIX" | "none";
   - a once-per-project warning is logged when none is found;
@@ -58,6 +64,9 @@ superseded_by: []
 - the full precedence, including the deviation, `false`, a refused config path, and pyeye's own `sys.prefix` ignored;
 - the POSIX and Windows layouts, `pyvenv.cfg` version preference, and `.pth` plain lines added with an import line NOT executed (a marker file stays absent);
 - a `.pth` line naming `/etc`, `/`, `/proc/self`, a home's `.ssh`, or climbing with `..`, and a `site-packages` symlinked into `/etc`, are all dropped; an ordinary path outside the project is kept;
+- an in-project `.venv` symlinked into a credential store, and `VIRTUAL_ENV` / `CONDA_PREFIX` naming `/etc`, `/` or `/proc/self`, are refused, and discovery falls through;
+- the per-file line and byte caps, the per-environment lookup cap (missing paths included), line dedupe before the cap, and the stat-keyed cache;
+- a world-writable or foreign-owned parent is not searched for a root-is-package project; `environment.path` keeps a symlinked root's, a configured and an activated spelling;
 - Jedi's environment is pyeye's own even with `VIRTUAL_ENV` set;
 - `src/` and flat projects resolve a venv package as external;
 - pyeye's own pydantic never resolves for a project lacking it;

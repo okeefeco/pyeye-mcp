@@ -46,13 +46,18 @@ environment, whichever way pyeye itself runs. It uses the first of:
 
 1. the `environment` setting in the project's pyeye config: the path to a
    virtualenv, or `false` for none;
-2. a virtualenv in the project: `.venv`, `venv` or `env`;
+2. a virtualenv in the project: `.venv`, `venv` or `env` (for a project that is
+   itself a package, in its parent directory too, unless that directory is
+   shared: world-writable, or owned by another user);
 3. the activated environment (`VIRTUAL_ENV`, or `CONDA_PREFIX` for conda), as
    Poetry, Pipenv and Hatch set it for an environment outside the project.
+   One activated environment serves every project that has none of its own.
 
-It reads the environment's packages from disk and never runs its Python. When
-it finds none, a third-party import doesn't resolve, and `resolve` and
-`inspect` say that no environment was found (#993).
+It reads the environment's packages from disk and never runs its Python. It
+skips an environment, or a path one adds, that is in or contains a system
+directory or a credential store, with a warning. When it finds none, a
+third-party import doesn't resolve, and `resolve` and `inspect` say that no
+environment was found (#993).
 
 ### Claude Code plugin (recommended)
 
