@@ -31,16 +31,12 @@ mcp / saved / bug commands ────────┴→ dogfooding_metrics.py 
 
 ## Grep usage detection
 
-Two counters, both installed by `scripts/setup_dogfooding.sh`:
-
-- **Wrapper scripts** for `grep`, `egrep`, `fgrep` and `rg` in `~/.local/bin`
-  (`scripts/setup_grep_tracking.sh`). They count only searches that look like
-  code searches.
-- **The `grep` shell alias** (`scripts/setup_aliases.sh`). It counts every `grep`
-  run in a checkout that has `scripts/dogfooding_metrics.py`, whatever it searches.
-
-With both installed, a code search in the project is counted twice
-([#1020](https://github.com/okeefeco/pyeye-mcp/issues/1020)).
+- Wrapper scripts for `grep`, `egrep`, `fgrep` and `rg` in `~/.local/bin`
+  (`scripts/setup_grep_tracking.sh`, run by `scripts/setup_dogfooding.sh`).
+- Only searches that look like code searches are counted, once each.
+- Before #1020, `scripts/setup_aliases.sh` also added a counting `grep` alias,
+  so each code search was counted twice. Remove an old alias block and re-run
+  the setup to drop it.
 
 ## CLI commands
 
@@ -119,7 +115,7 @@ uv run pytest tests/test_dogfooding_metrics.py tests/test_dogfooding_workflow.py
 
 Check:
 
-1. Shell aliases are active: `source ~/.bashrc`
+1. Your shell config is loaded (it adds `~/.local/bin` to PATH): `source ~/.bashrc`
 2. `~/.local/bin` is in PATH: `echo $PATH | grep local/bin`
 3. Wrapper scripts exist: `ls -la ~/.local/bin/grep`
 
