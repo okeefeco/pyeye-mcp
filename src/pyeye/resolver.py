@@ -37,7 +37,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import path_to_key, paths_equal
+from pyeye.path_utils import normalize_path, path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -80,6 +80,10 @@ class NotFound:
 
     reason: Literal["unresolved"]
     detail: str
+    #: The definition exists but resolves into a restricted directory (#999), so
+    #: it is refused. The operations then show *detail* as it is: it is the
+    #: honest reason, not a guess.
+    restricted: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +91,43 @@ class Ambiguous:
     """A bare name with several canonical definitions, in deterministic order."""
 
     candidates: tuple[Resolved, ...]
+
+
+#: How the not-found detail for a definition refused as restricted ends (#999).
+_RESTRICTED_SUFFIX = "which pyeye doesn't read or report."
+
+#: The not-found detail for a definition that lives in a restricted directory (#999).
+RESTRICTED_DETAIL = (
+    "{path!r} resolves into a restricted directory (a system directory or a "
+    "credential store), " + _RESTRICTED_SUFFIX
+)
+
+
+def is_restricted_detail(detail: str | None) -> bool:
+    """Whether *detail* is :data:`RESTRICTED_DETAIL`'s, so no other note belongs after it."""
+    return detail is not None and detail.endswith(_RESTRICTED_SUFFIX)
+
+
+def in_restricted_dir(name: Any) -> bool:
+    """Whether Jedi *name*'s file RESOLVES into a restricted directory (#999).
+
+    Jedi follows a symlink in the project or the venv's site-packages while it
+    looks up an import, so a hit can land in ``/etc`` or a credential store
+    where no input check or pruned walk applies. The file is checked on its
+    resolved form with the walkers' own test, :func:`pyeye.validation.restricted_dir`.
+    A name with no file (a builtin, a namespace sentinel without one) is never
+    restricted.
+    """
+    from pyeye.validation import restricted_dir
+
+    module_path = getattr(name, "module_path", None)
+    if module_path is None:
+        return False
+    try:
+        resolved = normalize_path(module_path)
+    except (OSError, RuntimeError):
+        return False
+    return restricted_dir(resolved)
 
 
 def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
@@ -109,6 +150,11 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
     anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
+    if in_restricted_dir(anchor):
+        # Refused, not returned: its symbols and location would expose the file (#999).
+        return NotFound(
+            reason="unresolved", detail=RESTRICTED_DETAIL.format(path=path), restricted=True
+        )
     kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
@@ -199,6 +245,11 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
         answer = await rule.run(bare, analyzer)
         if answer is not None:
             return answer
+    # A top-level module refused as restricted (#999) answers nothing above, so
+    # the miss says why instead of "check the spelling".
+    exact = resolve_item(bare, analyzer)
+    if isinstance(exact, NotFound) and exact.restricted:
+        return exact
     return NotFound(reason="unresolved", detail=_miss_detail(bare))
 
 

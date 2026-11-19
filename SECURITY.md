@@ -126,6 +126,14 @@ they can't drift from it.
   directory whose resolved form is one of them, so a symlink inside a scanned
   tree can't lead a walk into one.
 
+  Results are checked the same way. Jedi follows symlinks when it looks up an
+  import, so a symlink inside the project, or inside the project's virtualenv
+  `site-packages`, can point a lookup into one of these directories. A
+  definition whose file resolves into one is refused: it is reported as not
+  found, with a detail saying it is in a restricted directory, and an edge
+  that would point at it lists it among the edge's unresolved targets instead
+  (#999). A symlink into any other directory works as before.
+
   The credential stores are different: they define no ancestors. A scan of
   `~`, `/home` or `/Users` works and simply skips them. A project placed inside
   one, such as a repository at `~/.config/gh/x`, is refused, as intended. A

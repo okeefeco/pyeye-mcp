@@ -806,6 +806,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     resolved = resolve_handle(handle, analyzer)
     if isinstance(resolved, NotFound):
         logger.debug("inspect(%r): %s", handle, resolved.detail)
+        if resolved.restricted:  # refused, with the honest reason (#999)
+            return not_found(handle, detail=resolved.detail)
         response = not_found(handle)
         # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
         if note := environment_not_found_note(analyzer, handle):

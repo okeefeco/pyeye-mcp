@@ -202,14 +202,15 @@ def not_found_for(
     return result
 
 
-def not_found(handle: str, *, edge: str | None = None) -> dict[str, Any]:
+def not_found(handle: str, *, edge: str | None = None, detail: str | None = None) -> dict[str, Any]:
     """The not-found response for an unresolvable *handle* (inspect/outline/expand).
 
     A thin wrapper over :func:`not_found_for`: ``expand`` passes *edge*, and
     the others don't. ``detail`` points at ``resolve`` on the handle's last
     dotted segment, because an exact-path handle that misses usually has the
-    right leaf under the wrong module path.
+    right leaf under the wrong module path. An explicit *detail* (a definition
+    refused as restricted, #999) replaces that default.
     """
     if edge is None:
-        return not_found_for("inspect", {"handle": handle})
-    return not_found_for("expand", {"handle": handle, "edge": edge})
+        return not_found_for("inspect", {"handle": handle}, detail=detail)
+    return not_found_for("expand", {"handle": handle, "edge": edge}, detail=detail)
