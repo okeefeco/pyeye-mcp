@@ -74,6 +74,7 @@ from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye._stdlib_static import is_stdlib, public_handle
+from pyeye.analyzers.project_graph import UNNAMED_NOT_A_HANDLE
 from pyeye.canonicalization import re_export_scan
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
@@ -85,7 +86,7 @@ from pyeye.project_layout import (
     is_module_file,
     package_kind,
 )
-from pyeye.resolver import Resolved, handle_for_anchor, resolve_external_item
+from pyeye.resolver import Resolved, handle_for_anchor, in_restricted_dir, resolve_external_item
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -136,6 +137,12 @@ class EdgeResult:
             (#729), the POSIX paths of files in scope the server's interpreter
             couldn't parse, so an adjacent defined there is unknown, not absent.
             ``[]`` when every file parsed; ``None`` for every other edge.
+        handleless_subclasses: For ``subclasses`` (#1006), the direct subclasses
+            no handle can name — ``{name, file, line, reason}``, ``reason``
+            one of ``function_local`` / ``no_module_path`` / ``not_a_handle`` —
+            sorted by file then line, complete (``expand`` caps the list it
+            returns). Found and resolved as subclasses, so not ``unresolved_*``.
+            ``[]`` when every subclass has a handle; ``None`` for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
@@ -144,6 +151,7 @@ class EdgeResult:
     unresolved_superclasses: list[str] | None = None
     unresolved_importers: list[str] | None = None
     unparseable_files: list[str] | None = None
+    handleless_subclasses: list[dict[str, Any]] | None = None
     #: Extra stub fields per adjacent handle, merged into the stub by ``expand``.
     #: ``re_exports`` (#393) uses it for ``bindings``; ``None`` for other edges.
     stub_extras: dict[str, dict[str, Any]] | None = None
@@ -892,7 +900,10 @@ def _resolve_call_target(
     """
     line, col = target
     d = goto_target(script, line, col)
-    if d is None:
+    # A target in a restricted directory is refused here, where the caller still
+    # has its own spelling to report it by (#999): callees count it, imports list
+    # it as written.
+    if d is None or in_restricted_dir(d):
         return None
     h = _handle_for_name(d, analyzer)
     return (h, d) if h is not None else None
@@ -1049,10 +1060,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     forward ``goto``/``resolver.resolve_handle`` (NO ``Script.get_references``, the
     same load-bearing trust constraint as ``callees`` / ``imported_by``).
     ``subclasses`` is an **expand-only** edge: ``inspect``
-    does NOT measure it (dropped in #392; a cheap direct count is gated on the
-    Pyright reference backend / class-graph cache — #333/#397 — because even the
-    DIRECT count needs the same project-wide scan, exactly like ``callers`` /
-    ``references``).
+    does NOT measure it, by design: the edge reads the whole-project class graph,
+    and ``inspect`` stays independent of whole-project indices, which every edit
+    drops (#392, ruled 2026-11-20).
 
     Single-hop semantics (#422): ``expand`` walks ONE edge to the IMMEDIATE
     neighbours, so this resolver returns the **DIRECT** subclasses only (depth 1;
@@ -1125,14 +1135,25 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     ), f"FQN input to find_subclasses returned ambiguous variant: {handle!r}"
 
     adjacents: list[tuple[Handle, Any]] = []
+    handleless: list[dict[str, Any]] = []
     seen: set[str] = set()
     for subclass in result.get("subclasses", []):
         fqn = subclass.get("full_name")
         subclass_file = subclass.get("file")
-        if not fqn or not subclass_file:
+        if not subclass_file:
             continue
-        h = _try_handle(fqn)
+        # A subclass no handle can name is reported, never dropped (#1006).
+        # find_subclasses already says why; a name Handle rejects is the same case.
+        h = _try_handle(fqn) if fqn else None
         if h is None:
+            handleless.append(
+                {
+                    "name": subclass.get("name", ""),
+                    "file": subclass_file,
+                    "line": subclass.get("line") or 1,
+                    "reason": subclass.get("unnamed_reason", UNNAMED_NOT_A_HANDLE),
+                }
+            )
             continue
         key = str(h)
         if key in seen:
@@ -1162,8 +1183,12 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     adjacents.sort(key=lambda pair: str(pair[0]))
 
     # #729: a file the scan couldn't parse is disclosed, never silently dropped.
+    # #1006: so is a subclass with no handle, in a deterministic order.
+    handleless.sort(key=lambda e: (e["file"], e["line"], e["name"]))
     return EdgeResult(
-        adjacents=adjacents, unparseable_files=list(result.get("unparseable_files", []))
+        adjacents=adjacents,
+        unparseable_files=list(result.get("unparseable_files", [])),
+        handleless_subclasses=handleless,
     )
 
 
@@ -1297,6 +1322,8 @@ def superclass_bases(
         d = goto_target(script, base_line, base_col, prefer="class")
         if d is not None and getattr(d, "type", None) != "class":
             d = None  # resolved to a function or variable, not a class (#922)
+        if d is not None and in_restricted_dir(d):
+            d = None  # refused (#999): unresolved, by the class's own spelling of it
         h = _handle_for_name(d, analyzer) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases

@@ -25,7 +25,7 @@ dismissals. The ratchet uses none of those: every exact-match clone counts.
 - A token window that appears more than
   <!-- fact:begin duplication.default.max_occurrences -->`50`<!-- fact:end --> times is paired with its next
   occurrence only (#495), so the pair loop stays linear on repeated data such as
-  large literal tables. All-pairs on one emoji table in `rich` ran out of memory.
+  large literal tables. In #495, all-pairs on one emoji table in `rich` ran out of memory.
   Every copy is still reported, so a copy past the cap fails the ratchet like a
   2-way one.
 - A target file that can't be parsed fails the ratchet (it would hide its
@@ -40,8 +40,9 @@ uv run python scripts/duplicate_code_report.py path/to/file.py other/dir
 
 ### Why not pylint `duplicate-code`
 
-pylint's similarity checker compares normalised *lines*. On these files it
-found 1 block at a 4-line minimum and none at 6, because the copies that
+pylint's similarity checker compares normalised *lines*. On these files, at
+introduction (2026-11-15, `d615b3a`), it found 1 block at a 4-line minimum and
+none at 6, because the copies that
 drifted (the Jedi synthetic-import inference in `inspect`, `resolve` and
 `canonicalization`, for example) rename their locals. The AST check finds all
 three of those copies and needs no new dependency.
@@ -80,7 +81,8 @@ By the time the check became blocking, #623 had removed four of the five
 original regions. Two sites remained; #674 (#626) then removed the
 `edges.resolve_imported_by` / `edges.superclass_bases` copy, and #714 the
 `edges._class_members` / `edges._module_members` one (#686): `_class_members`
-now dedupes on the emitted handle. The baseline is empty.
+now dedupes on the emitted handle. That left the baseline empty; `BASELINE` in
+the script is the current list.
 
 ## Findings at introduction (2026-11-15, `main` @ `d615b3a`)
 
@@ -94,7 +96,7 @@ now dedupes on the emitted handle. The baseline is empty.
 
 The audit's other known copy, `typeref._attribute_target_position` against
 `_ast_targets.attr_target_position`, sits outside the default targets.
-Passing both files reports it (a 51-token clone region).
+Passing both files reports it (a 51-token clone region at introduction).
 
 ## Limits
 

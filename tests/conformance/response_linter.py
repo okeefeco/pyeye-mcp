@@ -68,6 +68,12 @@ E.8 ``unparseable_files`` (#729) placement — only allowed on the supported
     ``"re_exports"`` (#393); a list of
     non-empty single-line strs (the POSIX paths of files the server couldn't
     parse).
+E.9 ``handleless_subclass_count`` / ``handleless_subclasses`` (#1006) — only on
+    the supported branch when ``edge == "subclasses"``, and always together.
+    The count is a plain int >= 0 (complete); the list holds
+    ``{name, file, line, reason}`` entries (``reason`` in
+    :data:`_HANDLELESS_REASONS`), sorted by ``(file, line)``, and is no longer
+    than the count (``max_stubs`` may cut it).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -105,6 +111,9 @@ T.10 ``unresolved_importers`` (#668), when present (only if ``imported_by`` was
 T.11 ``unparseable_files`` (#729), when present (only if ``subclasses``, ``re_exports`` or
     ``imported_by`` was traced), is a dict ``{handle: [file, ...]}`` shaped like
     T.8.  Optional.
+T.12 ``handleless_subclass_counts`` (#1006), when present (only if ``subclasses``
+    was traced), is a dict ``{handle: count}`` shaped like T.7: single-line
+    handle keys, int counts >= 1.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -1075,6 +1084,15 @@ def _check_expand_structural_floor(
                 "when edge == 'callees'."
             )
 
+        # E.9 (#1006) — nor may the handleless-subclass fields
+        for key in _HANDLELESS_KEYS:
+            if key in response:
+                violations.append(
+                    f"[E.9 {key} placement] '{key}' is present on the unsupported "
+                    "branch. It must only appear on the supported branch when "
+                    "edge == 'subclasses'."
+                )
+
         # E.5–E.7 — the per-edge loss lists must NOT be on the unsupported branch
         for rule, key, edge_name in _EDGE_LOSS_LISTS:
             if key in response:
@@ -1127,6 +1145,9 @@ def _check_expand_structural_floor(
             if key in response:
                 _check_edge_loss_list(response[key], rule, key, edge_names, edge_val, violations)
 
+        # E.9 (#1006) — the subclasses that no handle can name.
+        _check_handleless_subclasses(response, edge_val, violations)
+
 
 #: Per-edge "couldn't name / couldn't resolve / couldn't read" lists on an
 #: ExpandResult: (rule, key, the edges it may appear on).
@@ -1142,6 +1163,82 @@ _TRACE_LOSS_MAPS = (
     ("T.10", "unresolved_importers"),  # #668
     ("T.11", "unparseable_files"),  # #729
 )
+#: E.9 / T.12 (#1006): the subclasses no handle can name. Loss fields by what
+#: they are, not by an ``unresolved_`` prefix: these were found and resolved.
+_HANDLELESS_KEYS = ("handleless_subclass_count", "handleless_subclasses")
+_HANDLELESS_REASONS = frozenset({"function_local", "no_module_path", "not_a_handle"})
+_HANDLELESS_TRACE_KEY = "handleless_subclass_counts"
+
+
+def _is_plain_int(value: Any) -> bool:
+    """An ``int`` that isn't a ``bool`` (bool is an int subclass)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _check_handleless_subclasses(
+    response: dict[str, Any], edge_val: Any, violations: list[str]
+) -> None:
+    """E.9 (#1006) — subclasses-only, together, a complete count, a sorted list."""
+    present = [key for key in _HANDLELESS_KEYS if key in response]
+    if not present:
+        return
+    if edge_val != "subclasses":
+        for key in present:
+            violations.append(
+                f"[E.9 {key} placement] '{key}' is present but edge={edge_val!r} "
+                "(not 'subclasses'). It is only valid on the supported branch when "
+                "edge is 'subclasses'."
+            )
+        return
+    if len(present) != len(_HANDLELESS_KEYS):
+        violations.append(
+            "[E.9 handleless_subclasses pair] 'handleless_subclass_count' and "
+            f"'handleless_subclasses' come together; only {present} is present."
+        )
+        return
+    count, entries = response["handleless_subclass_count"], response["handleless_subclasses"]
+    if not _is_plain_int(count) or count < 0:
+        violations.append(
+            "[E.9 handleless_subclass_count type] must be a plain int >= 0; "
+            f"got {_truncate(count)}."
+        )
+        return
+    if not isinstance(entries, list):
+        violations.append(
+            "[E.9 handleless_subclasses type] must be a list; " f"got {type(entries).__name__!r}."
+        )
+        return
+    if len(entries) > count:
+        violations.append(
+            f"[E.9 handleless_subclasses count] {len(entries)} entries but "
+            f"handleless_subclass_count is {count}: the count is the complete total."
+        )
+    keys = []
+    for idx, entry in enumerate(entries):
+        where = f"handleless_subclasses[{idx}]"
+        ok = (
+            isinstance(entry, dict)
+            and isinstance(entry.get("name"), str)
+            and entry["name"].strip()
+            and isinstance(entry.get("file"), str)
+            and entry["file"].strip()
+            and "\n" not in entry["file"]
+            and _is_plain_int(entry.get("line"))
+            and entry["line"] >= 1
+            and entry.get("reason") in _HANDLELESS_REASONS
+        )
+        if not ok:
+            violations.append(
+                f"[E.9 handleless_subclasses entry] {where}: must be "
+                "{name: non-empty str, file: single-line path, line: int >= 1, "
+                f"reason: one of {sorted(_HANDLELESS_REASONS)}}}; got {_truncate(entry)}."
+            )
+            return
+        keys.append((entry["file"], entry["line"]))
+    if keys != sorted(keys):
+        violations.append(
+            "[E.9 handleless_subclasses order] entries must be sorted by (file, line)."
+        )
 
 
 def _check_edge_loss_list(
@@ -1175,6 +1272,29 @@ def _check_edge_loss_list(
         elif "\n" in item:
             violations.append(
                 f"[{rule} {key} entry single-line] {key}[{idx}]: must be single-line."
+            )
+
+
+def _check_trace_count_map(value: Any, violations: list[str]) -> None:
+    """T.12 (#1006) — ``{handle: int >= 1}``, shaped like T.7."""
+    key = _HANDLELESS_TRACE_KEY
+    if not isinstance(value, dict):
+        violations.append(
+            f"[T.12 trace {key} type] '{key}' must be a dict {{handle: count}}; "
+            f"got {type(value).__name__!r}."
+        )
+        return
+    for handle, count in value.items():
+        kpath = f"{key}[{handle!r}]"
+        if not isinstance(handle, str) or not handle.strip() or "\n" in handle:
+            violations.append(
+                f"[T.12 trace {key} key] {kpath}: key must be a non-empty single-line "
+                "handle string."
+            )
+        if not _is_plain_int(count) or count < 1:
+            violations.append(
+                f"[T.12 trace {key} count] {kpath}: count must be a plain int >= 1 "
+                f"(omit zero counts); got {_truncate(count)}."
             )
 
 
@@ -1509,6 +1629,11 @@ def _check_trace_structural_floor(
     for rule, key in _TRACE_LOSS_MAPS:
         if key in response:
             _check_trace_loss_map(response[key], rule, key, violations)
+
+    # T.12 (#1006) — handleless_subclass_counts: OPTIONAL {handle: count >= 1},
+    # present only when subclasses was traced; a node with none is omitted.
+    if _HANDLELESS_TRACE_KEY in response:
+        _check_trace_count_map(response[_HANDLELESS_TRACE_KEY], violations)
 
 
 # ---------------------------------------------------------------------------

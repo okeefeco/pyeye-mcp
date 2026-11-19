@@ -344,12 +344,21 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   importer defined there is **unknown, not absent**. `expand` on one of those edges
   carries the same flat `unparseable_files: [file, …]` list (`[]` when every
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
+- **`handleless_subclass_counts`** (present only when you traced `subclasses`): a
+  `{handle: count}` map of nodes with direct subclasses that **no handle can name**: a
+  class defined in a function, in a file with no module path (`migrations/0001_initial.py`),
+  or under a non-ASCII name. They're real subclasses, so add them when you count, but `trace`
+  can't walk below them. `expand(handle, "subclasses")` carries `handleless_subclass_count`
+  (always complete) and `handleless_subclasses: [{name, file, line, reason}, …]` to `Read`
+  them; `max_stubs` caps that list on its own, so `count > len(list)` means it was cut.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
 claim from `imports` likewise requires the node absent from `unresolved_imports`, and a
 "nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`
-— and, for `imported_by` and `subclasses`, an empty `unparseable_files`.
+— and, for `imported_by` and `subclasses`, an empty `unparseable_files`. A "no subclasses"
+claim also needs `handleless_subclass_count == 0` (or the node absent from
+`handleless_subclass_counts`).
 
 ### Framework plugin tools — always pass `envelope=true`
 
@@ -436,6 +445,33 @@ digraph python_explore {
     "Delegate to LSP; else state limit + forward edges" -> "Proceed with task";
 }
 ```
+
+## While You Edit Code
+
+Any change to a project file makes pyeye drop that project's whole-project
+indices once the watcher's debounce (<!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s by default) passes.
+Nothing is rebuilt until a query needs an index. That query then rebuilds it by
+walking every project file; unchanged files are re-parsed only if the parsed-file
+cache has dropped them.
+
+**Rebuilds a whole-project index on its first use after an edit:**
+
+- bare-name `resolve` (`resolve("Config")`): the name and member indices;
+- `expand` / `trace` on `subclasses` (the class graph) or `imported_by` (the
+  import graph);
+- `expand` / `trace` on `re_exports`, and `inspect` on any handle that isn't a
+  module: its deprecated `re_exports` field reads the same scan.
+
+**Cheap after an edit (no project walk):** dotted and `file:line` `resolve`,
+`resolve_at`, `outline`, `inspect` on a module, and `expand` / `trace` on
+`members`, `callees`, `imports`, `superclasses`, `submodules` and
+`enclosing_scope`.
+
+- **Ask the whole-project questions before a run of edits**, while you plan it:
+  what subclasses or imports the code you'll change, and the handles you'll need.
+- **Don't ask them between edits.** Each one after an edit pays a rebuild.
+- **After the run, one query pays the rebuild once.** Use it to check the result.
+- Between edits, navigate by dotted handle or `file:line`, not by bare name.
 
 ## Worked Examples
 
@@ -712,6 +748,9 @@ Don't block — degrade gracefully, but make the limitation visible.
 - **Faking "who calls this" with grep** instead of delegating to your LSP (or, with
   no LSP, stating the limit honestly).
 - Re-exploring a symbol pyeye already surfaced in this conversation.
+- Asking a whole-project question (bare-name `resolve`, `subclasses`,
+  `imported_by`, `re_exports`) after every edit in a run of edits, instead of
+  before the run and once after it.
 
 **If you catch yourself doing any of these: STOP. Orient with pyeye, or say honestly
 what it can't answer.**

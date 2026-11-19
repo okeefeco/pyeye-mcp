@@ -73,7 +73,14 @@ from pyeye.mcp.operations.completeness import (
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
 from pyeye.project_layout import mark_stub
-from pyeye.resolver import Ambiguous, NotFound, Resolved, resolve_handle, resolve_name
+from pyeye.resolver import (
+    Ambiguous,
+    NotFound,
+    Resolved,
+    is_restricted_detail,
+    resolve_handle,
+    resolve_name,
+)
 from pyeye.scope import classify_scope
 from pyeye.validation import PathValidator
 
@@ -445,7 +452,9 @@ async def _resolve_bare_name(
     result = await resolve_name(name, analyzer)
     if isinstance(result, NotFound):
         # A bare dunder is never a member candidate (#508): say where to look.
-        miss = _miss("unresolved", result.detail if _is_dunder(name) else None)
+        # A refused restricted module keeps its honest reason too (#999).
+        keep = _is_dunder(name) or result.restricted
+        miss = _miss("unresolved", result.detail if keep else None)
         note = await _unparseable_note(analyzer)
         if note:
             miss["note"] = note
@@ -493,7 +502,8 @@ def _from_resolver(path: str, analyzer: JediAnalyzer) -> _HelperResult:
     """Render :func:`pyeye.resolver.resolve_handle` as a resolve result."""
     resolved = resolve_handle(path, analyzer)
     if isinstance(resolved, NotFound):
-        return _miss("unresolved")
+        # A refused definition keeps its honest reason (#999); others get the default.
+        return _miss("unresolved", resolved.detail if resolved.restricted else None)
     return _success_from_resolved(resolved)
 
 
@@ -610,8 +620,10 @@ async def resolve(
         if result.get("note"):
             response["detail"] = f"{response['detail']} {result['note']}"
         # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
-        if result["reason"] == NOT_FOUND_REASON and (
-            env_note := environment_not_found_note(analyzer, identifier)
+        if (
+            result["reason"] == NOT_FOUND_REASON
+            and not is_restricted_detail(result.get("detail"))
+            and (env_note := environment_not_found_note(analyzer, identifier))
         ):
             response["detail"] = f"{response['detail']} {env_note}"
         return response

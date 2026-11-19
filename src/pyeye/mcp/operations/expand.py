@@ -28,7 +28,9 @@ is then supported or unsupported, distinguished by the presence of
       "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
       "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
       "unresolved_importers": [file, ...],   # imported_by ONLY (#668) — ABSENT otherwise
-      "unparseable_files": [file, ...] }     # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
+      "unparseable_files": [file, ...],      # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
+      "handleless_subclass_count": int,      # subclasses ONLY (#1006) — ABSENT otherwise
+      "handleless_subclasses": [entry, ...] }  # subclasses ONLY (#1006) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, an unknown name, or ``not_applicable``: an implemented edge that
@@ -64,6 +66,11 @@ Design invariants
   ``edges.UNPARSEABLE_FILE_EDGES`` (#729, #874): the POSIX paths of files in
   scope that the server's interpreter couldn't parse (e.g. newer syntax), so an
   adjacent defined there is unknown, not absent.  ``[]`` when every file parsed.
+- ``handleless_subclass_count`` / ``handleless_subclasses`` are present ONLY for
+  ``subclasses`` (#1006): the direct subclasses no handle can name, as
+  ``{name, file, line, reason}`` sorted by file then line.  The count is always
+  complete (``0`` when every subclass has a handle); the list is capped by
+  ``max_stubs`` as its own budget, so a cut shows as ``count > len(list)``.
 - NO ``cursor`` field in this slice — an absent cursor means "complete".
 - ``expand`` NEVER raises: an unresolvable source handle yields the not-found
   shape, NOT a supported ``stubs: []`` (which would claim "measured, none
@@ -83,6 +90,8 @@ synchronous.
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 from inspect import isawaitable
 from typing import TYPE_CHECKING, Any
 
@@ -102,6 +111,7 @@ from pyeye.mcp.operations.edges import (
     STATUS_NOT_YET_IMPLEMENTED,
     STATUS_STUB_DECLARATION,
     STATUS_UNPARSEABLE,
+    EdgeResult,
     UnparseableSource,
     edge_applies,
     edge_kind,
@@ -112,7 +122,9 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
-from pyeye.resolver import NotFound, resolve_handle
+from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -121,8 +133,8 @@ if TYPE_CHECKING:
 #: Static discoverability pointer attached to a CLASS ``subclasses`` result
 #: (#422).  ``expand(subclasses)`` returns DIRECT children only (one hop); this
 #: constant tells the agent where the full transitive closure lives.  It is
-#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count, as
-#: counting deeper subclasses is the expensive reverse scan gated on #333/#397.
+#: deliberately a CONSTANT — it MUST NOT encode a computed descendant count:
+#: that is the full transitive walk, which ``trace`` serves with its own caps.
 SUBCLASSES_TRANSITIVE_HINT = (
     "expand returns DIRECT subclasses only; for the full transitive closure use "
     "trace(follow=['subclasses'], max_depth=k, max_nodes=N)"
@@ -208,7 +220,7 @@ async def expand(
     check_cap(max_stubs, "max_stubs")  # a bad cap is a caller error, before any work
     resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
     if isinstance(resolved, NotFound):
-        return not_found(handle, edge=edge)
+        return not_found(handle, edge=edge, detail=resolved.detail if resolved.restricted else None)
 
     return await expand_resolved(
         resolved.anchor, resolved.handle, edge, analyzer, max_stubs=max_stubs
@@ -313,6 +325,8 @@ async def expand_resolved(
             "report_issues": meta.issues_url(),
         }
 
+    edge_result = _without_restricted(edge, edge_result)
+
     # #435 slice B: cap before building stubs, so a 900-wide edge costs 200
     # stub builds.  ``trace`` passes no cap: it has its own node budget.
     kept, truncation = cap_items(edge_result.adjacents, max_stubs, MAX_STUBS, "max_stubs")
@@ -354,9 +368,42 @@ async def expand_resolved(
     # defined there is unknown, not absent.  Absent on every other edge.
     if edge_result.unparseable_files is not None:
         result["unparseable_files"] = edge_result.unparseable_files
+    # handleless_subclasses (#1006): subclasses ONLY — the direct subclasses no
+    # handle can name, reported instead of dropped. The count is always complete;
+    # the list is capped by max_stubs as its own budget (the stubs' truncation
+    # fields don't cover it), so a cut list shows as count > len(list).
+    if edge_result.handleless_subclasses is not None:
+        handleless = edge_result.handleless_subclasses
+        result["handleless_subclass_count"] = len(handleless)
+        result["handleless_subclasses"] = (
+            handleless if max_stubs is None else handleless[:max_stubs]
+        )
     # subclasses is direct-only (#422); its (class-only, #626) result carries a
     # static pointer to the trace route for the full closure.
     if edge == "subclasses":
         result["transitive_hint"] = SUBCLASSES_TRANSITIVE_HINT
 
     return result
+
+
+def _without_restricted(edge: str, result: EdgeResult) -> EdgeResult:
+    """*result* with every adjacent whose file resolves into a restricted directory removed (#999).
+
+    The backstop behind the resolvers: ``imports``, ``callees`` and
+    ``superclasses`` already refuse such a target where it is produced, and
+    report it in their loss field by the source's own spelling (a canonical
+    handle here could name the restricted file's internals). An adjacent that
+    still reaches this point is dropped with a warning, and counted for
+    ``callees``, whose loss field is a count.
+    """
+    refused = [str(handle) for handle, name in result.adjacents if in_restricted_dir(name)]
+    if not refused:
+        return result
+    kept = [(handle, name) for handle, name in result.adjacents if str(handle) not in refused]
+    changes: dict[str, Any] = {"adjacents": kept}
+    if result.unresolved_call_sites is not None:
+        changes["unresolved_call_sites"] = result.unresolved_call_sites + len(refused)
+    logger.warning(
+        "expand(%s): dropped %d adjacent(s) in a restricted directory", edge, len(refused)
+    )
+    return dataclasses.replace(result, **changes)

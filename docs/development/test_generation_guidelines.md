@@ -76,31 +76,39 @@ assert_performance_threshold(elapsed_ms, CommonThresholds.GOTO_DEFINITION_P95, "
 assert str(path) == "folder/file.py"  # Fails on Windows
 ```
 
-**Solution**: Use .as_posix()
+**Solution**: Compare a path with a path through `paths_equal()` (#717); use
+`.as_posix()` only to check a path's string form, such as one in a response
 
 ```python
-# ✅ CORRECT
-assert path.as_posix() == "folder/file.py"
+from pyeye.path_utils import paths_equal
+
+# ✅ CORRECT - two paths
+assert paths_equal(result_path, tmp_path / "folder" / "file.py")
+
+# ✅ CORRECT - a path as text
+assert Path(response["file"]).relative_to(tmp_path).as_posix() == "folder/file.py"
 ```
 
 ### 5. Mock Patterns
 
-**Problem**: Mocking the wrong path
+**Problem**: Patching the name where it's defined, not where the code looks it up
 
 ```python
-# ❌ WRONG - datetime imported inside function
-@patch('module.datetime')
+# module.py does `from datetime import datetime` at the top
+
+# ❌ WRONG - module.py already holds its own reference to the real class
+@patch("datetime.datetime")
 def test_func(mock_dt):
     pass
 ```
 
-**Solution**: Understand actual imports
+**Solution**: Patch the name in the module that uses it
 
 ```python
-# ✅ CORRECT - mock where it's used
-def test_func():
-    with patch('module.function_that_uses_datetime'):
-        pass
+# ✅ CORRECT - replaces the name module.py looks up
+@patch("module.datetime")
+def test_func(mock_dt):
+    pass
 ```
 
 ## Pre-Generation Checklist
@@ -151,19 +159,20 @@ assert "T" in session_id  # Has timestamp
 
 - File permissions don't work as expected
 - Use `pytest.mark.skipif(os.name == "nt")` when needed
-- Always use `.as_posix()` for path comparisons
+- Compare paths with `paths_equal()`; use `.as_posix()` for a path's string form
 
 ### CI Environment Considerations
 
-- Performance varies greatly
-- Never use fixed time thresholds
-- Use PerformanceThresholds with platform-specific values
+CI runners are slower and noisier than a developer machine; never assert a fixed
+time limit. See [Performance Testing](../testing/PERFORMANCE.md) for
+`PerformanceThresholds`.
 
 ## Key Principles
 
 1. **Test the behavior users care about**, not implementation details
 2. **Make tests independent** - no shared state or order dependencies
-3. **Use proper async patterns** - @pytest.mark.asyncio for async tests
+3. **Use proper async patterns** - write `async def` tests; `asyncio_mode = "auto"`
+   (pyproject) runs them, so `@pytest.mark.asyncio` is optional
 4. **Handle platform differences** - tests must pass on all CI platforms
 5. **Keep tests simple** - complex mocking usually indicates a design issue
 

@@ -15,9 +15,10 @@ Design notes
 ------------
 - ``edge_counts`` is ALWAYS present.  It measures only edges derivable from the
   symbol's own definition: ``members`` (class/module) and ``superclasses``
-  (class).  ``subclasses`` is intentionally OMITTED — counting it requires a
-  project-wide inheritance scan with no cheap-preview value, so it is an
-  expand-only edge (``expand(handle, "subclasses")``) (#392).  ``callers`` and
+  (class).  ``subclasses`` is OMITTED by design: it reads the whole-project
+  class graph, and ``inspect`` stays independent of whole-project indices,
+  which every edit drops (#392, ruled 2026-11-20).  It is an expand-only edge
+  (``expand(handle, "subclasses")``).  ``callers`` and
   ``references`` are likewise OMITTED — deferred to the Pyright reference backend
   (#333).  Unmeasured edge types are ABSENT (not 0).
 - ``re_exports`` (non-module kinds) — **deprecated** in favour of
@@ -67,7 +68,7 @@ from pyeye.mcp.operations.edges import (
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.project_layout import mark_stub, package_kind
-from pyeye.resolver import NotFound, resolve_handle
+from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -315,7 +316,9 @@ def _build_signature(jedi_name: Any) -> str | None:
         A non-empty single-line signature string, or ``None``.
     """
     try:
-        sigs = jedi_name.get_signatures()
+        # A signature Jedi infers from a definition in a restricted directory (an
+        # inherited __init__, an alias of a function there) isn't shown (#999).
+        sigs = [s for s in jedi_name.get_signatures() if not _restricted_signature(s)]
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
@@ -334,6 +337,21 @@ def _build_signature(jedi_name: Any) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _restricted_signature(signature: Any) -> bool:
+    """Whether *signature*, or any of its parameters, is defined in a restricted directory (#999).
+
+    A subclass's signature belongs to the subclass, but its parameters (and
+    their defaults) come from the ``__init__`` it inherits, so each is checked.
+    """
+    if in_restricted_dir(signature):
+        return True
+    try:
+        params = signature.params
+    except Exception:
+        return True  # unreadable: fail closed
+    return any(in_restricted_dir(param) for param in params)
 
 
 async def _extract_return_type(
@@ -674,9 +692,9 @@ async def _build_edge_counts(
     - ``members``: count of direct members (class and module handles)
     - ``superclasses``: count of direct superclasses (class handles)
 
-    **``subclasses`` is intentionally NOT measured** (see #392).  Counting
-    project-internal subclasses requires the same project-wide inheritance scan
-    as listing them, so it has no cheap-preview value and is an expand-only edge
+    **``subclasses`` is NOT measured, by design** (#392, ruled 2026-11-20).  It
+    reads the whole-project class graph, and ``inspect`` stays independent of
+    whole-project indices, which every edit drops.  It is an expand-only edge
     (``expand(handle, "subclasses")``).
 
     **``callers`` and ``references`` are intentionally NOT measured** (see #332).
@@ -721,11 +739,11 @@ async def _build_edge_counts(
             coros["members"] = _count_module_members(jedi_name, analyzer)
     if edge_applies("superclasses", jedi_name):
         coros["superclasses"] = _count_superclasses(jedi_name, analyzer, superclasses)
-        # subclasses is intentionally NOT measured here — counting subclasses
-        # requires the same project-wide inheritance scan as listing them, so it
-        # has no cheap-preview value (#392).  It is an expand-only edge:
-        # expand(handle, "subclasses").  inspect's edge_counts reports only edges
-        # derivable from the symbol's own definition (members, superclasses).
+        # subclasses is NOT measured here, by design (#392, ruled 2026-11-20): it
+        # reads the whole-project class graph, and inspect stays independent of
+        # whole-project indices, which every edit drops.  It is an expand-only
+        # edge: expand(handle, "subclasses").  inspect's edge_counts reports only
+        # edges derivable from the symbol's own definition (members, superclasses).
 
     if edge_applies("submodules", jedi_name):
         # submodules is counted only for a PACKAGE (#423): present (possibly a measured
@@ -774,9 +792,10 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
 
     Always includes ``edge_counts`` (measures only edges derivable from the
     symbol's own definition: members, superclasses — for relevant kinds).
-    ``subclasses`` is OMITTED — it is an expand-only edge
-    (``expand(handle, "subclasses")``), since counting it needs a project-wide
-    scan (#392).  ``callers`` and ``references`` are likewise OMITTED (deferred
+    ``subclasses`` is OMITTED by design — it is an expand-only edge
+    (``expand(handle, "subclasses")``): it reads the whole-project class graph,
+    and ``inspect`` stays independent of whole-project indices (#392, ruled
+    2026-11-20).  ``callers`` and ``references`` are likewise OMITTED (deferred
     to the Pyright reference backend, #333).
     Edges that exceed their per-measurement budget are OMITTED, not zero.
     ``re_exports`` — for non-module kinds (class, function, method, property,
@@ -806,6 +825,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     resolved = resolve_handle(handle, analyzer)
     if isinstance(resolved, NotFound):
         logger.debug("inspect(%r): %s", handle, resolved.detail)
+        if resolved.restricted:  # refused, with the honest reason (#999)
+            return not_found(handle, detail=resolved.detail)
         response = not_found(handle)
         # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
         if note := environment_not_found_note(analyzer, handle):

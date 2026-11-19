@@ -618,8 +618,8 @@ class TestExpandSubclassesSupported:
         # #422 discoverability: a class subclasses result points the agent to the
         # trace route for the full closure (the edge is direct-only).  The pointer
         # is a STATIC string — it names the trace primitive and its bounds, and
-        # MUST NOT compute "N deeper descendants" (that is the expensive reverse
-        # scan gated on #333/#397).
+        # MUST NOT compute "N deeper descendants" (that is the full transitive
+        # walk, which trace serves with its own caps).
         result = await expand(_ANIMAL_HANDLE, "subclasses", subclasses_analyzer)
         assert result["transitive_hint"] == SUBCLASSES_TRANSITIVE_HINT
         assert "trace" in result["transitive_hint"]
