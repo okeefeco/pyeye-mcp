@@ -91,6 +91,28 @@ def normalize_path(path: str | Path) -> Path:
     return Path(path).resolve()
 
 
+def normalize_path_strict(path: str | Path) -> Path:
+    """:func:`normalize_path`, but a link that can't be followed is an error (#999).
+
+    For a security check that must fail CLOSED. Python 3.13 stopped raising on
+    a symlink loop in a non-strict resolve, which returns the unresolved path,
+    so a check built on :func:`normalize_path` alone reads a loop as harmless.
+    Here every link is followed strictly. Only a missing file or directory is
+    tolerated (the path may name one that doesn't exist yet, or a dangling
+    link): it falls back to the non-strict resolve, which still follows every
+    link that exists, so a dangling link into ``/etc`` resolves into ``/etc``.
+
+    Raises:
+        OSError: a symlink loop (``ELOOP``), a permission error, or any other
+            failure to follow a link, except a missing file.
+        RuntimeError: a symlink loop on Python before 3.13.
+    """
+    try:
+        return Path(path).resolve(strict=True)
+    except FileNotFoundError:
+        return Path(path).resolve()
+
+
 def path_to_key(path: str | Path) -> str:
     r"""Convert a path to a consistent string key.
 
