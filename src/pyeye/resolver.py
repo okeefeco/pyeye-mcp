@@ -87,6 +87,33 @@ class NotFound:
     #: it is refused. The operations then show *detail* as it is: it is the
     #: honest reason, not a guess.
     restricted: bool = False
+    #: The path names several definitions of one function-local name (#1022),
+    #: such as ``class Twin`` in both branches of an ``if``. No single answer is
+    #: true, so a handle-taking tool says so (*detail*), ``resolve`` answers
+    #: ``ambiguous`` with these, and ``resolve_at`` picks the one at its position.
+    candidates: tuple[Resolved, ...] = ()
+
+    @property
+    def honest_detail(self) -> str | None:
+        """*detail* when it is the honest reason to show the caller, else ``None``.
+
+        A refused restricted definition (#999) and a path naming several local
+        definitions (#1022) say why; any other miss lets the operation use its
+        own default detail.
+        """
+        return self.detail if (self.restricted or self.candidates) else None
+
+
+@dataclass(frozen=True)
+class _SharedLocalName:
+    """The anchor of a path that names several function-local definitions (#1022).
+
+    Python reuses one dotted name (``pkg.mod.outer.Twin``) for every ``class
+    Twin`` in ``outer``. :func:`resolve_handle` turns this into a
+    :class:`NotFound` carrying every definition, never one of them.
+    """
+
+    anchors: tuple[Any, ...]
 
 
 @dataclass(frozen=True)
@@ -186,6 +213,8 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    if isinstance(anchor, _SharedLocalName):
+        return _shared_local(canonical, anchor, analyzer)
     anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
     if in_restricted_dir(anchor):
         # Refused, not returned: its symbols and location would expose the file (#999).
@@ -198,6 +227,35 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         kind=kind,
         scope=scope_for(anchor, canonical, kind, analyzer),
         anchor=anchor,
+    )
+
+
+def _shared_local(path: str, shared: _SharedLocalName, analyzer: JediAnalyzer) -> NotFound:
+    """A :class:`NotFound` for a path naming several local definitions (#1022)."""
+    if any(in_restricted_dir(a) for a in shared.anchors):
+        return NotFound(
+            reason="unresolved", detail=RESTRICTED_DETAIL.format(path=path), restricted=True
+        )
+    candidates = []
+    for anchor in shared.anchors:
+        kind = normalise_kind_from_name(anchor)
+        candidates.append(
+            Resolved(
+                handle=path,
+                kind=kind,
+                scope=scope_for(anchor, path, kind, analyzer),
+                anchor=anchor,
+            )
+        )
+    lines = ", ".join(str(a.line) for a in shared.anchors)
+    return NotFound(
+        reason="unresolved",
+        detail=(
+            f"{path!r} names {len(shared.anchors)} definitions in one function "
+            f"(lines {lines}), so no single answer is true. Use resolve_at on the "
+            "one you mean."
+        ),
+        candidates=tuple(candidates),
     )
 
 
@@ -553,6 +611,10 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
         ]
         if matches:
+            # Several definitions of one function-local name: none is THE answer (#1022).
+            shared = _shared_local_definitions(matches, path)
+            if shared is not None:
+                return path, shared
             anchor = _anchor_on_bindings(matches, mod_file, path)
             placed = _canonical_of(anchor, path, analyzer)
             return (placed, anchor) if placed is not None else None
@@ -561,6 +623,33 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             module_dotted, mod_file, rest, analyzer, hops
         )
     return None
+
+
+def _in_a_function(name: Any) -> bool:
+    """Whether *name* is defined inside a function or method, at any depth (#1022)."""
+    scope = name.parent()
+    while scope is not None and scope.type != "module":
+        if scope.type == "function":
+            return True
+        scope = scope.parent()
+    return False
+
+
+def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName | None:
+    """Every distinct function-local definition *path* names, if there are several (#1022).
+
+    ``None`` when there is one definition, or any match is not function-local:
+    module-level names keep #857's binding rules.
+    """
+    if len(matches) < 2 or not all(_in_a_function(m) for m in matches):
+        return None
+    anchors: dict[tuple[Any, int, int], Any] = {}
+    for match in matches:
+        anchor = _anchor_on_definition(match, path)
+        anchors.setdefault((anchor.module_path, anchor.line or 0, anchor.column or 0), anchor)
+    if len(anchors) < 2:
+        return None
+    return _SharedLocalName(tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:])))
 
 
 #: The ``(star source module, name)`` pairs already tried in this resolution, so a

@@ -217,7 +217,7 @@ async def expand(
     check_cap(max_stubs, "max_stubs")  # a bad cap is a caller error, before any work
     resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
     if isinstance(resolved, NotFound):
-        return not_found(handle, edge=edge, detail=resolved.detail if resolved.restricted else None)
+        return not_found(handle, edge=edge, detail=resolved.honest_detail)
 
     return await expand_resolved(
         resolved.anchor, resolved.handle, edge, analyzer, max_stubs=max_stubs

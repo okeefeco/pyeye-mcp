@@ -410,7 +410,7 @@ async def outline(
     # The one canonical resolver (#623); the tree echoes the CANONICAL handle.
     resolved = resolve_handle(handle, analyzer)
     if isinstance(resolved, NotFound):
-        return not_found(handle, detail=resolved.detail if resolved.restricted else None)
+        return not_found(handle, detail=resolved.honest_detail)
     root_jedi_name = resolved.anchor
     handle = resolved.handle
 
