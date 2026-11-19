@@ -80,6 +80,13 @@ _generations: dict[str, int] = {}
 _epoch = 0
 
 
+#: Why a class has no handle (#1006): ``ClassFact.unnamed_reason``, and the
+#: ``reason`` of a ``handleless_subclasses`` entry. Checked in this order.
+UNNAMED_NO_MODULE_PATH = "no_module_path"  # its file isn't an importable module
+UNNAMED_FUNCTION_LOCAL = "function_local"  # defined in a function or method
+UNNAMED_NOT_A_HANDLE = "not_a_handle"  # the handle grammar rejects the name
+
+
 @dataclass(frozen=True)
 class ClassFact:
     """Where one project class is defined: the facts a ``subclasses`` stub needs.

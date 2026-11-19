@@ -113,10 +113,9 @@ def _dotted_prefixes(dotted: str) -> list[str]:
     return [".".join(parts[: i + 1]) for i in range(len(parts))]
 
 
-#: Why a class has no dotted name (#1006), checked in this order.
-UNNAMED_NO_MODULE_PATH = "no_module_path"  # its file isn't an importable module
-UNNAMED_FUNCTION_LOCAL = "function_local"  # defined in a function or method
-UNNAMED_NOT_A_HANDLE = "not_a_handle"  # the handle grammar rejects the name
+UNNAMED_NO_MODULE_PATH = project_graph.UNNAMED_NO_MODULE_PATH
+UNNAMED_FUNCTION_LOCAL = project_graph.UNNAMED_FUNCTION_LOCAL
+UNNAMED_NOT_A_HANDLE = project_graph.UNNAMED_NOT_A_HANDLE
 
 
 class _ClassEntry(NamedTuple):

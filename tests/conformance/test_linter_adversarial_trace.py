@@ -456,3 +456,44 @@ class TestT11UnparseableFiles:
         sg["unparseable_files"] = {"pkg.Base": []}
         with pytest.raises(ConformanceViolation, match="T.11 trace unparseable_files value"):
             lint_response(sg, "trace")
+
+
+class TestT12HandlelessSubclassCounts:
+    """T.12 (#1006) — ``handleless_subclass_counts`` map ``{handle: int >= 1}``, like T.7."""
+
+    def test_absent_passes(self) -> None:
+        lint_response(_clone(), "trace")
+
+    def test_empty_map_passes(self) -> None:
+        sg = _clone()
+        sg["handleless_subclass_counts"] = {}
+        lint_response(sg, "trace")
+
+    def test_populated_map_passes(self) -> None:
+        sg = _clone()
+        sg["handleless_subclass_counts"] = {"app.base.Base": 3}
+        lint_response(sg, "trace")
+
+    def test_must_be_dict(self) -> None:
+        sg = _clone()
+        sg["handleless_subclass_counts"] = [3]
+        with pytest.raises(
+            ConformanceViolation, match="T.12 trace handleless_subclass_counts type"
+        ):
+            lint_response(sg, "trace")
+
+    @pytest.mark.parametrize("count", [0, -1, True, "3"])
+    def test_counts_are_positive_ints(self, count: object) -> None:
+        sg = _clone()
+        sg["handleless_subclass_counts"] = {"app.base.Base": count}
+        with pytest.raises(
+            ConformanceViolation, match="T.12 trace handleless_subclass_counts count"
+        ):
+            lint_response(sg, "trace")
+
+    @pytest.mark.parametrize("key", ["", "a\nb"])
+    def test_keys_are_single_line_handles(self, key: str) -> None:
+        sg = _clone()
+        sg["handleless_subclass_counts"] = {key: 1}
+        with pytest.raises(ConformanceViolation, match="T.12 trace handleless_subclass_counts key"):
+            lint_response(sg, "trace")
