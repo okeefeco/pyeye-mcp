@@ -1142,11 +1142,10 @@ async def expand(
         ``reason: "unparseable"`` (#703), never ``stubs: []``: its edges were
         not measured.  ``detail`` names the file and line; Read the file.
       - A definition declared only in a stub (``.pyi``: a project stub-only
-        module, typeshed, a stub-only package) has no body, so its body edge
-        (``callees``) returns the unsupported branch with ``reason:
+        module, typeshed, a stub-only package) has no body, so the edge that
+        reads a body's calls returns the unsupported branch with ``reason:
         "stub_declaration"`` (#933): its calls weren't measured, never
-        ``stubs: []``.  Its declaration edges (members, superclasses, imports,
-        ...) still apply.
+        ``stubs: []``.  Its other edges read declarations, so they still apply.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union.  ``found`` is always present.

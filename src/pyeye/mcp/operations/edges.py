@@ -447,8 +447,8 @@ def stub_declaration_detail(edge: str, source: str, stub: str) -> str:
     """The ``detail`` for a :data:`STATUS_STUB_DECLARATION` answer."""
     return (
         f"Edge '{edge}' reads a definition's body, and {source} is declared only in "
-        f"a stub ({stub}), which has none, so it can't be measured. Its declaration "
-        "edges (members, superclasses, imports, ...) still apply."
+        f"a stub ({stub}), which has none, so it can't be measured. Its other edges "
+        "read declarations, so they still apply."
     )
 
 
