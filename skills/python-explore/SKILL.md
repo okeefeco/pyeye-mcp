@@ -429,6 +429,33 @@ digraph python_explore {
 }
 ```
 
+## While You Edit Code
+
+Any change to a project file makes pyeye drop that project's whole-project
+indices once the watcher's debounce (<!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s by default) passes.
+Nothing is rebuilt until a query needs an index. That query then rebuilds it by
+walking every project file; unchanged files are re-parsed only if the parsed-file
+cache has dropped them.
+
+**Rebuilds a whole-project index on its first use after an edit:**
+
+- bare-name `resolve` (`resolve("Config")`): the name and member indices;
+- `expand` / `trace` on `subclasses` (the class graph) or `imported_by` (the
+  import graph);
+- `expand` / `trace` on `re_exports`, and `inspect` on any handle that isn't a
+  module: its deprecated `re_exports` field reads the same scan.
+
+**Cheap after an edit (no project walk):** dotted and `file:line` `resolve`,
+`resolve_at`, `outline`, `inspect` on a module, and `expand` / `trace` on
+`members`, `callees`, `imports`, `superclasses`, `submodules` and
+`enclosing_scope`.
+
+- **Ask the whole-project questions before a run of edits**, while you plan it:
+  what subclasses or imports the code you'll change, and the handles you'll need.
+- **Don't ask them between edits.** Each one after an edit pays a rebuild.
+- **After the run, one query pays the rebuild once.** Use it to check the result.
+- Between edits, navigate by dotted handle or `file:line`, not by bare name.
+
 ## Worked Examples
 
 Handles below use a placeholder project (`myapp.…`) — substitute your own. The
@@ -704,6 +731,9 @@ Don't block — degrade gracefully, but make the limitation visible.
 - **Faking "who calls this" with grep** instead of delegating to your LSP (or, with
   no LSP, stating the limit honestly).
 - Re-exploring a symbol pyeye already surfaced in this conversation.
+- Asking a whole-project question (bare-name `resolve`, `subclasses`,
+  `imported_by`, `re_exports`) after every edit in a run of edits, instead of
+  before the run and once after it.
 
 **If you catch yourself doing any of these: STOP. Orient with pyeye, or say honestly
 what it can't answer.**
