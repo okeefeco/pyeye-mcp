@@ -154,7 +154,7 @@ Please follow these steps for your contribution:
 #### Dependency lockfile policy
 
 `uv.lock` is **authoritative**: pre-commit hooks, CI, local dev and release
-install the *exact* locked dependency set, and no command silently re-resolves. Resolution happens in exactly one place: a deliberate
+install the *exact* locked dependency set, and none of them re-resolves it. (CI's wheel check installs the built wheel into a scratch environment with `uv pip install`, which resolves the wheel's own dependencies; that environment is only imported from, never tested.) Resolution of the project's set happens in exactly one place: a deliberate
 `uv lock` / `uv add`, committed and reviewed.
 
 - **Hooks** pin `uv run` <!-- fact:begin precommit.uv_run_flags -->`--frozen`<!-- fact:end --> (use the lock as-is; never block, never rewrite it).
@@ -216,7 +216,7 @@ To call tools by hand in a browser (optional; needs Node.js), start the
 [MCP Inspector](https://github.com/modelcontextprotocol/inspector) on the server:
 
 ```bash
-npx @modelcontextprotocol/inspector uv run python -m pyeye.mcp
+npx @modelcontextprotocol/inspector uv run --frozen python -m pyeye.mcp
 ```
 
 Tests are the main way tools are checked: they call them in-process with

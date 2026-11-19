@@ -331,6 +331,18 @@ class TestCliAndCi:
         with pytest.raises(ci.ExtractionError, match=match):
             list(ci.extract(root))
 
+    def test_every_workflows_threshold_must_agree(self, tmp_path: Path) -> None:
+        """release.yml runs the suite with its own --cov-fail-under (#1018)."""
+        root = self._repo(tmp_path, '"--cov-fail-under=85"', "python-version: ['3.11']\n")
+        release = root / ".github" / "workflows" / "release.yml"
+
+        release.write_text("run: uv run pytest --cov-fail-under=85\n", encoding="utf-8")
+        assert next(f for f in ci.extract(root) if f.id == "ci.coverage_threshold").value == 85
+
+        release.write_text("run: uv run pytest --cov-fail-under=80\n", encoding="utf-8")
+        with pytest.raises(ci.ExtractionError, match=r"release\.yml.*80"):
+            list(ci.extract(root))
+
 
 class TestRegistry:
     def test_every_extractor_yields_only_its_prefixes(self, facts: dict[str, Bindable]) -> None:

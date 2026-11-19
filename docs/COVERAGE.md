@@ -118,20 +118,20 @@ async def test_async_operation():
 
 Before submitting a PR:
 
-- [ ] Run `pytest --cov=src/pyeye --cov-report=term`
+- [ ] Run `uv run pytest --cov=src/pyeye --cov-report=term`
 - [ ] Coverage is at or above <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (pytest fails below it)
 - [ ] Modified files' coverage didn't drop
 - [ ] No untested error paths in new code
 
 ## ⬆️ Raising the Threshold
 
-Change `--cov-fail-under` in pyproject's `addopts` and in `ci.yml` in one PR; `docs_facts.py generate` updates every page that binds `ci.coverage_threshold`.
+Change `--cov-fail-under` in pyproject's `addopts` and in every workflow that sets it (`ci.yml`, `release.yml`) in one PR. `docs_facts.py check` fails while any of them disagree, and `docs_facts.py generate` updates every page that binds `ci.coverage_threshold`.
 
 ## 🤝 Contributing to Coverage
 
 1. **Pick a Low-Coverage File**: See [Finding Low-Coverage Files](#-finding-low-coverage-files)
 2. **Write Comprehensive Tests**: Follow patterns in this guide
-3. **Submit PR**: Reference this tracking in PR description
+3. **Submit PR**: Say in its description which file's coverage it raises
 
 ## Resources
 

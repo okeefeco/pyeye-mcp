@@ -15,8 +15,10 @@ The dogfooding CLI runs outside the MCP server's process, so it can't see the
 server's own call counts. It counts the MCP queries logged into the session
 through its `mcp` command (which `scripts/mcp_wrapper.sh` calls). For the calls
 Claude actually makes, use the hooks: `mcp-report` for usage reports and
-`mcp-logs` to watch calls live (aliases installed by
-`scripts/claude_hooks/setup_mcp_monitoring.sh`). Earlier versions read an
+`mcp-logs` to watch calls live. `scripts/claude_hooks/setup_mcp_monitoring.sh`
+writes those aliases to `~/.claude/mcp_monitoring/aliases.sh`; load them with
+`source ~/.claude/mcp_monitoring/aliases.sh`. The dogfooding CLI's own aliases
+are `dogfood-*` (`dogfood-report` and so on; they were `mcp-*` before #982). Earlier versions read an
 in-process collector that is always empty outside the server, so they reported
 zero MCP calls (#879, #915).
 
@@ -29,9 +31,12 @@ mcp / saved / bug commands ────────┴→ dogfooding_metrics.py 
 
 ## Grep usage detection
 
-- Wrapper scripts for `grep`, `egrep`, `fgrep` and `rg`.
-- Only searches that look like code searches are counted.
-- Set up with `scripts/setup_grep_tracking.sh`.
+- Wrapper scripts for `grep`, `egrep`, `fgrep` and `rg` in `~/.local/bin`
+  (`scripts/setup_grep_tracking.sh`, run by `scripts/setup_dogfooding.sh`).
+- Only searches that look like code searches are counted, once each.
+- Before #1020, `scripts/setup_aliases.sh` also added a counting `grep` alias,
+  so each code search was counted twice. Remove an old alias block and re-run
+  the setup to drop it.
 
 ## CLI commands
 
@@ -110,7 +115,7 @@ uv run pytest tests/test_dogfooding_metrics.py tests/test_dogfooding_workflow.py
 
 Check:
 
-1. Shell aliases are active: `source ~/.bashrc`
+1. Your shell config is loaded (it adds `~/.local/bin` to PATH): `source ~/.bashrc`
 2. `~/.local/bin` is in PATH: `echo $PATH | grep local/bin`
 3. Wrapper scripts exist: `ls -la ~/.local/bin/grep`
 

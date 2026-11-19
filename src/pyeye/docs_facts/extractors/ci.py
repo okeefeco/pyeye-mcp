@@ -1,8 +1,9 @@
 """CI and packaging facts: the coverage threshold and the supported Pythons.
 
 - ``ci.coverage_threshold``: ``--cov-fail-under`` in pytest's ``addopts``
-  (``pyproject.toml``). Every ``--cov-fail-under`` in ``ci.yml`` must agree,
-  or extraction fails: two thresholds would be two facts with one name.
+  (``pyproject.toml``). Every ``--cov-fail-under`` in every workflow (``ci.yml``,
+  ``release.yml``, …) must agree, or extraction fails: two thresholds would be
+  two facts with one name (#1018).
 - ``ci.python_versions``: the full matrix in ``ci.yml`` (``test-main``, run on
   every push to ``main``; its one ``python-version: [...]`` list). Every other
   ``python-version`` in ``ci.yml`` (the PR matrix's ``include`` entries, the
@@ -50,11 +51,13 @@ def extract(root: Path) -> Iterator[Bindable]:
     threshold = int(thresholds[0])
 
     workflow = (root / CI_WORKFLOW).read_text(encoding="utf-8")
-    others = {int(t) for t in _FAIL_UNDER.findall(workflow)}
-    if others - {threshold}:
-        raise ExtractionError(
-            f"{CI_WORKFLOW} uses --cov-fail-under {sorted(others)}, pyproject {threshold}"
-        )
+    for path in sorted((root / ".github" / "workflows").glob("*.yml")):
+        others = {int(t) for t in _FAIL_UNDER.findall(path.read_text(encoding="utf-8"))}
+        if others - {threshold}:
+            raise ExtractionError(
+                f".github/workflows/{path.name} uses --cov-fail-under {sorted(others)}, "
+                f"pyproject {threshold}"
+            )
     matrices = _MATRIX.findall(workflow)
     if len(matrices) != 1:
         raise ExtractionError(f"{CI_WORKFLOW} must have exactly one python-version list")

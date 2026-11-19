@@ -21,8 +21,9 @@ too loose to catch a regression locally or too tight to pass in CI.
 
 `PerformanceThresholds` holds one limit per environment (local, Linux CI, macOS
 CI, Windows CI) and picks the one that applies when the test runs.
-`assert_performance_threshold` compares a measurement against it and reports the
-environment in the failure message.
+`assert_performance_threshold` compares a measurement against it. On CI, the
+failure message names the platform (for example "on macOS CI"); locally it
+gives only the measurement and the limit.
 
 ### Warm Medians Beat Percentiles on Few Samples
 
@@ -32,9 +33,11 @@ The benchmarks instead time repeated warm calls, take each run's median, and kee
 the best of several runs. A scheduler stall then moves nothing, while a real
 slowdown in the code still moves every run.
 
-The regression tests also check that the guard can fail: they slow the measured
-call down on purpose and assert that the threshold catches it. A threshold that a
-deliberately slower implementation still passes protects nothing.
+Some regression tests also check that their guard can fail: they slow the
+measured call down on purpose and assert that the threshold catches it. Only the
+metrics-overhead and warm `find_symbol` guards have one so far. A threshold that a
+deliberately slower implementation still passes protects nothing, so give a new
+guard one.
 
 ## Writing a Performance Test
 
@@ -81,7 +84,7 @@ names and the comments that explain them.
 [`tests/performance/benchmarks/test_performance_regression.py`](../../tests/performance/benchmarks/test_performance_regression.py)
 is the reference: it measures warm medians, asserts against `CommonThresholds`,
 measures the overhead of `pyeye.metrics.MetricsCollector`, and includes the
-"slowed on purpose" tests that prove each guard can fail.
+"slowed on purpose" tests for its metrics-overhead and warm `find_symbol` guards.
 [`tests/performance/benchmarks/test_scope_performance.py`](../../tests/performance/benchmarks/test_scope_performance.py)
 covers the scoped cache and parallel search.
 
