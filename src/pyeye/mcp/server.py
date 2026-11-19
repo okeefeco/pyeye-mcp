@@ -21,6 +21,7 @@ from ..canonicalization import invalidate_re_exports
 from ..config import ProjectConfig, add_unsaved, clear_unsaved, has_unsaved
 from ..constants import CONFIG_FILE
 from ..docs_facts.describe import described, fill
+from ..environment import discover as discover_environment
 from ..exceptions import ValidationError
 from ..metrics import metrics
 from ..metrics_hook import track_mcp_operation
@@ -854,6 +855,8 @@ def configure_packages(
         "packages": config.get_package_paths(),
         "namespaces": config.get_namespaces(),
         "standalone": config.get_standalone_config(),
+        # Where third-party imports are read from (#993): always present.
+        "environment": discover_environment(root, config.get_environment_setting()).as_response(),
     }
     # Entries the path check refused, skipped above; [] when none. Absent when
     # the check couldn't complete (a config that failed to load), never a []

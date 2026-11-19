@@ -156,6 +156,9 @@ def layout_key(analyzer: Any) -> str:
         "syspath=" + "|".join(paths("added_sys_path")),
         "pkgs=" + "|".join(sorted(paths("additional_paths"))),
         "standalone=" + "|".join(sorted(paths("standalone_paths"))),
+        # The project environment's import roots (#993): a venv that appears,
+        # moves or changes packages is another layout (#618).
+        "env=" + "|".join(getattr(getattr(analyzer, "environment", None), "site_paths", ())),
         "ns="
         + ";".join(
             f"{name}:" + "|".join(sorted(_resolved_posix(p) for p in namespaces[name]))

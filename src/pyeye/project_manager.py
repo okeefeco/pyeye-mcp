@@ -12,6 +12,7 @@ from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .async_utils import filtered_rglob
 from .cache import CodebaseWatcher
+from .environment import warn_once_if_none
 from .namespace_resolver import NamespaceResolver
 from .path_utils import normalize_path, path_to_key
 from .validation import PathValidator, unwalkable_root
@@ -295,6 +296,8 @@ class ProjectManager:
         analyzer = JediAnalyzer(
             resolved_project_path, config=config, namespace_config=namespace_config or None
         )
+        # Say once, per project, that no environment was found (#993).
+        warn_once_if_none(resolved_project_path, analyzer.environment)
 
         # Bridge: apply package paths from config file to dependencies.
         # Only apply when packages were explicitly configured (not auto-discovered)

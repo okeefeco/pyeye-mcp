@@ -74,6 +74,9 @@ def test_a_qualified_subscripted_base_is_named_too(project: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_find_models_includes_root_model_subclasses(tmp_path: Path) -> None:
+    from tests.utils.environment import give_installed_packages
+
+    give_installed_packages(tmp_path)  # pydantic is installed, as in a real project (#993)
     (tmp_path / "models.py").write_text(
         "import pydantic\n"
         "from pydantic import BaseModel, RootModel\n"

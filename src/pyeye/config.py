@@ -6,7 +6,6 @@ import os
 from pathlib import Path
 from typing import Any
 
-from .async_utils import pruned_rglob
 from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key
 from .project_layout import detect_src_layout
@@ -84,6 +83,7 @@ CONFIG_KEYS: tuple[str, ...] = (
     "standalone",
     "scope_defaults",
     "scope_aliases",
+    "environment",
 )
 
 #: Top-level config keys that docs or the generated example once described,
@@ -482,36 +482,17 @@ class ProjectConfig:
 
         return potential_packages
 
-    def _discover_venv_packages(self) -> list[str]:
-        """Discover packages in virtualenv site-packages.
-
-        Returns:
-            List of site-packages paths
-        """
-        potential_packages = []
-        venv_paths = [
-            self.project_path / "venv" / "lib",
-            self.project_path / ".venv" / "lib",
-            self.project_path / "env" / "lib",
-        ]
-
-        for venv_path in venv_paths:
-            if venv_path.exists():
-                for site_packages in pruned_rglob("site-packages", venv_path):
-                    potential_packages.append(str(site_packages))
-
-        return potential_packages
-
     def _auto_discover(self) -> None:
         """Auto-discover package locations."""
         # Check for src layout first (most specific pattern)
         if self._discover_src_layout():
             return  # Don't look for other patterns if src/ found
 
-        # Discover sibling packages and virtualenv packages
+        # Discover sibling packages. The project's virtualenv is not a package:
+        # its site-packages reach Jedi as the project environment, for every
+        # layout, src/ included (pyeye.environment, #993).
         potential_packages = []
         potential_packages.extend(self._discover_sibling_packages())
-        potential_packages.extend(self._discover_venv_packages())
 
         if potential_packages:
             logger.info(f"Auto-discovered packages: {potential_packages}")
@@ -803,6 +784,17 @@ class ProjectConfig:
             else:
                 logger.warning(f"Standalone directory does not exist: {resolved_path.as_posix()}")
         return paths
+
+    def get_environment_setting(self) -> str | bool | None:
+        """The ``environment`` setting (#993): a virtualenv path, ``False`` to opt out, or ``None``.
+
+        Read by :func:`pyeye.environment.discover`, which path-checks it.
+        """
+        value = self.config.get("environment")
+        if value is None or value is False or isinstance(value, str):
+            return value
+        logger.warning(f"Ignoring environment {value!r}: expected a path or false")
+        return None
 
     def get_standalone_config(self) -> dict[str, Any]:
         """Get standalone scripts configuration.

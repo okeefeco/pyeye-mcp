@@ -219,7 +219,11 @@ class TestFacts:
         self, facts: dict[str, object], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         passed: dict[str, object] = {}
-        monkeypatch.setattr(_jedi_project.jedi, "Project", lambda **kw: passed.update(kw))
+        from types import SimpleNamespace
+
+        monkeypatch.setattr(
+            _jedi_project.jedi, "Project", lambda **kw: passed.update(kw) or SimpleNamespace()
+        )
         _jedi_project.make_project(ROOT)
 
         assert passed["load_unsafe_extensions"] is False

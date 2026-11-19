@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "Jedi's own subprocess directory is never on pyeye's sys.path (#722)"
 issues: [722, 623, 457]
 anchors: ["pyeye._jedi_project.make_project", "pyeye._jedi_project.is_jedi_private_path", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.__init__", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.set_namespace_paths"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-19-993-the-project-environment-is-discovered-and-read-statically.md"]
 superseded_by: []
 ---
 

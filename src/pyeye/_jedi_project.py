@@ -16,17 +16,26 @@ environment's own, in order, minus entries under Jedi's package directory.  An
 explicit ``sys_path`` replaces only Jedi's *base* path, so ``smart_sys_path``
 (the project root and its discovered parents) and ``added_sys_path`` still
 apply on top, exactly as before.
+
+The interpreter and the base path (#993): Jedi always runs pyeye's OWN
+interpreter (never Jedi's default, which follows ``VIRTUAL_ENV`` and so ran an
+activated environment's Python), and its base path is that interpreter's
+standard library only, followed by the project environment's import roots
+(:mod:`pyeye.environment`). pyeye's own ``site-packages`` is never on it, so a
+project's imports can't resolve against pyeye's dependencies.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
+import sys
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
 import jedi
-from jedi.api.environment import get_cached_default_environment
+from jedi.api.environment import InterpreterEnvironment, SameEnvironment
 
 from pyeye.path_utils import normalize_path, relative_within
 
@@ -51,18 +60,54 @@ def is_jedi_private_path(entry: str) -> bool:
 LOAD_UNSAFE_EXTENSIONS = False
 
 
-def make_project(path: str | Path, added_sys_path: Iterable[str] = ()) -> jedi.Project:
-    """Build a ``jedi.Project`` whose base ``sys.path`` excludes Jedi's own directory.
+@functools.cache
+def own_environment() -> Any:
+    """Jedi's environment for pyeye's OWN interpreter, one per process (#993).
+
+    Jedi's default follows ``VIRTUAL_ENV`` / ``CONDA_PREFIX`` and would run that
+    environment's Python; the project environment is read statically instead
+    (:mod:`pyeye.environment`). One instance, so every project shares one
+    inference subprocess, as Jedi's cached default did.
+    """
+    try:
+        return SameEnvironment()
+    except Exception as exc:  # e.g. an embedded interpreter: Jedi's own fallback
+        logger.debug("own_environment: SameEnvironment unavailable: %s", exc)
+        return InterpreterEnvironment()
+
+
+def _is_stdlib_entry(entry: str) -> bool:
+    """Whether *entry* is the interpreter's own library: under ``sys.base_prefix``, not site-packages."""
+    from pyeye.scope import _has_site_packages_segment
+
+    try:
+        return relative_within(entry, sys.base_prefix) is not None and not (
+            _has_site_packages_segment(Path(entry))
+        )
+    except (OSError, ValueError):
+        return False
+
+
+def make_project(
+    path: str | Path,
+    added_sys_path: Iterable[str] = (),
+    environment_paths: Iterable[str] = (),
+) -> jedi.Project:
+    """Build a ``jedi.Project`` on pyeye's own interpreter and an explicit base ``sys.path``.
 
     Args:
         path: The Jedi project root.
         added_sys_path: Extra paths Jedi appends after the base path (configured
             packages and namespace roots), passed through unchanged.
+        environment_paths: The project environment's import roots
+            (``ProjectEnvironment.site_paths``, #993), after the standard library.
 
     Returns:
-        The project, built with one ``jedi.Project`` call.  If the
-        environment's path can't be read, Jedi's default (unfiltered) base path
-        is kept rather than failing analysis.
+        The project, built with one ``jedi.Project`` call. Its base path is the
+        interpreter's standard library (minus Jedi's own directory, #722), then
+        *environment_paths*; pyeye's own ``site-packages`` is never on it. If the
+        interpreter's path can't be read, the base is *environment_paths* alone
+        rather than failing analysis.
     """
     kwargs: dict[str, Any] = {
         "path": Path(path).as_posix(),
@@ -71,12 +116,16 @@ def make_project(path: str | Path, added_sys_path: Iterable[str] = ()) -> jedi.P
     added = list(added_sys_path)
     if added:  # Jedi's own default otherwise; it doesn't accept None
         kwargs["added_sys_path"] = added
+    environment = own_environment()
     try:
-        # What jedi.Project.get_environment() returns when no environment_path
-        # is given, which pyeye never gives.
-        base = get_cached_default_environment().get_sys_path()
+        base = environment.get_sys_path()
     except Exception as exc:  # never fail analysis over the filter
-        logger.debug("make_project: environment sys.path unavailable: %s", exc)
-    else:
-        kwargs["sys_path"] = [p for p in base if p and not is_jedi_private_path(p)]
-    return jedi.Project(**kwargs)
+        logger.debug("make_project: interpreter sys.path unavailable: %s", exc)
+        base = []
+    stdlib = [p for p in base if p and not is_jedi_private_path(p) and _is_stdlib_entry(p)]
+    kwargs["sys_path"] = list(dict.fromkeys([*stdlib, *environment_paths]))
+    project = jedi.Project(**kwargs)
+    # The interpreter Jedi runs: pyeye's own, never Jedi's VIRTUAL_ENV-driven
+    # default. get_environment() returns this cached attribute when it's set.
+    project._environment = environment
+    return project

@@ -58,6 +58,7 @@
     "config.ignored_key.performance": "performance",
     "config.ignored_key.plugins": "plugins",
     "config.ignored_key.watch_exclude": "watch_exclude",
+    "config.key.environment": "environment",
     "config.key.namespaces": "namespaces",
     "config.key.packages": "packages",
     "config.key.scope_aliases": "scope_aliases",

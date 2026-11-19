@@ -14,6 +14,7 @@ from .. import file_artifact_cache, settings
 from .._ast_targets import unsubscripted
 from .._jedi_project import make_project
 from ..config import ProjectConfig
+from ..environment import discover as discover_environment
 from ..exceptions import AnalysisError, ProjectNotFoundError
 from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
@@ -179,6 +180,11 @@ class JediAnalyzer:
         # The roots __init__ puts first on Jedi's sys_path (config packages or
         # src/), before additional and namespace roots (:meth:`_jedi_roots`).
         self._base_sys_path: list[str] = []
+        # The project's Python environment (#993), read statically: its import
+        # roots follow the interpreter's standard library on Jedi's base path.
+        self.environment = discover_environment(
+            self.project_path, config.get_environment_setting() if config else None
+        )
         self._additional_projects: dict[Path, jedi.Project] = {}  # Cached Jedi projects
         self.config = config
 
@@ -269,6 +275,7 @@ class JediAnalyzer:
             self.project = make_project(
                 jedi_root,
                 added_sys_path=_jedi_sys_path(jedi_sys_path) if jedi_sys_path else (),
+                environment_paths=_jedi_sys_path(self.environment.site_paths),
             )
             logger.info(f"Initialized JediAnalyzer for {self.project_path.as_posix()}")
         except Exception as e:
@@ -336,7 +343,11 @@ class JediAnalyzer:
         if roots == [p.as_posix() for p in self.added_sys_path]:
             return
         self.added_sys_path = [Path(p) for p in roots]
-        self.project = make_project(self.project.path, added_sys_path=_jedi_sys_path(roots))
+        self.project = make_project(
+            self.project.path,
+            added_sys_path=_jedi_sys_path(roots),
+            environment_paths=_jedi_sys_path(self.environment.site_paths),
+        )
         logger.info(f"Jedi sys_path for {self.project_path.as_posix()} is now {len(roots)} root(s)")
 
     def set_namespace_paths(self, namespaces: dict[str, list[str]]) -> None:

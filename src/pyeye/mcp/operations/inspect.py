@@ -54,6 +54,7 @@ from pyeye._ast_targets import (
 )
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports
+from pyeye.environment import not_found_note as environment_not_found_note
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
     UnparseableSource,
@@ -805,7 +806,11 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     resolved = resolve_handle(handle, analyzer)
     if isinstance(resolved, NotFound):
         logger.debug("inspect(%r): %s", handle, resolved.detail)
-        return not_found(handle)
+        response = not_found(handle)
+        # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
+        if note := environment_not_found_note(analyzer, handle):
+            response["detail"] = f"{response['detail']} {note}"
+        return response
     jedi_name = resolved.anchor
     handle = resolved.handle
     kind = resolved.kind
