@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "A result whose file resolves into a restricted directory is refused wherever Jedi produces it (#999)"
 issues: [999, 998, 993, 856, 909, 939, 626]
 anchors: ["pyeye.resolver.resolve_handle", "pyeye.resolver.in_restricted_dir", "pyeye.resolver.restricted_path", "pyeye.mcp.operations.edges._resolve_call_target", "pyeye.mcp.operations.edges.superclass_bases", "pyeye.mcp.operations.inspect._build_signature", "pyeye.mcp.operations.typeref._resolve_head_via_jedi", "pyeye.path_utils.normalize_path_strict", "pyeye.mcp.operations.expand._without_restricted", "tests/test_restricted_symlink_results.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1005-windows-fails-closed-only-on-a-link-loop.md"]
 superseded_by: []
 ---
 

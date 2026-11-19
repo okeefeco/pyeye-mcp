@@ -24,7 +24,9 @@ This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
 from __future__ import annotations
 
 import ast
+import errno
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +39,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import normalize_path_strict, path_to_key, paths_equal
+from pyeye.path_utils import normalize_path, normalize_path_strict, path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -122,19 +124,46 @@ def in_restricted_dir(name: Any) -> bool:
     return module_path is not None and restricted_path(module_path)
 
 
+#: Windows' error for a symlink chain it can't resolve, a loop included
+#: (``ERROR_CANT_RESOLVE_FILENAME``).
+_WINERROR_CANT_RESOLVE = 1921
+
+
 def restricted_path(path: str | Path) -> bool:
     """Whether *path* RESOLVES into a restricted directory (#999).
 
-    Fails closed: a path that can't be resolved (a symlink loop, a permission
-    error) counts as restricted, so an unreadable route never returns a result.
+    Fails closed: a path whose links can't be followed counts as restricted,
+    so an unfollowable route never returns a result. On POSIX that is every
+    error a strict resolve raises. On Windows a strict resolve also fails on
+    files Jedi reads fine (access denied on a parent, a ``WindowsApps``
+    app-exec link, an unusual name), so there only a loop fails closed; any
+    other error falls back to a non-strict resolve, which is still checked
+    (#1005). The credential stores do apply on Windows, below the server's
+    own home, so the check can't simply be skipped there.
     """
     from pyeye.validation import restricted_dir
 
     try:
         resolved = normalize_path_strict(path)
-    except (OSError, RuntimeError):
-        return True
+    except RuntimeError:
+        return True  # a symlink loop, before Python 3.13
+    except OSError as exc:
+        if not _ON_WINDOWS or _is_link_loop(exc):
+            return True
+        try:
+            resolved = normalize_path(path)
+        except (OSError, RuntimeError):
+            return True
     return restricted_dir(resolved)
+
+
+#: Whether the server runs on Windows: patched by tests of the Windows policy.
+_ON_WINDOWS = os.name == "nt"
+
+
+def _is_link_loop(exc: OSError) -> bool:
+    """Whether *exc* says a symlink chain can't be followed (a loop), on any OS."""
+    return exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == _WINERROR_CANT_RESOLVE
 
 
 def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
