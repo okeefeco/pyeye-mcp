@@ -176,12 +176,18 @@ class TestStaticReading:
         assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
 
     def test_the_pyvenv_cfg_version_is_preferred(self, tmp_path: Path) -> None:
-        venv = tmp_path / ".venv"
-        _venv(venv, version="3.11")
-        other = venv / "lib" / "python3.11" / "site-packages"
-        other.mkdir(parents=True)
+        """pyvenv.cfg's version wins over the running interpreter's (the decoy).
 
-        assert site_paths(venv) == [other.resolve().as_posix()]
+        3.99 is no interpreter's version, so the two directories never coincide
+        and the assertion shows which one was picked, on every interpreter.
+        """
+        venv = tmp_path / ".venv"
+        decoy = _venv(venv, version="3.99")  # site-packages for the RUNNING version
+        named = venv / "lib" / "python3.99" / "site-packages"
+        named.mkdir(parents=True)
+        assert decoy.parent.name != named.parent.name  # precondition
+
+        assert site_paths(venv) == [named.resolve().as_posix()]
 
     def test_pth_plain_lines_are_added_and_import_lines_never_run(self, tmp_path: Path) -> None:
         site = _venv(tmp_path / ".venv")
