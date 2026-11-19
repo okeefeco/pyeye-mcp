@@ -50,8 +50,9 @@ environment, whichever way pyeye itself runs. It uses the first of:
    itself a package, in its parent directory too, unless that directory is
    shared: group- or world-writable, or owned by another user);
 3. the activated environment (`VIRTUAL_ENV`, or `CONDA_PREFIX` for conda), as
-   Poetry, Pipenv and Hatch set it for an environment outside the project.
-   One activated environment serves every project that has none of its own.
+   Poetry, Pipenv and Hatch set it for an environment outside the project,
+   unless it is pyeye's own environment, which is skipped. One activated
+   environment serves every project that has none of its own.
 
 It reads the environment's packages from disk and never runs its Python. It
 skips an environment, or a path one adds, that is in or contains a system
