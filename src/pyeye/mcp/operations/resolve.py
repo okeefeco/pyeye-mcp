@@ -55,6 +55,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
 
@@ -349,7 +350,12 @@ async def _resolve_at_position(
     # Canonicalise through the one resolver (#623).  A definition the resolver
     # can't place is not-found: returning Jedi's raw full_name would hand the
     # caller a handle no other tool accepts (audit row 3).
-    result = _from_resolver(full_name, analyzer)
+    resolved = resolve_handle(full_name, analyzer)
+    if isinstance(resolved, NotFound) and resolved.candidates:
+        # One name, several local definitions (#1022): answer with the one(s)
+        # goto landed on, never another definition's location.
+        return _at_position(resolved.candidates, definitions)
+    result = _render(resolved)
     if result["found"] is False and _stub_only(file_path):
         return _stub_only_miss(file_path)  # say why, not just "unresolved" (#885)
     return result
@@ -454,15 +460,18 @@ async def _resolve_bare_name(
             miss["note"] = note
         return miss
     if isinstance(result, Ambiguous):
-        candidates = sorted(
-            (_candidate_from_resolved(r) for r in result.candidates), key=_candidate_sort_key
-        )
-        # #435 slice B: the sorted list is capped; ``total`` says how many matched.
-        kept, truncation = cap_items(candidates, max_candidates, MAX_CANDIDATES, "max_candidates")
-        ambiguous = _AmbiguousResult(found=True, ambiguous=True, candidates=kept)
-        ambiguous.update(truncation)  # type: ignore[typeddict-item]
-        return ambiguous
+        return _ambiguous(result.candidates, max_candidates)
     return _success_from_resolved(result)
+
+
+def _ambiguous(resolveds: Iterable[Resolved], max_candidates: int | None) -> _AmbiguousResult:
+    """The ambiguous variant: sorted candidates, capped by *max_candidates* (#435)."""
+    candidates = sorted((_candidate_from_resolved(r) for r in resolveds), key=_candidate_sort_key)
+    # #435 slice B: the sorted list is capped; ``total`` says how many matched.
+    kept, truncation = cap_items(candidates, max_candidates, MAX_CANDIDATES, "max_candidates")
+    ambiguous = _AmbiguousResult(found=True, ambiguous=True, candidates=kept)
+    ambiguous.update(truncation)  # type: ignore[typeddict-item]
+    return ambiguous
 
 
 async def _unparseable_note(analyzer: JediAnalyzer) -> str | None:
@@ -487,18 +496,44 @@ def _is_dunder(name: str) -> bool:
     return name.startswith("__") and name.endswith("__")
 
 
-async def _resolve_dotted_name(name: str, analyzer: JediAnalyzer) -> _HelperResult:
-    """Resolve a dotted name (FQN or re-exported path) through the one resolver (#623)."""
-    return _from_resolver(name, analyzer)
+async def _resolve_dotted_name(
+    name: str, analyzer: JediAnalyzer, max_candidates: int | None = None
+) -> _HelperResult:
+    """Resolve a dotted name (FQN or re-exported path) through the one resolver (#623).
+
+    A path naming several definitions of one function-local name answers
+    ``ambiguous`` with each of them, as a bare name does (#1022).
+    """
+    resolved = resolve_handle(name, analyzer)
+    if isinstance(resolved, NotFound) and resolved.candidates:
+        return _ambiguous(resolved.candidates, max_candidates)
+    return _render(resolved)
 
 
 def _from_resolver(path: str, analyzer: JediAnalyzer) -> _HelperResult:
     """Render :func:`pyeye.resolver.resolve_handle` as a resolve result."""
-    resolved = resolve_handle(path, analyzer)
+    return _render(resolve_handle(path, analyzer))
+
+
+def _render(resolved: Resolved | NotFound) -> _HelperResult:
+    """A resolver answer as a resolve result."""
     if isinstance(resolved, NotFound):
         # A refused definition keeps its honest reason (#999); others get the default.
-        return _miss("unresolved", resolved.detail if resolved.restricted else None)
+        return _miss("unresolved", resolved.honest_detail)
     return _success_from_resolved(resolved)
+
+
+def _at_position(candidates: tuple[Resolved, ...], definitions: list[Any]) -> _HelperResult:
+    """The candidate(s) at the definitions ``goto`` found: one is a success (#1022)."""
+
+    def spot(name: Any) -> tuple[Any, int, int]:
+        return (name.module_path, name.line or 0, name.column or 0)
+
+    at = {spot(d) for d in definitions}
+    hits = [c for c in candidates if spot(c.anchor) in at]
+    if len(hits) == 1:
+        return _success_from_resolved(hits[0])
+    return _ambiguous(hits or candidates, None)
 
 
 def _candidate_from_resolved(resolved: Resolved) -> _Candidate:
@@ -648,7 +683,7 @@ async def _resolve_identifier(
         return await _resolve_file_only(path, analyzer)
 
     if kind == "dotted_name":
-        return await _resolve_dotted_name(form["name"], analyzer)
+        return await _resolve_dotted_name(form["name"], analyzer, max_candidates)
 
     # bare_name
     return await _resolve_bare_name(form["name"], analyzer, max_candidates)
