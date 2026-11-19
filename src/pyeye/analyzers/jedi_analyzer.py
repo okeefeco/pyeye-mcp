@@ -113,7 +113,64 @@ def _dotted_prefixes(dotted: str) -> list[str]:
     return [".".join(parts[: i + 1]) for i in range(len(parts))]
 
 
-def _class_fact(node: ast.ClassDef, py_file: Path) -> project_graph.ClassFact:
+UNNAMED_NO_MODULE_PATH = project_graph.UNNAMED_NO_MODULE_PATH
+UNNAMED_FUNCTION_LOCAL = project_graph.UNNAMED_FUNCTION_LOCAL
+UNNAMED_NOT_A_HANDLE = project_graph.UNNAMED_NOT_A_HANDLE
+
+
+class _ClassEntry(NamedTuple):
+    """One class definition in the inventory: its AST, file and graph facts (#1006)."""
+
+    node: ast.ClassDef
+    tree: ast.Module
+    file: Path
+    fact: project_graph.ClassFact
+
+
+def _site_key(py_file: Path, node: ast.ClassDef) -> str:
+    """A class's unique definition site: ``file:line:column`` (#1006)."""
+    return f"{py_file.as_posix()}:{node.lineno}:{node.col_offset}"
+
+
+def _named_classes(
+    tree: ast.Module, module_path: str | None
+) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
+    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006).
+
+    A class in a class is ``module.Outer.Inner``. A class in a function has no
+    handle (handles are importable dotted names), nor does one in a file with no
+    module path, nor one whose dotted name the ASCII-only handle grammar rejects.
+    """
+
+    def visit(
+        owner: ast.AST, prefix: str | None, in_function: bool
+    ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
+        for child in ast.iter_child_nodes(owner):
+            if isinstance(child, ast.ClassDef):
+                dotted = f"{prefix}.{child.name}" if prefix is not None else None
+                if dotted is None:
+                    yield child, None, UNNAMED_NO_MODULE_PATH
+                elif in_function:
+                    yield child, None, UNNAMED_FUNCTION_LOCAL
+                elif not parse_compound_symbol(dotted)[1]:
+                    yield child, None, UNNAMED_NOT_A_HANDLE
+                else:
+                    yield child, dotted, None
+                yield from visit(child, dotted, in_function)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                yield from visit(child, prefix, True)
+            else:
+                yield from visit(child, prefix, in_function)
+
+    return visit(tree, module_path, False)
+
+
+def _class_fact(
+    node: ast.ClassDef,
+    py_file: Path,
+    full_name: str | None = None,
+    unnamed_reason: str | None = None,
+) -> project_graph.ClassFact:
     """The facts a subclass stub needs, without keeping the AST node (#397, #713)."""
     return project_graph.ClassFact(
         name=node.name,
@@ -124,14 +181,20 @@ def _class_fact(node: ast.ClassDef, py_file: Path) -> project_graph.ClassFact:
         # Name (#445). Falling back to lineno keeps line_end >= line_start.
         end_line=node.end_lineno or node.lineno,
         column=node.col_offset,
+        full_name=full_name,
+        unnamed_reason=unnamed_reason,
     )
 
 
-def _subclass_info(fqn: str, fact: project_graph.ClassFact, direct_parent: str) -> dict[str, Any]:
-    """One ``find_subclasses`` result record."""
-    return {
+def _subclass_info(fact: project_graph.ClassFact, direct_parent: str) -> dict[str, Any]:
+    """One ``find_subclasses`` result record.
+
+    ``full_name`` is ``None`` for a class with no handle, and ``unnamed_reason``
+    says why (#1006); the key is absent for a named class.
+    """
+    info: dict[str, Any] = {
         "name": fact.name,
-        "full_name": fqn,
+        "full_name": fact.full_name,
         "file": fact.file.as_posix(),
         "line": fact.line,
         "end_line": fact.end_line,
@@ -139,6 +202,9 @@ def _subclass_info(fqn: str, fact: project_graph.ClassFact, direct_parent: str) 
         "direct_parent": direct_parent,
         "is_direct": True,
     }
+    if fact.unnamed_reason is not None:
+        info["unnamed_reason"] = fact.unnamed_reason
+    return info
 
 
 class JediAnalyzer:
@@ -959,8 +1025,9 @@ class JediAnalyzer:
         return result
 
     # LIVE (not deprecated): the AST class-graph walk backing ``expand(handle,
-    # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts`` (#392,
-    # direct count gated on #333/#397). Do not remove.
+    # edge="subclasses")``. Expand-only — not in inspect's ``edge_counts``, by
+    # design: inspect stays independent of whole-project indices (#392, ruled
+    # 2026-11-20). Do not remove.
     async def find_subclasses(
         self,
         base_class: str,
@@ -1046,39 +1113,41 @@ class JediAnalyzer:
                 return {
                     "ambiguous": False,
                     "subclasses": [
-                        _subclass_info(fqn, graph.classes[fqn], leaf_name)
-                        for fqn in self._direct_children(base_class, graph)
-                        if fqn in graph.classes
+                        _subclass_info(graph.classes[site], leaf_name)
+                        for site in self._direct_children(base_class, graph)
+                        if site in graph.classes
                     ],
                     "unparseable_files": list(graph.unparseable),  # #729
                 }
 
             # Simple-name path: no production caller (the edge passes a FQN), so
             # it stays uncached and builds its own inventory.
-            classes_by_fqn, parent_to_children, _ = self._class_inventory(
+            classes, parent_to_children, _ = self._class_inventory(
                 py_files, self._file_to_module(py_files)
             )
 
             # -------------------------------------------------------------------
             # Ambiguity check: when caller passes a bare simple name and multiple
-            # distinct FQN-keyed classes share that leaf name, return the
-            # ambiguous variant so the caller can re-call with a FQN.
+            # distinct named classes share that leaf name, return the ambiguous
+            # variant so the caller can re-call with a FQN. A class with no
+            # handle can't be a candidate: it couldn't be re-called (#1006).
             # -------------------------------------------------------------------
-            matching_fqns_for_name = [
-                fqn for fqn in classes_by_fqn if fqn.split(".")[-1] == base_class
-            ]
-            if len(matching_fqns_for_name) > 1:
+            matching = sorted(
+                (entry.fact.full_name, entry)
+                for entry in classes.values()
+                if entry.fact.full_name is not None and entry.node.name == base_class
+            )
+            if len(matching) > 1:
                 candidates: list[dict[str, Any]] = []
-                for fqn in sorted(matching_fqns_for_name):
-                    node, _, py_file = classes_by_fqn[fqn]
+                for fqn, entry in matching:
                     candidates.append(
                         {
                             "handle": fqn,
                             "kind": "class",
                             "location": {
-                                "file": py_file.as_posix(),
-                                "line_start": node.lineno,
-                                "line_end": node.lineno,
+                                "file": entry.file.as_posix(),
+                                "line_start": entry.node.lineno,
+                                "line_end": entry.node.lineno,
                             },
                         }
                     )
@@ -1087,28 +1156,27 @@ class JediAnalyzer:
             # Simple name path (unambiguous — ambiguity was checked above).  It
             # uses parent_to_children (+ aliased-base goto) alone and never
             # builds the resolved class graph (#421 item 1).
-            direct_fqns: set[str] = set()
+            direct_sites: set[str] = set()
             # Check simple name match (e.g., base_class="Animal", class Foo(Animal))
             if base_class in parent_to_children:
-                direct_fqns.update(parent_to_children[base_class])
+                direct_sites.update(parent_to_children[base_class])
 
             # Check dotted name matches (e.g., class Foo(module.Animal))
             for parent_name, children in parent_to_children.items():
                 if parent_name != base_class and parent_name.endswith(f".{base_class}"):
-                    direct_fqns.update(children)
+                    direct_sites.update(children)
 
             # Try Jedi-based resolution for aliased imports
             # e.g., "from module import Animal as A" -> class Foo(A)
-            direct_fqns.update(
-                await self._resolve_aliased_bases(base_class, classes_by_fqn, parent_to_children)
+            direct_sites.update(
+                await self._resolve_aliased_bases(base_class, classes, parent_to_children)
             )
 
-            subclasses: list[dict[str, Any]] = []
-            for fqn in direct_fqns:
-                if fqn not in classes_by_fqn:
-                    continue
-                node, _, py_file = classes_by_fqn[fqn]
-                subclasses.append(_subclass_info(fqn, _class_fact(node, py_file), leaf_name))
+            subclasses: list[dict[str, Any]] = [
+                _subclass_info(classes[site].fact, leaf_name)
+                for site in direct_sites
+                if site in classes
+            ]
 
         except Exception as e:
             logger.error(f"Error finding subclasses: {e}")
@@ -1129,21 +1197,20 @@ class JediAnalyzer:
 
     def _class_inventory(
         self, py_files: list[Path], file_to_module: dict[Path, str | None]
-    ) -> tuple[
-        dict[str, tuple[ast.ClassDef, ast.Module, Path]], dict[str, set[str]], tuple[str, ...]
-    ]:
-        """Every class in *py_files*, plus parent name -> child FQNs (simple-name lookups).
+    ) -> tuple[dict[str, _ClassEntry], dict[str, set[str]], tuple[str, ...]]:
+        """Every class in *py_files*, plus parent name -> child sites (simple-name lookups).
 
         One pass over each file's cached AST. A file the server's interpreter
         can't parse is recorded (#729); any other failure skips the file, as
-        before.
+        before. Classes are keyed by definition site (:func:`_site_key`), never
+        by dotted name, so same-named classes can't overwrite each other (#1006).
 
         Returns:
-            ``(classes_by_fqn, parent_to_children, unparseable)``: FQN ->
-            ``(node, tree, file)``, each declared base's dotted text -> the FQNs
+            ``(classes, parent_to_children, unparseable)``: site ->
+            :class:`_ClassEntry`, each declared base's dotted text -> the sites
             that name it, and the POSIX-sorted unparseable files.
         """
-        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]] = {}
+        classes: dict[str, _ClassEntry] = {}
         parent_to_children: dict[str, set[str]] = {}
         unparseable: list[str] = []
         for py_file in py_files:
@@ -1152,23 +1219,17 @@ class JediAnalyzer:
                 tree = _parse_or_record(py_file, unparseable)
                 if tree is None:
                     continue
-                module_path = file_to_module[py_file]
-                for node in ast.walk(tree):
-                    if not isinstance(node, ast.ClassDef):
-                        continue
-                    fqn = (
-                        f"{module_path}.{node.name}"
-                        if module_path
-                        else f"{py_file.stem}.{node.name}"
-                    )
-                    classes_by_fqn[fqn] = (node, tree, py_file)
+                for node, full_name, reason in _named_classes(tree, file_to_module[py_file]):
+                    site = _site_key(py_file, node)
+                    fact = _class_fact(node, py_file, full_name, reason)
+                    classes[site] = _ClassEntry(node, tree, py_file, fact)
                     for base in node.bases:
                         parent_name = self._get_base_name_from_ast(base)
                         if parent_name and parent_name != "object":
-                            parent_to_children.setdefault(parent_name, set()).add(fqn)
+                            parent_to_children.setdefault(parent_name, set()).add(site)
             except Exception as e:
                 logger.debug(f"Error parsing {py_file}: {e}")
-        return classes_by_fqn, parent_to_children, tuple(sorted(unparseable))
+        return classes, parent_to_children, tuple(sorted(unparseable))
 
     def _build_class_graph(self, py_files: list[Path]) -> project_graph.ClassGraph:
         """Build the resolved class graph for *py_files* (#397; uncached).
@@ -1182,7 +1243,7 @@ class JediAnalyzer:
         Runs Jedi, so it must run on the analyzer's (Jedi worker) thread.
         """
         file_to_module = self._file_to_module(py_files)
-        classes_by_fqn, _, unparseable = self._class_inventory(py_files, file_to_module)
+        classes, _, unparseable = self._class_inventory(py_files, file_to_module)
         import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
             py_files, file_to_module
         )
@@ -1190,7 +1251,7 @@ class JediAnalyzer:
         resolved_cache: dict[tuple[str, int, int], str | None] = {}
         canonical_cache: dict[str, Handle | None] = {}
         children: dict[str, set[str]] = {}
-        for child_fqn, (child_node, _, child_file) in classes_by_fqn.items():
+        for child_site, (child_node, _, child_file, _) in classes.items():
             child_module = file_to_module.get(child_file) or child_file.stem
             for base in child_node.bases:
                 base_dotted = self._get_base_name_from_ast(base)
@@ -1208,12 +1269,9 @@ class JediAnalyzer:
                     canonical_cache,
                 )
                 if key is not None:
-                    children.setdefault(key, set()).add(child_fqn)
+                    children.setdefault(key, set()).add(child_site)
         return project_graph.ClassGraph(
-            classes={
-                fqn: _class_fact(node, py_file)
-                for fqn, (node, _, py_file) in classes_by_fqn.items()
-            },
+            classes={site: entry.fact for site, entry in classes.items()},
             children_by_key={key: frozenset(fqns) for key, fqns in children.items()},
             import_tables=import_tables,
             module_defines=module_defines,
@@ -1371,7 +1429,7 @@ class JediAnalyzer:
     async def _resolve_aliased_bases(
         self,
         base_class: str,
-        classes_by_fqn: dict[str, tuple[ast.ClassDef, ast.Module, Path]],
+        classes: dict[str, _ClassEntry],
         parent_to_children: dict[str, set[str]],
     ) -> set[str]:
         """Resolve aliased base references for the **simple-name** seed path.
@@ -1386,10 +1444,10 @@ class JediAnalyzer:
 
         Args:
             base_class: The simple name (leaf) of the base class to match.
-            classes_by_fqn: FQN -> (node, tree, file) mapping.
-            parent_to_children: parent name -> set of child FQNs.
+            classes: definition site -> :class:`_ClassEntry` (#1006).
+            parent_to_children: parent name -> set of child sites.
         """
-        resolved_fqns: set[str] = set()
+        resolved_sites: set[str] = set()
 
         # Only check parent names that didn't match base_class by simple name —
         # these are the aliased-import candidates.
@@ -1399,16 +1457,16 @@ class JediAnalyzer:
             if name != base_class and not name.endswith(f".{base_class}")
         }
         if not candidate_parents:
-            return resolved_fqns
+            return resolved_sites
 
         # Group classes by file to minimize Jedi Script creation
         file_to_classes: dict[str, list[tuple[str, ast.ClassDef]]] = {}
-        for fqn, (node, _, py_file) in classes_by_fqn.items():
+        for site, (node, _, py_file, _) in classes.items():
             file_key = py_file.as_posix()
             for base in node.bases:
                 parent_name = self._get_base_name_from_ast(base)
                 if parent_name in candidate_parents:
-                    file_to_classes.setdefault(file_key, []).append((fqn, node))
+                    file_to_classes.setdefault(file_key, []).append((site, node))
                     break
 
         for file_path_str, class_entries in file_to_classes.items():
@@ -1417,7 +1475,7 @@ class JediAnalyzer:
                 # Bucket 1: analysis input — Script comes from cache.
                 script = file_artifact_cache.get_script(file_path, self.project)
 
-                for fqn, node in class_entries:
+                for site, node in class_entries:
                     for base in node.bases:
                         parent_name = self._get_base_name_from_ast(base)
                         if parent_name not in candidate_parents:
@@ -1430,14 +1488,14 @@ class JediAnalyzer:
                                 base.lineno, base.col_offset, follow_imports=True
                             ):
                                 if result.name == base_class:
-                                    resolved_fqns.add(fqn)
+                                    resolved_sites.add(site)
                                     break
                         except Exception:
                             pass
             except Exception as e:
                 logger.debug(f"Error resolving aliases in {file_path_str}: {e}")
 
-        return resolved_fqns
+        return resolved_sites
 
     @staticmethod
     def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:

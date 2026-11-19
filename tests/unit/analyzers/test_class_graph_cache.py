@@ -133,7 +133,9 @@ class TestBuiltOncePerGeneration:
     @staticmethod
     async def _all_classes(analyzer: JediAnalyzer) -> list[str]:
         files = await analyzer.get_project_files("*.py", None)
-        return sorted(analyzer._build_class_graph(files).classes)
+        graph = analyzer._build_class_graph(files)
+        # Keyed by definition site (#1006): the edge's inputs are the named classes.
+        return sorted(f.full_name for f in graph.classes.values() if f.full_name is not None)
 
     @staticmethod
     async def _edge(fqn: str, analyzer: JediAnalyzer) -> list[tuple[str, int, int]]:
@@ -240,7 +242,8 @@ class TestCompactness:
         files = await analyzer.get_project_files("*.py", None)
         graph = analyzer._build_class_graph(files)
 
-        allowed = (str, int, Path, ClassFact, frozenset, list, dict, tuple)
+        # None: ClassFact's optional full_name / unnamed_reason (#1006). Pins nothing.
+        allowed = (str, int, Path, ClassFact, frozenset, list, dict, tuple, type(None))
         stack: list[Any] = [getattr(graph, f.name) for f in dataclasses.fields(graph)]
         while stack:
             value = stack.pop()

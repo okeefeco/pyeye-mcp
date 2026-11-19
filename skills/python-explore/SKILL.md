@@ -336,12 +336,21 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   importer defined there is **unknown, not absent**. `expand` on one of those edges
   carries the same flat `unparseable_files: [file, …]` list (`[]` when every
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
+- **`handleless_subclass_counts`** (present only when you traced `subclasses`): a
+  `{handle: count}` map of nodes with direct subclasses that **no handle can name**: a
+  class defined in a function, in a file with no module path (`migrations/0001_initial.py`),
+  or under a non-ASCII name. They're real subclasses, so add them when you count, but `trace`
+  can't walk below them. `expand(handle, "subclasses")` carries `handleless_subclass_count`
+  (always complete) and `handleless_subclasses: [{name, file, line, reason}, …]` to `Read`
+  them; `max_stubs` caps that list on its own, so `count > len(list)` means it was cut.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
 claim from `imports` likewise requires the node absent from `unresolved_imports`, and a
 "nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`
-— and, for `imported_by` and `subclasses`, an empty `unparseable_files`.
+— and, for `imported_by` and `subclasses`, an empty `unparseable_files`. A "no subclasses"
+claim also needs `handleless_subclass_count == 0` (or the node absent from
+`handleless_subclass_counts`).
 
 ### Framework plugin tools — always pass `envelope=true`
 

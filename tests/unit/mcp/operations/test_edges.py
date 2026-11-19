@@ -856,7 +856,8 @@ class TestResolveSubclassesNonClass:
         # signal, so expand.py's hardcoded module-only None branch stays correct.
         result = await _subclasses_for(_MAKE_WIDGET_HANDLE, analyzer)
         assert result is not None
-        assert result == EdgeResult(adjacents=[], unparseable_files=[])  # #729: measured, clean
+        # #729 / #1006: measured, clean — no unparseable file, no handleless subclass.
+        assert result == EdgeResult(adjacents=[], unparseable_files=[], handleless_subclasses=[])
 
 
 class TestResolveSubclassesNeverReverseSearch:

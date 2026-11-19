@@ -194,6 +194,35 @@ class TestSubclassesOfViews:
         assert deeper["file"].endswith("shop/mixins.py") and deeper["line"] == 3
 
     @pytest.mark.asyncio
+    async def test_subclasses_with_no_handle_are_each_reported_once(self, app: Path) -> None:
+        """A view defined in a function has no handle, but is still a view (#1006).
+
+        It's reported by its definition site. Two of them never merge into one
+        record, and they're not walked further: no FQN can name their subclasses.
+        """
+        _write(
+            app,
+            "shop/views.py",
+            "from django.views.generic import ListView\n\nclass Base(ListView):\n    pass\n",
+        )
+        _write(
+            app,
+            "shop/tests.py",
+            "from shop.views import Base\n\n"
+            "class Page(Base):\n    pass\n\n"
+            "def test_one():\n    class Local(Base):\n        pass\n\n"
+            "def test_two():\n    class Local(Base):\n        pass\n",
+        )
+
+        views = await DjangoPlugin(app).find_views()
+
+        assert sorted((v["name"], v["line"]) for v in views if v["file"].endswith("tests.py")) == [
+            ("Local", 7),
+            ("Local", 11),
+            ("Page", 3),
+        ]
+
+    @pytest.mark.asyncio
     async def test_a_class_found_both_ways_is_reported_once(self, app: Path) -> None:
         _write(
             app,

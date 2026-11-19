@@ -80,15 +80,31 @@ _generations: dict[str, int] = {}
 _epoch = 0
 
 
+#: Why a class has no handle (#1006): ``ClassFact.unnamed_reason``, and the
+#: ``reason`` of a ``handleless_subclasses`` entry. Checked in this order.
+UNNAMED_NO_MODULE_PATH = "no_module_path"  # its file isn't an importable module
+UNNAMED_FUNCTION_LOCAL = "function_local"  # defined in a function or method
+UNNAMED_NOT_A_HANDLE = "not_a_handle"  # the handle grammar rejects the name
+
+
 @dataclass(frozen=True)
 class ClassFact:
-    """Where one project class is defined: the facts a ``subclasses`` stub needs."""
+    """Where one project class is defined: the facts a ``subclasses`` stub needs.
+
+    ``full_name`` is the class's dotted name (``module.Outer.Inner`` for a class
+    nested in a class), or ``None`` when it has no handle; ``unnamed_reason``
+    then says why: ``function_local``, ``no_module_path`` or ``not_a_handle``
+    (#1006). An unnamed class is still a real definition: it is counted, never
+    given a dotted name it doesn't have.
+    """
 
     name: str
     file: Path
     line: int
     end_line: int
     column: int
+    full_name: str | None = None
+    unnamed_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -100,9 +116,11 @@ class ClassGraph:
     field as read-only: the graph is shared by every query in its generation.
 
     Attributes:
-        classes: Every class's dotted name -> its :class:`ClassFact`.
-        children_by_key: A base's definition-site key -> the classes that
-            directly subclass it.
+        classes: Every class's definition site (``file:line:column``) -> its
+            :class:`ClassFact`. Keyed by site, not dotted name, so same-named
+            classes (nested, or in files with no module path) never collide (#1006).
+        children_by_key: A base's definition-site key -> the definition sites of
+            the classes that directly subclass it.
         import_tables: Per-module AST import tables, used to key a query target
             the same way bases were keyed (:func:`base_resolution.resolve_base`).
         module_defines: Per-module top-level definitions, for the same.

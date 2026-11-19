@@ -1097,10 +1097,18 @@ async def expand(
         max_nodes=N)``, which carries the cap + ``truncated`` contract.  A class
         result includes a static ``transitive_hint`` field pointing to that trace
         route.  ``subclasses`` is an expand-only edge: ``inspect`` does NOT
-        measure it (dropped in #392); a cheap direct count is gated on the Pyright
-        reference backend / class-graph cache (#333/#397), because even the direct
-        count is a reverse query needing the same project-wide scan as
-        ``callers``/``references``.  ``stubs: []`` means the class has no project
+        measure it, by design: the edge reads the whole-project class graph, and
+        ``inspect`` stays independent of whole-project indices, which every edit
+        drops (#392, ruled 2026-11-20).  A subclass no handle can name (defined in a
+        function, in a file with no module path, or under a name the ASCII-only
+        handle grammar rejects) can't be a stub: it is counted in
+        ``handleless_subclass_count`` (always complete) and listed in
+        ``handleless_subclasses`` as ``{name, file, line, reason}``, ``reason``
+        one of ``function_local`` / ``no_module_path`` / ``not_a_handle``, sorted
+        by file then line, never dropped (#1006).  ``max_stubs`` caps that list
+        separately: a cut list shows as ``count > len(list)``.  Add the count to
+        ``len(stubs)`` (and ``total``) for every direct subclass.
+        ``stubs: []`` with a count of ``0`` means the class has no project
         subclasses (measured-none).  A non-class handle returns the unsupported
         branch with ``reason: "not_applicable"`` (#626).  Static-surface ceiling:
         <<fact:edge.subclasses:ceiling>>.
@@ -1165,6 +1173,8 @@ async def expand(
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
           "unparseable_files": [file, ...],  # <<fact:edges.unparseable>> ONLY (#729); [] when all parsed
+          "handleless_subclass_count": int,  # subclasses ONLY (#1006); complete, 0 when all named
+          "handleless_subclasses": [ {"name", "file", "line", "reason"}, ... ],  # subclasses ONLY; capped by max_stubs
           "transitive_hint": str,        # subclasses ONLY: the trace call for the full tree
           "truncated": True,             # these three only when max_stubs cut the list;
           "truncation_reasons": ["max_stubs"],  # absent otherwise
@@ -1285,6 +1295,7 @@ async def trace(
           "unresolved_imports": { handle: [target, ...], ... },  # #494 — present iff imports walked
           "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
           "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff one of <<fact:edges.unparseable>> walked
+          "handleless_subclass_counts": { handle: count, ... },  # #1006 — present iff subclasses walked; nodes with none omitted
           "report_issues": str,   # #458 — present ONLY when unsupported_edges non-empty
           "ceilings": { edge: str, ... } }  # #417 — each walked edge's ceiling (see expand)
 

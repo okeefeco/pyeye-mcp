@@ -271,6 +271,34 @@ class TestSubclasses:
         ]
 
     @pytest.mark.asyncio
+    async def test_rest_framework_wins_for_a_class_with_no_handle(self, app: Path) -> None:
+        """The upgrade applies to a function-local class too, which isn't walked (#1006).
+
+        ``Both`` is first, so the Django parent finds ``Joined`` before the DRF
+        one does, and the DRF parent has to upgrade the existing record.
+        """
+        _write(
+            app,
+            "api/views.py",
+            "from rest_framework.views import APIView\n"
+            "from django.views import View\n\n"
+            "class Both(View):\n    pass\n\n"
+            "class ApiBase(APIView):\n    pass\n",
+        )
+        _write(
+            app,
+            "api/more.py",
+            "from api.views import ApiBase, Both\n\n"
+            "def build():\n    class Joined(Both, ApiBase):\n        pass\n",
+        )
+
+        assert await _views(app) == [
+            ("ApiBase", "class_view", DRF),
+            ("Both", "class_view", "django"),
+            ("Joined", "class_view", DRF),
+        ]
+
+    @pytest.mark.asyncio
     async def test_a_direct_django_view_under_a_drf_seed_is_raised(self, app: Path) -> None:
         _write(
             app,
