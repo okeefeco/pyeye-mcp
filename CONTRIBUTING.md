@@ -136,17 +136,20 @@ Please follow these steps for your contribution:
    metrics session does not start twice.
 
 4. To run your checkout as the server in Claude Code, register it under its own
-   name, so it doesn't clash with an installed pyeye plugin:
+   name, so it doesn't clash with an installed pyeye plugin. The command is the
+   plugin's own, pointed at your checkout; it uses the `.venv` that step 2's
+   `uv sync --frozen` created:
 
    ```bash
-   claude mcp add pyeye-dev -s user -- uv run --project /path/to/your/checkout --frozen pyeye-mcp
+   claude mcp add pyeye-dev -s user -- uv run --project /path/to/your/checkout --no-sync --frozen python -m pyeye.mcp
    ```
 
    [`--project`](https://docs.astral.sh/uv/reference/cli/#uv-run) uses
    the checkout's environment without changing directory, so pyeye analyses the
-   project Claude Code is open in. Don't add `--no-dev`: it would re-sync your
-   checkout's `.venv` without the development tools. Disable the pyeye plugin
-   while you test, or you'll see both servers' tools.
+   project Claude Code is open in. `--no-sync` starts the server without
+   touching that environment, so after a dependency change run
+   `uv sync --frozen` in the checkout again. Disable the pyeye plugin while you
+   test, or you'll see both servers' tools.
 
 #### Dependency lockfile policy
 
