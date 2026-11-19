@@ -129,7 +129,9 @@ they can't drift from it.
   Results are checked the same way. Jedi follows symlinks when it looks up an
   import, so a symlink inside the project, or inside the project's virtualenv
   `site-packages`, can point a lookup into one of these directories. A
-  definition whose file resolves into one is refused: it is reported as not
+  definition whose file is in one, either as spelled or once its symlinks are
+  resolved (the same forms and the same rule as for a tool argument, #1019),
+  is refused: it is reported as not
   found, with a detail saying it is in a restricted directory, and an edge
   that would point at it lists it among the edge's unresolved targets, by the
   source's own spelling, instead. Nothing is drawn from it through a project
@@ -148,7 +150,11 @@ they can't drift from it.
   is covered too. The server's own home is read once, when the process starts,
   and is matched both as `$HOME` spells it and as it resolves, so a symlinked
   home (an NFS or autofs `/home/u` that points at `/data/u`) is covered under
-  either name. Homes anywhere other than directly in `/home`, `/Users` or
+  either name. A credential store below the server's home that is itself a
+  symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
+  matched where it points, so a file reached through the target is refused
+  and a walk skips it. Like the home, these links are read once, when the
+  process starts (#1019). Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
   `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
   user; other users' homes there are not (#909).

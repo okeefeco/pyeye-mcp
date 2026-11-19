@@ -40,7 +40,13 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import normalize_path, normalize_path_strict, path_to_key, paths_equal
+from pyeye.path_utils import (
+    absolute_path,
+    normalize_path,
+    normalize_path_strict,
+    path_to_key,
+    paths_equal,
+)
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -117,7 +123,7 @@ def in_restricted_dir(name: Any) -> bool:
     Jedi follows a symlink in the project or the venv's site-packages while it
     looks up an import, so a hit can land in ``/etc`` or a credential store
     where no input check or pruned walk applies. The file is checked on its
-    resolved form with the walkers' own test, :func:`pyeye.validation.restricted_dir`.
+    spelled and resolved forms with the walkers' own predicate (#1019).
     A name with no file (a builtin, a namespace sentinel without one) is never
     restricted.
     """
@@ -131,7 +137,14 @@ _WINERROR_CANT_RESOLVE = 1921
 
 
 def restricted_path(path: str | Path) -> bool:
-    """Whether *path* RESOLVES into a restricted directory (#999).
+    """Whether ANY form of *path* is in a restricted directory (#999, #1019).
+
+    Both forms are checked, as the input checks (``validate_final``) check
+    them, with the same predicate (:func:`pyeye.validation.restricted_reason`):
+    the path as spelled (made absolute, links kept), so a path inside a
+    credential store that links out is caught, and the path RESOLVED, so a link
+    into one is caught. A store that is itself a link is matched at its target
+    too (:func:`pyeye.validation.credential_path`).
 
     Fails closed: a path whose links can't be followed counts as restricted,
     so an unfollowable route never returns a result. On POSIX that is every
@@ -142,8 +155,10 @@ def restricted_path(path: str | Path) -> bool:
     (#1005). The credential stores do apply on Windows, below the server's
     own home, so the check can't simply be skipped there.
     """
-    from pyeye.validation import restricted_dir
+    from pyeye.validation import restricted_reason
 
+    if restricted_reason(absolute_path(path)) is not None:
+        return True
     try:
         resolved = normalize_path_strict(path)
     except RuntimeError:
@@ -155,7 +170,7 @@ def restricted_path(path: str | Path) -> bool:
             resolved = normalize_path(path)
         except (OSError, RuntimeError):
             return True
-    return restricted_dir(resolved)
+    return restricted_reason(resolved) is not None
 
 
 #: Whether the server runs on Windows: patched by tests of the Windows policy.

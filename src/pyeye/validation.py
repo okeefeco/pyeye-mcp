@@ -96,22 +96,17 @@ class PathValidator:
 
     @classmethod
     def _check_targets(cls, forms: list[str]) -> None:
-        """Reject a target any of whose *forms* matches :data:`RESTRICTED_TARGETS`.
+        """Reject a target any of whose *forms* is restricted (:func:`restricted_reason`).
 
         The system directory itself counts too: "/etc" (from "../../etc") must
         not slip past "^/etc/" for lack of a trailing slash. Case is ignored
-        (#939).
+        (#939). Results are checked by the same predicate, on the same forms
+        (``resolver.restricted_path``, #1019).
         """
         for form in forms:
-            as_dir = form.rstrip("/") + "/"
-            for pattern in cls.RESTRICTED_TARGETS:
-                if re.search(pattern, as_dir, re.IGNORECASE):
-                    raise ValidationError(f"Path resolves to restricted location: {pattern}")
-            if (name := credential_path(form)) is not None:
-                raise ValidationError(
-                    f"Path resolves to restricted location: the credential store {name} "
-                    "in a user home"
-                )
+            reason = restricted_reason(form)
+            if reason is not None:
+                raise ValidationError(f"Path resolves to restricted location: {reason}")
 
     @classmethod
     def validate_final(cls, path: str | Path, root: str | Path) -> Path:
@@ -303,31 +298,86 @@ _RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
 )
 
 
+class _CredentialStores:
+    """Where the credential stores are: below any user home, or where one links (#909, #1019)."""
+
+    def __init__(self, pattern: re.Pattern[str], linked: tuple[tuple[str, str], ...]) -> None:
+        self.pattern = pattern
+        #: ``(resolved location, store)`` for each store below the server's home
+        #: that is itself a link elsewhere (``~/.ssh -> /data/keys``), lowercased.
+        self.linked = linked
+
+    def match(self, form: str) -> str | None:
+        """The store *form* (POSIX, ending ``/``) is, or is inside; else ``None``."""
+        found = self.pattern.match(form)
+        if found:
+            return found.group(1)
+        lowered = form.lower()
+        for location, store in self.linked:
+            if lowered.startswith(location + "/"):
+                return store
+        return None
+
+
 @functools.cache
-def _credential_pattern() -> re.Pattern[str]:
-    """Every user home followed by a credential store, as one pattern (#909).
+def _credential_pattern() -> _CredentialStores:
+    """Every user home followed by a credential store, plus each linked store (#909, #1019).
 
     Built once per process: :data:`PathValidator.USER_HOMES` plus the server's
     own home, as spelled and resolved, whose ``$HOME`` can't move for a running
-    process.
+    process. A store below that home which is itself a link
+    (``~/.ssh -> /data/keys``) is also matched at its resolved location: a file
+    in it resolves there, spelled below no home. A link made after this is
+    built isn't seen until the process restarts.
     """
     homes = list(PathValidator.USER_HOMES)
+    linked: dict[str, str] = {}
     # The home both as spelled ($HOME) and resolved: with a symlinked home
     # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
     # the resolved check see, names neither the spelling nor a fixed root
     # (#909 review). No resolvable home: the fixed roots still apply.
     with contextlib.suppress(RuntimeError, KeyError, OSError):
         home = Path.home()
-        for spelling in dict.fromkeys([home.as_posix(), normalize_path(home).as_posix()]):
+        resolved_home = normalize_path(home)
+        for spelling in dict.fromkeys([home.as_posix(), resolved_home.as_posix()]):
             homes.append("^" + re.escape(spelling.rstrip("/")) + "/")
+        for store in PathValidator.CREDENTIAL_PATHS:
+            with contextlib.suppress(RuntimeError, OSError):
+                location = normalize_path(home / store).as_posix().rstrip("/").lower()
+                if location != (resolved_home / store).as_posix().rstrip("/").lower():
+                    linked.setdefault(location, store)
     stores = "|".join(re.escape(name) for name in PathValidator.CREDENTIAL_PATHS)
-    return re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
+    pattern = re.compile(f"(?:{'|'.join(homes)})({stores})/", re.IGNORECASE)
+    return _CredentialStores(pattern, tuple(linked.items()))
 
 
 def credential_path(form: str | Path) -> str | None:
-    """The credential store *form* is, or is inside, below a user home; else ``None`` (#909)."""
-    match = _credential_pattern().match(Path(form).as_posix().rstrip("/") + "/")
-    return match.group(1) if match else None
+    """The credential store *form* is, or is inside, below a user home; else ``None`` (#909).
+
+    A store below the server's home that is a link counts at its target too (#1019).
+    """
+    return _credential_pattern().match(Path(form).as_posix().rstrip("/") + "/")
+
+
+def restricted_reason(form: str | Path) -> str | None:
+    """Why the path *form* is restricted, or ``None``: the ONE predicate (#1019).
+
+    *form* is one spelling of a path (lexical or resolved; callers check every
+    form they have). It is restricted when it is, or is inside, a restricted
+    directory (:data:`_RESTRICTED_DIRS`, the literals of the anchored
+    :data:`PathValidator.RESTRICTED_TARGETS`; the reason is its pattern) or a
+    credential store (:func:`credential_path`). Case is ignored (#939). Inputs
+    (:meth:`PathValidator._check_targets`), results (``resolver.restricted_path``)
+    and the walkers (:func:`restricted_dir`) all apply it, so they can't drift.
+    """
+    as_dir = Path(form).as_posix().rstrip("/") + "/"
+    lowered = as_dir.lower()
+    for directory in _RESTRICTED_DIRS:
+        if lowered.startswith(directory.lower() + "/"):
+            return f"^{directory}/"
+    if (name := credential_path(as_dir)) is not None:
+        return f"the credential store {name} in a user home"
+    return None
 
 
 def restricted_dir(resolved: str | Path) -> bool:
@@ -335,14 +385,11 @@ def restricted_dir(resolved: str | Path) -> bool:
 
     The prune test every directory walk applies (#856 ruling): a route the
     input checks miss (a symlinked parent, a new scope form) still can't
-    descend into a system directory or a credential store (#909). Case is
-    ignored, as in :meth:`PathValidator._check_targets` (#939). POSIX forms
-    only, as the deny-list is.
+    descend into a system directory or a credential store (#909), including a
+    store that is itself a link (#1019). It is :func:`restricted_reason`, so
+    walks, inputs and results agree. POSIX forms only, as the deny-list is.
     """
-    form = Path(resolved).as_posix().rstrip("/").lower() + "/"
-    if any(form.startswith(d.lower() + "/") for d in _RESTRICTED_DIRS):
-        return True
-    return credential_path(form) is not None
+    return restricted_reason(resolved) is not None
 
 
 def unwalkable_root(resolved: str | Path) -> bool:
