@@ -135,7 +135,10 @@ they can't drift from it.
   source's own spelling, instead. Nothing is drawn from it through a project
   symbol either: no inherited signature or parameter default, no base class
   or inherited field, and no type annotation's handle (#999). A path that
-  can't be resolved, such as a symlink loop, counts as restricted. A symlink into any other directory works as
+  can't be resolved, such as a symlink loop, counts as restricted. On Windows
+  only a loop does: other failures to resolve a path strictly (access denied
+  on a parent, a `WindowsApps` alias) fall back to a normal resolve, which is
+  still checked, so readable files aren't refused by mistake (#1005). A symlink into any other directory works as
   before.
 
   The credential stores are different: they define no ancestors. A scan of
