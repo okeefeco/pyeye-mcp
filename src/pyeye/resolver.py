@@ -28,6 +28,7 @@ import errno
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -555,8 +556,70 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             anchor = _anchor_on_bindings(matches, mod_file, path)
             placed = _canonical_of(anchor, path, analyzer)
             return (placed, anchor) if placed is not None else None
-        return _follow_alias(module_dotted, rest, names, analyzer, hops)
+        # An explicit binding first, then the module's star imports (#1007).
+        return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
+            module_dotted, mod_file, rest, analyzer, hops
+        )
     return None
+
+
+#: The ``(star source module, name)`` pairs already tried in this resolution, so a
+#: star cycle (``a`` star-imports ``b``, ``b`` star-imports ``a``) ends (#1007).
+_STAR_SEEN: ContextVar[set[tuple[str, str]] | None] = ContextVar("_STAR_SEEN", default=None)
+
+
+def _follow_star(
+    module_dotted: str,
+    mod_file: Path,
+    rest: list[str],
+    analyzer: JediAnalyzer,
+    hops: int,
+) -> tuple[str, Any] | None:
+    """Place the head of *rest* through *module_dotted*'s ``from x import *`` (#1007).
+
+    Each star source, in source order, that is a project module and
+    star-exports the head (:func:`pyeye.star_exports.star_exported`: its static
+    ``__all__``, else a public name) is tried by resolving ``<source>.<rest>``;
+    the first that resolves wins. Explicit bindings were tried first, as Python
+    lets them shadow a star. Bounded by the alias hop limit and a seen-set.
+    """
+    from pyeye.analyzers.base_resolution import build_star_sources
+    from pyeye.import_analyzer import resolve_relative_import
+    from pyeye.star_exports import star_exported
+
+    if hops >= _MAX_ALIAS_HOPS:
+        return None
+    try:
+        tree = file_artifact_cache.get_ast(mod_file)
+    except (SyntaxError, ValueError):
+        return None  # the server's Python can't parse it (#703): no stars to follow
+    head = rest[0]
+    is_package = mod_file.name == "__init__.py"
+    seen = _STAR_SEEN.get()
+    token = _STAR_SEEN.set(set()) if seen is None else None
+    seen = _STAR_SEEN.get()
+    assert seen is not None
+    try:
+        for source in build_star_sources(tree, module_dotted, resolve_relative_import, is_package):
+            if (source, head) in seen:
+                continue
+            seen.add((source, head))
+            source_file = file_for_module(analyzer, source)
+            if source_file is None:
+                continue  # not a project module: an external star isn't followed here
+            try:
+                exports = star_exported(file_artifact_cache.get_ast(source_file), head)
+            except (SyntaxError, ValueError):
+                continue
+            if not exports:
+                continue
+            found = _resolve(".".join([source, *rest]), analyzer, hops + 1)
+            if found is not None:
+                return found
+        return None
+    finally:
+        if token is not None:
+            _STAR_SEEN.reset(token)
 
 
 def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
@@ -735,7 +798,8 @@ PROJECT_STRATEGY: tuple[Step, ...] = (
     Step(
         "definition_placement",
         "the definition in the deepest project module along the path, following a "
-        "re-export alias to its definition, with no fallback to shallower modules",
+        "re-export alias to its definition (an explicit import, or a `from x import *` "
+        "of a name x star-exports), with no fallback to shallower modules",
         _step_place_definition,
     ),
 )

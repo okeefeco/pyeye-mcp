@@ -73,7 +73,7 @@ Every path:
 
 Then, inside the project:
 
-1. `definition_placement`: the definition in the deepest project module along the path, following a re-export alias to its definition, with no fallback to shallower modules
+1. `definition_placement`: the definition in the deepest project module along the path, following a re-export alias to its definition (an explicit import, or a `from x import \*` of a name x star-exports), with no fallback to shallower modules
 
 Then, outside the project:
 
