@@ -135,6 +135,19 @@ Please follow these steps for your contribution:
    any `.git/hooks/post-checkout.legacy` pre-commit leaves behind) so the
    metrics session does not start twice.
 
+4. To run your checkout as the server in Claude Code, register it under its own
+   name, so it doesn't clash with an installed pyeye plugin:
+
+   ```bash
+   claude mcp add pyeye-dev -s user -- uv run --project /path/to/your/checkout --frozen pyeye-mcp
+   ```
+
+   [`--project`](https://docs.astral.sh/uv/reference/cli/#uv-run) uses
+   the checkout's environment without changing directory, so pyeye analyses the
+   project Claude Code is open in. Don't add `--no-dev`: it would re-sync your
+   checkout's `.venv` without the development tools. Disable the pyeye plugin
+   while you test, or you'll see both servers' tools.
+
 #### Dependency lockfile policy
 
 `uv.lock` is **authoritative**: pre-commit hooks, CI, local dev and release

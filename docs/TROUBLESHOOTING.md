@@ -2,6 +2,10 @@
 
 This guide helps resolve common issues and optimize performance for the PyEye Server.
 
+The `claude mcp add` examples run `uvx pyeye-mcp`. Use the command you
+registered pyeye with instead, if it's different (see the README's
+[Installation](../README.md#installation)).
+
 ## Table of Contents
 
 1. [Installation Issues](#installation-issues)
@@ -20,51 +24,21 @@ This guide helps resolve common issues and optimize performance for the PyEye Se
 
 **Problem**: Server fails to start with Python version errors.
 
-**Solution**:
+**Solution**: pyeye needs Python <!-- fact:begin project.requires_python -->`>=3.11`<!-- fact:end -->.
+`uvx` and the plugin pick a suitable Python for you. With pip or pipx, check
+the Python you installed into: `python --version`.
 
-- Ensure Python 3.11+ is installed: `python --version`
-- Use `uv` for consistent Python management:
+### Import Errors When the Server Starts
 
-  ```bash
-  uv sync --frozen
-  ```
+**Problem**: The server fails with import errors or missing dependencies.
 
-### Virtual Environment Setup
+**Solution**: reinstall with the route you used (see the README's
+[Installation](../README.md#installation)):
 
-**Problem**: Import errors or missing dependencies.
-
-**Solution**:
-
-1. Sync the uv-managed environment (creates `.venv`, installs deps from the lock):
-
-   ```bash
-   uv sync --frozen
-   ```
-
-2. Verify installation:
-
-   ```bash
-   uv run python -c "import pyeye; print(pyeye.__version__)"
-   ```
-
-### Dependency Conflicts
-
-**Problem**: Package version conflicts during installation.
-
-**Solution**:
-
-1. Clean install in fresh environment:
-
-   ```bash
-   rm -rf .venv
-   uv sync --frozen
-   ```
-
-2. Check for conflicting packages:
-
-   ```bash
-   uv pip list | grep -E "jedi|parso|mcp|watchdog"
-   ```
+- `uvx`: run `uv cache clean pyeye-mcp`, then start the client again;
+- `uv tool`: `uv tool install --reinstall pyeye-mcp`;
+- pip or pipx: `pip install --force-reinstall pyeye-mcp` or `pipx reinstall pyeye-mcp`;
+- a pyeye source checkout: `uv sync --frozen`.
 
 ### Platform-Specific Issues
 
@@ -123,7 +97,7 @@ sudo dnf install python3-devel
    claude mcp remove pyeye
    claude mcp add pyeye -s user \
      -e PYEYE_LOG_LEVEL=DEBUG -e PYEYE_LOG_FILE=/tmp/pyeye.log \
-     -- python -m pyeye.mcp
+     -- uvx pyeye-mcp
    tail -f /tmp/pyeye.log
    ```
 
@@ -131,8 +105,13 @@ sudo dnf install python3-devel
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add pyeye -s user -- python -m pyeye.mcp
+   claude mcp add pyeye -s user -- uvx pyeye-mcp
    ```
+
+4. Every pyeye tool appears twice (`mcp__plugin_pyeye_pyeye__…` and
+   `mcp__pyeye__…`)? pyeye is installed both as the Claude Code plugin and with
+   `claude mcp add`. Keep one: `claude mcp remove pyeye`, or uninstall the
+   plugin with `/plugin`.
 
 ---
 
@@ -192,7 +171,7 @@ sudo dnf install python3-devel
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- python -m pyeye.mcp
+   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=20 -- uvx pyeye-mcp
    ```
 
 ### Multi-Project Setup Problems
@@ -261,7 +240,7 @@ sudo dnf install python3-devel
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=5 -- python -m pyeye.mcp
+   claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=5 -- uvx pyeye-mcp
    ```
 
 2. Cached results expire after `PYEYE_CACHE_TTL` seconds (default
@@ -301,7 +280,7 @@ sudo dnf install python3-devel
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=2 -- python -m pyeye.mcp
+   claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=2 -- uvx pyeye-mcp
    ```
 
 ---
@@ -332,7 +311,7 @@ sudo dnf install python3-devel
 
    ```bash
    claude mcp remove pyeye
-   claude mcp add pyeye -s user -e PYTHONPATH=/path/to/lib -- python -m pyeye.mcp
+   claude mcp add pyeye -s user -e PYTHONPATH=/path/to/lib -- uvx pyeye-mcp
    ```
 
 3. Check virtual environment is activated
@@ -390,7 +369,7 @@ entry (Claude Code shown; other clients take an `env` map in their config):
 claude mcp remove pyeye
 claude mcp add pyeye -s user \
   -e PYEYE_LOG_LEVEL=DEBUG -e PYEYE_LOG_FILE=/tmp/pyeye.log \
-  -- python -m pyeye.mcp
+  -- uvx pyeye-mcp
 ```
 
 **Step 2**: Restart the client and reproduce the problem.
@@ -577,7 +556,7 @@ file-watch overhead):
 ```bash
 claude mcp add pyeye -s user \
   -e PYEYE_CACHE_TTL=600 -e PYEYE_MAX_PROJECTS=5 -e PYEYE_WATCHER_DEBOUNCE=2.0 \
-  -- python -m pyeye.mcp
+  -- uvx pyeye-mcp
 ```
 
 **For rapid development** (a 1-minute cache, faster updates):
@@ -585,7 +564,7 @@ claude mcp add pyeye -s user \
 ```bash
 claude mcp add pyeye -s user \
   -e PYEYE_CACHE_TTL=60 -e PYEYE_WATCHER_DEBOUNCE=0.2 \
-  -- python -m pyeye.mcp
+  -- uvx pyeye-mcp
 ```
 
 ### Debounce Settings
@@ -597,8 +576,8 @@ For slower systems or network drives, raise it; for local SSDs with small
 projects, lower it. On the client's server entry:
 
 ```bash
-claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=3.0 -- python -m pyeye.mcp  # slower systems
-claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=0.2 -- python -m pyeye.mcp  # local SSDs
+claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=3.0 -- uvx pyeye-mcp  # slower systems
+claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=0.2 -- uvx pyeye-mcp  # local SSDs
 ```
 
 ### Project Limit Tuning
