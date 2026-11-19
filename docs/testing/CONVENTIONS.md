@@ -361,12 +361,14 @@ def test_complex_scenario():
 ### Comments
 
 ```python
-def test_edge_case():
+from pyeye.mcp.server import trace
+
+async def test_edge_case():
     # Setup: Create a project where pkg.a imports pkg.b and pkg.b imports pkg.a
     project = create_circular_project()
 
-    # This should not cause infinite recursion
-    result = trace("pkg.a", follow=["imports"], project_path=project)
+    # This should not cause infinite recursion. The tools are async: await them.
+    result = await trace("pkg.a", follow=["imports"], project_path=project)
 
     # Verify the cycle is reported as an edge back to the start, not followed forever
     assert any(edge["to"] == "pkg.a" for edge in result["edges"])
@@ -377,6 +379,8 @@ def test_edge_case():
 ### Timing Assertions
 
 ```python
+import time
+
 from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
 
 def test_operation_performance():
