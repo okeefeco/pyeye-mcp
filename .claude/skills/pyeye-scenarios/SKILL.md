@@ -88,7 +88,7 @@ Single source tree — the depth/scale baseline. No `.pyeye.json`, no namespace.
 
 ### Probe suite + recorded baseline
 
-The probe suite and its expected results, the round-trip probe, the timings and the tripwire are in the dated record [`baselines/django.md`](baselines/django.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
+The probe suite and its expected results, the round-trip probe, the timings and the tripwire are in the dated record [`baselines/django.md`](baselines/django.md); the star re-export probes (#1007) are in [`baselines/django-star-reexports.md`](baselines/django-star-reexports.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
 
 ---
 
