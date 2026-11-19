@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
@@ -107,6 +107,8 @@ class ClassGraph:
             the same way bases were keyed (:func:`base_resolution.resolve_base`).
         module_defines: Per-module top-level definitions, for the same.
         star_sources: Per-module ``import *`` sources, for the same.
+        star_alls: Each module's static ``__all__``, for modules that have one,
+            so a star is followed only for a name its source exports (#1010).
     """
 
     classes: dict[str, ClassFact]
@@ -114,6 +116,7 @@ class ClassGraph:
     import_tables: dict[str, dict[str, str]]
     module_defines: dict[str, dict[str, str]]
     star_sources: dict[str, list[str]]
+    star_alls: dict[str, frozenset[str]] = field(default_factory=dict)
     #: Files in scope the server's interpreter couldn't parse, POSIX-sorted (#729).
     #: A subclass defined there is unknown, never silently absent.
     unparseable: tuple[str, ...] = ()

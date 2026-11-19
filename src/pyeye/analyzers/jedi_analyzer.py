@@ -33,6 +33,7 @@ from ..scope_utils import (
     parallel_search,
     resolve_scope_paths,
 )
+from ..star_exports import static_all
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
 from . import project_graph
 from .base_resolution import (
@@ -1183,7 +1184,7 @@ class JediAnalyzer:
         """
         file_to_module = self._file_to_module(py_files)
         classes_by_fqn, _, unparseable = self._class_inventory(py_files, file_to_module)
-        import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
+        import_tables, module_defines, star_sources, star_alls = self._build_ast_resolution_tables(
             py_files, file_to_module
         )
         # Memoised for this build: repeated goto / canonicalisation runs once.
@@ -1204,6 +1205,7 @@ class JediAnalyzer:
                     import_tables,
                     module_defines,
                     star_sources,
+                    star_alls,
                     resolved_cache,
                     canonical_cache,
                 )
@@ -1218,6 +1220,7 @@ class JediAnalyzer:
             import_tables=import_tables,
             module_defines=module_defines,
             star_sources=star_sources,
+            star_alls=star_alls,
             unparseable=unparseable,
         )
 
@@ -1229,7 +1232,11 @@ class JediAnalyzer:
         as before (#623).
         """
         key = self._target_index_key(
-            target_fqn, graph.import_tables, graph.module_defines, graph.star_sources
+            target_fqn,
+            graph.import_tables,
+            graph.module_defines,
+            graph.star_sources,
+            graph.star_alls,
         )
         if key is None:
             canon = self._canonical_cached(target_fqn, {})
@@ -1257,21 +1264,29 @@ class JediAnalyzer:
 
     def _build_ast_resolution_tables(
         self, py_files: list[Path], file_to_module: dict[Path, str | None]
-    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, list[str]]]:
+    ) -> tuple[
+        dict[str, dict[str, str]],
+        dict[str, dict[str, str]],
+        dict[str, list[str]],
+        dict[str, frozenset[str]],
+    ]:
         """Build per-module AST import/define/star tables for AST-first resolution (#405).
 
-        Returns ``(import_tables, module_defines, star_sources)`` keyed by the
+        Returns ``(import_tables, module_defines, star_sources, star_alls)`` keyed by the
         same module derivation (:meth:`_get_import_path_for_file`, supplied
         pre-computed via *file_to_module*, #421) used to build class FQNs, so
         resolution keys line up.  ``star_sources`` lets :func:`resolve_base`
         follow ``from x import *`` re-exports (#419 — fewer Jedi ``goto``
         fallbacks, which are the non-deterministic ones).  ASTs come from the
         shared cache; relative imports use the module-level
-        :func:`resolve_relative_import` seam (#421).
+        :func:`resolve_relative_import` seam (#421).  ``star_alls`` holds each
+        static ``__all__``, so a star is followed only for a name its source
+        exports (the shared rule in :mod:`pyeye.star_exports`, #1010).
         """
         import_tables: dict[str, dict[str, str]] = {}
         module_defines: dict[str, dict[str, str]] = {}
         star_sources: dict[str, list[str]] = {}
+        star_alls: dict[str, frozenset[str]] = {}
         for py_file in py_files:
             module_name = file_to_module.get(py_file) or py_file.stem
             if module_name in import_tables:
@@ -1288,7 +1303,10 @@ class JediAnalyzer:
             stars = build_star_sources(tree, module_name, resolve_relative_import, is_package)
             if stars:
                 star_sources[module_name] = stars
-        return import_tables, module_defines, star_sources
+            listed = static_all(tree)
+            if listed is not None:
+                star_alls[module_name] = listed
+        return import_tables, module_defines, star_sources, star_alls
 
     def _resolve_base_to_key(
         self,
@@ -1299,6 +1317,7 @@ class JediAnalyzer:
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
         star_sources: dict[str, list[str]],
+        star_alls: dict[str, frozenset[str]],
         resolved_cache: dict[tuple[str, int, int], str | None],
         canonical_cache: dict[str, Handle | None],
     ) -> str | None:
@@ -1314,7 +1333,7 @@ class JediAnalyzer:
         path resolved a given base.
         """
         ast_resolved = resolve_base(
-            child_module, base_dotted, import_tables, module_defines, star_sources
+            child_module, base_dotted, import_tables, module_defines, star_sources, star_alls
         )
         if ast_resolved is not None:
             return ast_resolved
@@ -1354,6 +1373,7 @@ class JediAnalyzer:
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
         star_sources: dict[str, list[str]],
+        star_alls: dict[str, frozenset[str]],
     ) -> str | None:
         """Resolve a target FQN to its AST definition-site key, or ``None``.
 
@@ -1366,7 +1386,9 @@ class JediAnalyzer:
         if "." not in target_fqn:
             return None
         target_module, target_leaf = target_fqn.rsplit(".", 1)
-        return resolve_base(target_module, target_leaf, import_tables, module_defines, star_sources)
+        return resolve_base(
+            target_module, target_leaf, import_tables, module_defines, star_sources, star_alls
+        )
 
     async def _resolve_aliased_bases(
         self,
