@@ -528,7 +528,7 @@
     "resolver.strategy.definition_placement": {
       "position": 1,
       "side": "project",
-      "summary": "the definition in the deepest project module along the path, following a re-export alias to its definition, with no fallback to shallower modules"
+      "summary": "the definition in the deepest project module along the path, following a re-export alias to its definition (an explicit import, or a `from x import *` of a name x star-exports), with no fallback to shallower modules"
     },
     "resolver.strategy.external_definition": {
       "position": 3,
