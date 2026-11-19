@@ -67,8 +67,7 @@ async def test_scope_applied_at_lookup_not_build(tmp_path: Path) -> None:
     extra = tmp_path / "extra"
     _w(main / "a.py", "class Shared:\n    pass\n")
     _w(extra / "b.py", "class OnlyExtra:\n    pass\n")
-    project_graph.invalidate()
-    analyzer = JediAnalyzer(str(main))
+    analyzer = JediAnalyzer(str(main))  # the autouse _cold_project_graph reset the store
     analyzer.additional_paths = [extra]
 
     main_only = await analyzer._search_all_scopes("OnlyExtra", scope="main")

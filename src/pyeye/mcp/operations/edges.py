@@ -84,7 +84,7 @@ from pyeye.project_layout import (
     find_namespace_package_dirs,
     package_kind,
 )
-from pyeye.resolver import Resolved, handle_for_anchor, resolve_external_item
+from pyeye.resolver import Resolved, handle_for_anchor, in_restricted_dir, resolve_external_item
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -863,7 +863,10 @@ def _resolve_call_target(
     """
     line, col = target
     d = goto_target(script, line, col)
-    if d is None:
+    # A target in a restricted directory is refused here, where the caller still
+    # has its own spelling to report it by (#999): callees count it, imports list
+    # it as written.
+    if d is None or in_restricted_dir(d):
         return None
     h = _handle_for_name(d, analyzer)
     return (h, d) if h is not None else None
@@ -1283,6 +1286,8 @@ def superclass_bases(
         d = goto_target(script, base_line, base_col, prefer="class")
         if d is not None and getattr(d, "type", None) != "class":
             d = None  # resolved to a function or variable, not a class (#922)
+        if d is not None and in_restricted_dir(d):
+            d = None  # refused (#999): unresolved, by the class's own spelling of it
         h = _handle_for_name(d, analyzer) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases

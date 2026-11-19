@@ -126,6 +126,21 @@ they can't drift from it.
   directory whose resolved form is one of them, so a symlink inside a scanned
   tree can't lead a walk into one.
 
+  Results are checked the same way. Jedi follows symlinks when it looks up an
+  import, so a symlink inside the project, or inside the project's virtualenv
+  `site-packages`, can point a lookup into one of these directories. A
+  definition whose file resolves into one is refused: it is reported as not
+  found, with a detail saying it is in a restricted directory, and an edge
+  that would point at it lists it among the edge's unresolved targets, by the
+  source's own spelling, instead. Nothing is drawn from it through a project
+  symbol either: no inherited signature or parameter default, no base class
+  or inherited field, and no type annotation's handle (#999). A path that
+  can't be resolved, such as a symlink loop, counts as restricted. On Windows
+  only a loop does: other failures to resolve a path strictly (access denied
+  on a parent, a `WindowsApps` alias) fall back to a normal resolve, which is
+  still checked, so readable files aren't refused by mistake (#1005). A symlink into any other directory works as
+  before.
+
   The credential stores are different: they define no ancestors. A scan of
   `~`, `/home` or `/Users` works and simply skips them. A project placed inside
   one, such as a repository at `~/.config/gh/x`, is refused, as intended. A

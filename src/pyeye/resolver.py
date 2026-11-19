@@ -24,7 +24,9 @@ This module sits below ``pyeye.mcp`` (``tests/test_import_layers_fitness.py``).
 from __future__ import annotations
 
 import ast
+import errno
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,7 +39,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import path_to_key, paths_equal
+from pyeye.path_utils import normalize_path, normalize_path_strict, path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -80,6 +82,10 @@ class NotFound:
 
     reason: Literal["unresolved"]
     detail: str
+    #: The definition exists but resolves into a restricted directory (#999), so
+    #: it is refused. The operations then show *detail* as it is: it is the
+    #: honest reason, not a guess.
+    restricted: bool = False
 
 
 @dataclass(frozen=True)
@@ -87,6 +93,77 @@ class Ambiguous:
     """A bare name with several canonical definitions, in deterministic order."""
 
     candidates: tuple[Resolved, ...]
+
+
+#: How the not-found detail for a definition refused as restricted ends (#999).
+_RESTRICTED_SUFFIX = "which pyeye doesn't read or report."
+
+#: The not-found detail for a definition that lives in a restricted directory (#999).
+RESTRICTED_DETAIL = (
+    "{path!r} resolves into a restricted directory (a system directory or a "
+    "credential store), " + _RESTRICTED_SUFFIX
+)
+
+
+def is_restricted_detail(detail: str | None) -> bool:
+    """Whether *detail* is :data:`RESTRICTED_DETAIL`'s, so no other note belongs after it."""
+    return detail is not None and detail.endswith(_RESTRICTED_SUFFIX)
+
+
+def in_restricted_dir(name: Any) -> bool:
+    """Whether Jedi *name*'s file RESOLVES into a restricted directory (#999).
+
+    Jedi follows a symlink in the project or the venv's site-packages while it
+    looks up an import, so a hit can land in ``/etc`` or a credential store
+    where no input check or pruned walk applies. The file is checked on its
+    resolved form with the walkers' own test, :func:`pyeye.validation.restricted_dir`.
+    A name with no file (a builtin, a namespace sentinel without one) is never
+    restricted.
+    """
+    module_path = getattr(name, "module_path", None)
+    return module_path is not None and restricted_path(module_path)
+
+
+#: Windows' error for a symlink chain it can't resolve, a loop included
+#: (``ERROR_CANT_RESOLVE_FILENAME``).
+_WINERROR_CANT_RESOLVE = 1921
+
+
+def restricted_path(path: str | Path) -> bool:
+    """Whether *path* RESOLVES into a restricted directory (#999).
+
+    Fails closed: a path whose links can't be followed counts as restricted,
+    so an unfollowable route never returns a result. On POSIX that is every
+    error a strict resolve raises. On Windows a strict resolve also fails on
+    files Jedi reads fine (access denied on a parent, a ``WindowsApps``
+    app-exec link, an unusual name), so there only a loop fails closed; any
+    other error falls back to a non-strict resolve, which is still checked
+    (#1005). The credential stores do apply on Windows, below the server's
+    own home, so the check can't simply be skipped there.
+    """
+    from pyeye.validation import restricted_dir
+
+    try:
+        resolved = normalize_path_strict(path)
+    except RuntimeError:
+        return True  # a symlink loop, before Python 3.13
+    except OSError as exc:
+        if not _ON_WINDOWS or _is_link_loop(exc):
+            return True
+        try:
+            resolved = normalize_path(path)
+        except (OSError, RuntimeError):
+            return True
+    return restricted_dir(resolved)
+
+
+#: Whether the server runs on Windows: patched by tests of the Windows policy.
+_ON_WINDOWS = os.name == "nt"
+
+
+def _is_link_loop(exc: OSError) -> bool:
+    """Whether *exc* says a symlink chain can't be followed (a loop), on any OS."""
+    return exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == _WINERROR_CANT_RESOLVE
 
 
 def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
@@ -109,6 +186,11 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
     anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
+    if in_restricted_dir(anchor):
+        # Refused, not returned: its symbols and location would expose the file (#999).
+        return NotFound(
+            reason="unresolved", detail=RESTRICTED_DETAIL.format(path=path), restricted=True
+        )
     kind = normalise_kind_from_name(anchor)
     return Resolved(
         handle=canonical,
@@ -169,7 +251,8 @@ def resolve_external_item(path: str, analyzer: JediAnalyzer) -> Resolved | NotFo
     if not isinstance(cache, ScopedCache):
         return resolve_item(path, analyzer)
     hit = cache.get_recent(path, EXTERNAL_RESOLVE_SCOPE)
-    if isinstance(hit, Resolved):
+    # Re-checked on a hit: a symlink can be repointed after the answer was cached (#999).
+    if isinstance(hit, Resolved) and not in_restricted_dir(hit.anchor):
         return hit
     epoch = cache.epoch()
     resolved = resolve_item(path, analyzer)
@@ -199,6 +282,11 @@ async def resolve_name(bare: str, analyzer: JediAnalyzer) -> Resolved | Ambiguou
         answer = await rule.run(bare, analyzer)
         if answer is not None:
             return answer
+    # A top-level module refused as restricted (#999) answers nothing above, so
+    # the miss says why instead of "check the spelling".
+    exact = resolve_item(bare, analyzer)
+    if isinstance(exact, NotFound) and exact.restricted:
+        return exact
     return NotFound(reason="unresolved", detail=_miss_detail(bare))
 
 
@@ -312,7 +400,9 @@ def _top_level_shadow(bare: str, analyzer: JediAnalyzer) -> list[Resolved]:
     for root in project_roots(analyzer, RootsBoundary.TOP_LEVEL_PACKAGE):
         for candidate in (root / bare / "__init__.py", root / f"{bare}.py"):
             if candidate.is_file():
-                files.setdefault(path_to_key(candidate), candidate)
+                # A copy that resolves into a restricted directory is no candidate (#999).
+                if not restricted_path(candidate):
+                    files.setdefault(path_to_key(candidate), candidate)
                 break
     if len(files) < 2:
         return []
