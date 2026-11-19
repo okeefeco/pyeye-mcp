@@ -118,6 +118,23 @@ class TestCatchUpSweep:
         assert await _until_found("Gamma", analyzer), "the catch-up sweep never invalidated"
 
     @pytest.mark.asyncio
+    async def test_a_stub_only_module_written_during_start_up_is_picked_up(
+        self, tmp_path: Path, manager: ProjectManager, written: threading.Event
+    ) -> None:
+        """The sweep reads stubs too: a stub-only module is analysed from its ``.pyi`` (#933)."""
+        proj = _project(tmp_path / "proj")
+        old = time.time() - 3600  # only the stub can look changed to the sweep
+        for py in proj.rglob("*.py"):
+            os.utime(py, (old, old))
+        analyzer = manager.get_analyzer(proj.as_posix())
+        assert (await resolve("Delta", analyzer))["found"] is False
+
+        (proj / "pkg" / "declared.pyi").write_text("class Delta: ...\n")
+        written.set()
+
+        assert await _until_found("Delta", analyzer), "the catch-up sweep never saw the stub"
+
+    @pytest.mark.asyncio
     async def test_without_the_sweep_the_window_is_real(
         self,
         tmp_path: Path,

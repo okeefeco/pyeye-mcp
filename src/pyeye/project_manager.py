@@ -11,7 +11,7 @@ from typing import Any
 from . import settings
 from .analyzers.jedi_analyzer import JediAnalyzer
 from .async_utils import filtered_rglob
-from .cache import CodebaseWatcher
+from .cache import WATCHED_SUFFIXES, CodebaseWatcher
 from .environment import warn_once_if_none
 from .namespace_resolver import NamespaceResolver
 from .path_utils import normalize_path, path_to_key
@@ -445,7 +445,7 @@ class ProjectManager:
             timer.start()
 
     def _catch_up(self, root: Path) -> None:
-        """One catch-up sweep: invalidate *root*'s ``.py`` files changed since the cutoff."""
+        """One catch-up sweep: invalidate *root*'s source and stub files changed since the cutoff."""
         sweep_ns = time.time_ns()
         with self._watch_lock:
             if root not in self.watchers:
@@ -454,7 +454,8 @@ class ProjectManager:
             # The next sweep only needs changes since this one started.
             self._catchup_cutoff_ns[root] = sweep_ns - CATCHUP_MTIME_MARGIN_NS
         changed = []
-        for path in filtered_rglob("*.py", root):
+        swept = [p for suffix in WATCHED_SUFFIXES for p in filtered_rglob(f"*{suffix}", root)]
+        for path in swept:
             try:
                 if path.stat().st_mtime_ns >= cutoff:
                     changed.append(path.as_posix())

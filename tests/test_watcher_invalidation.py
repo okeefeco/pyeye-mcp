@@ -118,6 +118,17 @@ class TestWatcherEvents:
 
         assert recorded == [sorted(_p(tmp_path, n) for n in ("newpkg", "oldpkg", "a", "b"))]
 
+    def test_a_stub_change_counts(
+        self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
+    ) -> None:
+        """A stub-only module is analysed from its ``.pyi`` (#933), so its edits count."""
+        watcher.on_created(FileCreatedEvent(_p(tmp_path, "pkg/stubonly.pyi")))
+        watcher.on_modified(FileModifiedEvent(_p(tmp_path, "pkg/other.pyi")))
+
+        watcher._process_changes()
+
+        assert recorded == [sorted(_p(tmp_path, n) for n in ("pkg/stubonly.pyi", "pkg/other.pyi"))]
+
     def test_non_python_and_ignored_dirs_are_skipped(
         self, tmp_path: Path, watcher: CodebaseWatcher, recorded: list[list[str]]
     ) -> None:

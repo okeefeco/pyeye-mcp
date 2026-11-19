@@ -49,7 +49,7 @@ E.2 Discriminated-union exclusivity — exactly one of supported (has ``stubs``
     list) or unsupported (has ``unsupported: True``) branch; garbled/blended
     results are rejected.  The unsupported branch requires ``reason`` ∈
     {``deferred_reference_backend``, ``not_yet_implemented``, ``unknown_edge``,
-    ``not_applicable``}
+    ``not_applicable``, ``unparseable``, ``stub_declaration``}
     and a non-empty ``detail`` str.
 E.3 ``unresolved_call_sites`` placement — only allowed on the supported branch
     when ``edge == "callees"``; must be a plain ``int`` (not bool).
@@ -775,6 +775,8 @@ _VALID_UNSUPPORTED_REASONS: frozenset[str] = frozenset(
         "not_applicable",
         # #703: the source's own file can't be parsed by the server's Python.
         "unparseable",
+        # #933: a body edge (callees) on a declaration that lives in a stub.
+        "stub_declaration",
     }
 )
 

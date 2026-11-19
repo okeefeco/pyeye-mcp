@@ -20,7 +20,10 @@ from ..handle import Handle
 from ..import_analyzer import resolve_relative_import
 from ..path_utils import absolute_path, normalize_path, path_to_key, relative_within
 from ..project_layout import (
+    STUB_SUFFIX,
     detect_src_layout,
+    in_stubs_package,
+    is_module_file,
     layout_key,
     module_name_for_file,
 )
@@ -405,7 +408,8 @@ class JediAnalyzer:
         listing and the build then stops a stale index being cached (#617).
         """
         generation = project_graph.generation(self.project_path.as_posix())
-        all_files = await self.get_project_files(pattern="*.py", scope="all")
+        # Stub-only modules' definitions are indexed too (#933).
+        all_files = await self.get_module_files(scope="all")
         file_to_module = {f: self._get_import_path_for_file(f) for f in all_files}
         return await asyncio.to_thread(
             getter,
@@ -563,6 +567,28 @@ class JediAnalyzer:
         self.scoped_cache.set(cache_key, unique_files, scope, epoch=epoch)
 
         return unique_files
+
+    async def get_module_files(
+        self, scope: Scope | None = None, method_name: str | None = None
+    ) -> list[Path]:
+        """The module files in *scope*: its ``.py`` files and stub-only ``.pyi`` (#933).
+
+        :meth:`get_project_files` for both suffixes, keeping a ``.pyi`` only when
+        it is a stub-only module (:func:`pyeye.project_layout.is_module_file`)
+        outside any ``foo-stubs`` directory. For a scan whose answer covers a
+        module's declarations (``subclasses``); one that counts runtime
+        behaviour (``imported_by``) reads ``.py`` files only.
+        """
+        sources = await self.get_project_files("*.py", scope, method_name=method_name)
+        stubs = await self.get_project_files(f"*{STUB_SUFFIX}", scope, method_name=method_name)
+        root = self.project_path
+        kept = [
+            f
+            for f in stubs
+            if is_module_file(f)
+            and not in_stubs_package(f, root if relative_within(f, root) is not None else None)
+        ]
+        return [*sources, *kept]
 
     def scope_layout(self) -> ScopeLayout:
         """This analyzer's search-scope layout (the one :func:`resolve_scope_paths` reads)."""
@@ -1029,7 +1055,9 @@ class JediAnalyzer:
             # a watcher invalidation raced is never cached (#617).
             generation = project_graph.generation(self.project_path.as_posix())
             # Get all Python files in scope (cached by get_project_files)
-            py_files = await self.get_project_files("*.py", scope, method_name="find_subclasses")
+            # Stub-only modules' classes too (#933): ``superclasses`` reads a stub
+            # class's bases, so ``subclasses`` must see it from the other side.
+            py_files = await self.get_module_files(scope, method_name="find_subclasses")
 
             if is_fqn_input:
                 # FQN-strict path (the `subclasses` edge): children whose declared
