@@ -37,7 +37,7 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import normalize_path, path_to_key, paths_equal
+from pyeye.path_utils import normalize_path_strict, path_to_key, paths_equal
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -131,7 +131,7 @@ def restricted_path(path: str | Path) -> bool:
     from pyeye.validation import restricted_dir
 
     try:
-        resolved = normalize_path(path)
+        resolved = normalize_path_strict(path)
     except (OSError, RuntimeError):
         return True
     return restricted_dir(resolved)

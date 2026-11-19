@@ -133,8 +133,9 @@ they can't drift from it.
   found, with a detail saying it is in a restricted directory, and an edge
   that would point at it lists it among the edge's unresolved targets, by the
   source's own spelling, instead. Nothing is drawn from it through a project
-  symbol either: no inherited signature or parameter default, and no base
-  class or inherited field (#999). A symlink into any other directory works as
+  symbol either: no inherited signature or parameter default, no base class
+  or inherited field, and no type annotation's handle (#999). A path that
+  can't be resolved, such as a symlink loop, counts as restricted. A symlink into any other directory works as
   before.
 
   The credential stores are different: they define no ancestors. A scan of

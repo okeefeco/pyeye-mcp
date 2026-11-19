@@ -92,7 +92,7 @@ from pyeye._stdlib_static import is_stdlib
 from pyeye.handle import Handle
 from pyeye.path_utils import path_to_key
 from pyeye.project_layout import module_name_for_file
-from pyeye.resolver import Resolved, resolve_item
+from pyeye.resolver import Resolved, in_restricted_dir, resolve_item
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -478,7 +478,10 @@ def _resolve_head_via_jedi(
     if stdlib is not None:
         return stdlib
     target = goto_target(script, line, col)
-    if target is None:
+    # A head defined in a restricted directory gets no handle (#999): its
+    # canonical name could disclose the file's internals. The TypeRef keeps the
+    # annotation's own text, as for any head that doesn't resolve.
+    if target is None or in_restricted_dir(target):
         return None
 
     full_name = target.full_name

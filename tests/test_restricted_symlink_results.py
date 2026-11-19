@@ -358,10 +358,57 @@ async def test_pydantic_inheritance_doesnt_read_a_restricted_ancestor(
     assert "fields_inherited" not in result or not result["fields_inherited"], result
 
 
-def test_an_unresolvable_path_fails_closed(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_an_annotation_head_in_a_restricted_dir_gets_no_handle(
+    tmp_path: Path, restricted: Path
+) -> None:
+    """A TypeRef handle would name the restricted file's internals (``_hidden``).
+
+    Every head form: a bare name, an attribute (``K.Base``), a return type, and
+    annotated module and class attributes.
+    """
+    pkg = restricted / "pkg"
+    (pkg / "__init__.py").write_text("from ._hidden import Thing\n", encoding="utf-8")
+    (pkg / "_hidden.py").write_text("class Thing:\n    pass\n", encoding="utf-8")
+    (pkg / "keys.py").write_text("class Base:\n    pass\n", encoding="utf-8")
+    project = _project(
+        tmp_path,
+        "import etcmod2.keys as K\nfrom etcmod2 import Thing\nfrom etcmod2.keys import Base\n\n\n"
+        "def annotated(x: Thing, r: K.Base) -> Thing:\n    return x\n\n\n"
+        "attr: Base = None\n\n\n"
+        "class Holder:\n    field: Base = None\n",
+    )
+    (project / "etcmod2").symlink_to(pkg, target_is_directory=True)
+    analyzer = JediAnalyzer(str(project))
+
+    nodes = [
+        await inspect(handle, analyzer)
+        for handle in ("app.annotated", "app.attr", "app.Holder", "app.Holder.field")
+    ]
+
+    assert all(node["found"] for node in nodes), nodes
+    text = json.dumps(nodes)
+    assert "_hidden" not in text and "etcmod2.keys.Base" not in text, text
+    assert "handle" not in nodes[0]["return_type"], nodes[0]["return_type"]
+
+
+def test_a_symlink_loop_fails_closed_on_every_python(tmp_path: Path) -> None:
+    """Python 3.13 stopped raising on a loop in a non-strict resolve (#1003 review)."""
     from pyeye.resolver import restricted_path
 
     loop = tmp_path / "loop"
     loop.symlink_to(loop)
 
     assert restricted_path(loop / "x.py") is True
+    assert restricted_path(loop) is True
+
+
+def test_a_missing_file_isnt_refused_but_a_dangling_link_into_one_is(
+    tmp_path: Path, restricted: Path
+) -> None:
+    from pyeye.resolver import restricted_path
+
+    assert restricted_path(tmp_path / "not-yet.py") is False
+    dangling = tmp_path / "dangling"
+    dangling.symlink_to(restricted / "gone.py")
+    assert restricted_path(dangling) is True
