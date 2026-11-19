@@ -232,7 +232,8 @@ class TestPathChecks:
             paths = site_paths(tmp_path / ".venv")
 
         assert paths == [site.resolve().as_posix()]
-        assert "Skipping .pth path" in caplog.text
+        if Path(line).is_dir():  # macOS has no /proc: dropped as missing, nothing to refuse
+            assert "Skipping .pth path" in caplog.text
 
     @_POSIX_ONLY
     def test_a_pth_line_climbing_with_dotdot_is_dropped(self, tmp_path: Path) -> None:
@@ -320,7 +321,8 @@ class TestCandidateChecks:
             found = discover(tmp_path)
 
         assert (found.source, found.site_paths) == ("none", ())
-        assert f"Skipping {var} environment" in caplog.text
+        if Path(value).is_dir():  # macOS has no /proc: skipped as missing, nothing to refuse
+            assert f"Skipping {var} environment" in caplog.text
 
     @_POSIX_ONLY
     def test_an_activated_environment_whose_site_packages_is_restricted_reads_nothing(
