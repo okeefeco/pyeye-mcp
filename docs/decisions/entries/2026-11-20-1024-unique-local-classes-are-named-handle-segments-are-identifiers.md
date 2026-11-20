@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "Unique function-local classes are named; handle segments are any Python identifier (#1024)"
 issues: [1024, 1011, 1006, 1022, 1025, 1026]
 anchors: ["pyeye.analyzers.jedi_analyzer._named_classes", "pyeye.symbol_parser.validate_symbol_component", "pyeye.analyzers.project_graph.UNNAMED_AMBIGUOUS_LOCAL", "pyeye.analyzers.project_graph.UNNAMED_NESTED_LOCAL", "tests/unit/analyzers/test_local_class_naming.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-20-1006-handleless-subclasses-are-reported-the-class-graph-is-keyed-by-site.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-21-1049-a-local-names-bindings-follow-the-language-reference.md"]
 superseded_by: []
 ---
 
