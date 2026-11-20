@@ -27,7 +27,7 @@ import ast
 import errno
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -616,9 +616,7 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             continue
         rest = parts[split_at:]
         # The module file exists, so a failure reading its names is internal (#704).
-        names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
-            all_scopes=True, definitions=True, references=False
-        )
+        names = file_artifact_cache.get_all_scope_names(mod_file, analyzer.project)
         # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
         # nothing in this scope (#567).
         matches = [
@@ -693,7 +691,7 @@ def local_member_full_name(name: Any) -> str | None:
 
 
 def _local_class_member(
-    path: str, names: list[Any], analyzer: JediAnalyzer, hops: int
+    path: str, names: Sequence[Any], analyzer: JediAnalyzer, hops: int
 ) -> tuple[str, Any] | None:
     """Place *path* as a member of a function-local class it names (#1025).
 
@@ -827,7 +825,7 @@ def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> 
 def _follow_alias(
     module_dotted: str,
     rest: list[str],
-    names: list[Any],
+    names: Sequence[Any],
     analyzer: JediAnalyzer,
     hops: int,
 ) -> tuple[str, Any] | None:
@@ -1012,9 +1010,7 @@ def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer
     ``location`` coming from the same place they do for every other symbol;
     only the handle is the public one.
     """
-    names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
-        all_scopes=True, definitions=True, references=False
-    )
+    names = file_artifact_cache.get_all_scope_names(found.file, analyzer.project)
     for name in names:
         if name.name == found.name and name.line == found.line:
             return name
