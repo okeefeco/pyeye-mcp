@@ -149,14 +149,17 @@ they can't drift from it.
   user home is matched by pattern, so a home created after the server started
   is covered too. When `/home`, `/Users` or `/root` is itself a symlink (BSD's
   `/home` pointing at `/usr/home`), the homes are also matched where it points,
-  so a walk through `/home/bob` still skips `/usr/home/bob/.ssh`; the link is
-  read when the stores are next looked up, not on every check (#1030). The
+  so a walk through `/home/bob` still skips `/usr/home/bob/.ssh`. Each root is
+  resolved once per process, not on every check, and a root that can't be
+  resolved yet is matched by its spelling and tried again at the next rebuild
+  of the store list (#1030). The
   server's own home is read once, when the process starts, and is matched both
   as `$HOME` spells it and as it resolves, so a symlinked home (an NFS or
   autofs `/home/u` that points at `/data/u`) is covered under either name.
   When `$HOME` isn't the user's home in the password database (a service
   started with `HOME=/srv/app`), that home counts as the server's own too
-  (#1030). A credential store below the server's home that is itself a
+  (#1030). A failed lookup (LDAP or SSSD down) is retried, not remembered. A
+  credential store below the server's home that is itself a
   symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
   matched where it points, so a file reached through the target is refused
   and a walk skips it. A store linked, removed or repointed while the server
@@ -179,8 +182,19 @@ they can't drift from it.
   - another user's store that is a symlink (`/home/bob/.ssh` pointing at
     `/data/bob`) is refused by its spelling only, not where it points:
     finding those would mean reading every user's home (#1030);
-  - `/home`, `/Users` or `/root` relinked while the server runs is seen when
-    the server's own stores next change, or after a restart (#1030).
+  - `/home`, `/Users` or `/root` relinked while the server runs is seen after
+    a restart (#1030);
+  - one user's home that is itself a symlink (`/home/bob2` pointing at
+    `/data/bob2`), when it isn't the server's own: a walk through
+    `/home/bob2` reaches `/data/bob2/.ssh`, which no home pattern names.
+    Results are still refused, because their spelled form under `/home` is
+    checked too (#1030);
+  - a store below the password-database home that is linked or repointed
+    while the server runs, when that home isn't `$HOME`, is matched at its
+    new target only when the store list is next rebuilt (a change in `$HOME`'s
+    store directories) or after a restart. Checking it on every call would
+    `stat` that home each time, which hangs every check if it's on a dead
+    mount. Paths spelled through the store are refused all along (#1030).
 
   Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,

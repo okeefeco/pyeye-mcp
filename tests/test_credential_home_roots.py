@@ -48,8 +48,10 @@ def homes(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
             monkeypatch.setattr(PathValidator, "USER_HOMES", roots)
         validation._credential_pattern.cache_clear()
 
+    validation._resolved_roots.clear()
     yield set_homes
     monkeypatch.undo()
+    validation._resolved_roots.clear()
     validation._credential_pattern.cache_clear()
 
 
@@ -135,9 +137,15 @@ class TestThePasswdHome:
 
         assert credential_path(real_home / ".aws" / "credentials") == ".aws"
 
-    def test_a_relink_below_it_is_seen(
+    def test_a_relink_below_it_is_seen_at_the_next_rebuild(
         self, tmp_path: Path, passwd_home: tuple[Path, Path], homes: Callable[..., None]
     ) -> None:
+        """A documented limit (#1030 review): the cheap key doesn't stat the passwd home.
+
+        A relink below it is seen when the stores are next rebuilt ($HOME's
+        store directories change, or a restart), not at once. A path spelled
+        through the store is refused all along.
+        """
         real_home, keys = passwd_home
         homes(tmp_path / "env-home", passwd=real_home)
         assert credential_path(keys / "id_rsa") == ".ssh"
@@ -146,18 +154,23 @@ class TestThePasswdHome:
         moved.mkdir()
         (real_home / ".ssh").unlink()
         (real_home / ".ssh").symlink_to(moved, target_is_directory=True)
+        assert credential_path(real_home / ".ssh" / "id_rsa") == ".ssh"  # spelled: always
 
+        validation._credential_pattern.cache_clear()  # what the next rebuild does
         assert credential_path(moved / "id_rsa") == ".ssh"
 
-    def test_the_same_home_costs_nothing_extra(
-        self, tmp_path: Path, homes: Callable[..., None]
+    def test_the_cheap_key_never_stats_it(
+        self, tmp_path: Path, passwd_home: tuple[Path, Path], homes: Callable[..., None]
     ) -> None:
-        """passwd == $HOME (the usual case): the cheap key stats each directory once."""
-        home = tmp_path / "home"
-        home.mkdir()
-        homes(home, passwd=home)
+        """A passwd home on a dead mount mustn't hang every check (#1030 review).
 
-        _, times = validation._dir_key(validation._homes())
+        The per-call key stats ``$HOME``'s store directories only; the passwd
+        home is compared by its cached value, and read by a rebuild.
+        """
+        real_home, _ = passwd_home
+        homes(tmp_path / "env-home", passwd=real_home)
+
+        _, times = validation._dir_key(validation._env_homes())
         assert len(times) == len(validation._STORE_LINK_DIRS)
 
 
@@ -174,3 +187,123 @@ def test_another_users_linked_store_is_a_known_limit(
 
     assert credential_path(root / "bob" / ".ssh" / "id_rsa") == ".ssh"  # by spelling
     assert credential_path(target / "id_rsa") is None  # its target: not matched
+
+
+class TestReviewFindings:
+    """The #1051 review: availability and fail-open cases (#1030)."""
+
+    def test_a_root_is_resolved_once_and_never_under_the_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, homes: Callable[..., None]
+    ) -> None:
+        link, real = _bsd_homes(tmp_path)
+        homes(tmp_path / "me", roots=(f"^{link.as_posix()}/[^/]+/",))
+        original = validation.normalize_path
+        resolves: list[bool] = []
+
+        def watched(path):  # type: ignore[no-untyped-def]
+            if Path(path) == link:
+                resolves.append(validation._credential_pattern._lock.locked())
+            return original(path)
+
+        monkeypatch.setattr(validation, "normalize_path", watched)
+        for _ in range(3):  # three rebuilds
+            validation._credential_pattern.cache_clear()
+            assert credential_path(real / "bob" / ".ssh" / "id_rsa") == ".ssh"
+
+        assert resolves == [False]  # once, and the lock wasn't held
+
+    def test_a_failed_root_resolve_keeps_the_spelling_and_is_retried(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        homes: Callable[..., None],
+    ) -> None:
+        link, real = _bsd_homes(tmp_path)
+        homes(tmp_path / "me", roots=(f"^{link.as_posix()}/[^/]+/",))
+        original = validation.normalize_path
+
+        def failing(path):  # type: ignore[no-untyped-def]
+            if Path(path) == link:
+                raise OSError("stale NFS file handle")
+            return original(path)
+
+        monkeypatch.setattr(validation, "normalize_path", failing)
+        with caplog.at_level("WARNING", logger="pyeye.validation"):
+            assert credential_path(link / "bob" / ".ssh" / "id_rsa") == ".ssh"  # spelled
+        assert "can't resolve the home root" in caplog.text
+        assert credential_path(real / "bob" / ".ssh" / "id_rsa") is None  # not yet
+
+        monkeypatch.setattr(validation, "normalize_path", original)
+        validation._credential_pattern.cache_clear()  # the next rebuild retries
+        assert credential_path(real / "bob" / ".ssh" / "id_rsa") == ".ssh"
+
+    def test_a_root_resolving_to_slash_adds_nothing(
+        self, tmp_path: Path, homes: Callable[..., None]
+    ) -> None:
+        link = tmp_path / "home"
+        link.symlink_to("/", target_is_directory=True)
+        homes(tmp_path / "me", roots=(f"^{link.as_posix()}/[^/]+/",))
+
+        assert credential_path("/opt/.ssh/id_rsa") is None  # not ^/[^/]+/
+
+    def test_home_slash_still_has_a_cheap_key(self) -> None:
+        """``"/".rstrip("/")`` is empty: the key used to stat ``""`` and see nothing."""
+        _, times = validation._dir_key(("/",))
+        assert times[0] is not None
+
+
+class TestThePasswdLookup:
+    @staticmethod
+    def _entry(pw_dir: str):  # type: ignore[no-untyped-def]
+        return type("pw", (), {"pw_dir": pw_dir})()
+
+    def test_a_failure_is_retried_not_cached(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """LDAP down at start-up must not blind the deny-list for good (fails open)."""
+        import pwd
+
+        calls: list[str] = []
+        results: list = [KeyError("uid not found"), self._entry("/home/real")]
+
+        def getpwuid(_uid: int):  # type: ignore[no-untyped-def]
+            calls.append("x")
+            result = results.pop(0)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        now = [1000.0]
+        monkeypatch.setattr(pwd, "getpwuid", getpwuid)
+        monkeypatch.setattr(validation.time, "monotonic", lambda: now[0])
+        lookup = validation._PasswdHome()
+
+        assert lookup() is None
+        assert lookup() is None and len(calls) == 1  # backed off: no second lookup yet
+        now[0] += validation._PASSWD_RETRY_FIRST_S + 0.1
+        assert lookup() == "/home/real" and len(calls) == 2
+        assert lookup() == "/home/real" and len(calls) == 2  # a success is kept
+
+    @pytest.mark.parametrize("pw_dir", ["", "relative/home"])
+    def test_an_empty_or_relative_home_is_no_home(
+        self, monkeypatch: pytest.MonkeyPatch, pw_dir: str
+    ) -> None:
+        """``Path("")`` is the working directory: it would make the project a home."""
+        import pwd
+
+        monkeypatch.setattr(pwd, "getpwuid", lambda _uid: self._entry(pw_dir))
+
+        assert validation._PasswdHome()() is None
+
+    def test_a_recovered_lookup_rebuilds_the_stores(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, homes: Callable[..., None]
+    ) -> None:
+        real_home = tmp_path / "passwd-home"
+        real_home.mkdir()
+        homes(tmp_path / "env-home")
+        answer: list[str | None] = [None]
+        monkeypatch.setattr(validation, "_passwd_home", lambda: answer[0])
+        assert credential_path(real_home / ".aws" / "credentials") is None
+
+        answer[0] = real_home.as_posix()  # the directory came back
+
+        assert credential_path(real_home / ".aws" / "credentials") == ".aws"

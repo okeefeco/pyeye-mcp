@@ -425,7 +425,7 @@ class TestTheStoreCacheIsKeyed:
         monkeypatch.setattr(validation, "_passwd_home", lambda: None)  # #1030
         validation._credential_pattern.cache_clear()
         try:
-            assert validation._store_key() == (((), ()), ())
+            assert validation._store_key() == (((), ()), None, ())
             assert validation._dir_key(()) == ((), ())
             assert credential_path("/home/someone/.ssh/id_rsa") == ".ssh"
             assert credential_path((tmp_path / "x" / ".ssh" / "id_rsa").as_posix()) is None
