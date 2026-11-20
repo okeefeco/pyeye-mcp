@@ -130,6 +130,10 @@ class _RecoverAfterJediImport(importlib.abc.MetaPathFinder):
 def _install_recovery() -> None:
     import importlib
 
+    # First and on its own (#1056): a later step failing after a Jedi upgrade
+    # must not skip the network-path filter, nor it the recovery shims.
+    _install_sys_path_filter_isolated()
+
     import jedi.parser_utils
 
     original_node = getattr(
@@ -159,7 +163,6 @@ def _install_recovery() -> None:
     if not _is_marked(filters.get_parso_cache_node):
         setattr(filters, "get_parso_cache_node", node_or_none)  # noqa: B010
     _install_own_tree_guard(filters._AbstractUsedNamesFilter)
-    _install_sys_path_filter()
     for name in _CODE_LINES_MODULES:
         module: ModuleType = importlib.import_module(name)
         if not _is_marked(module.get_cached_code_lines):
@@ -195,6 +198,17 @@ def _install_own_tree_guard(filter_class: Any) -> None:
 
     _mark(init_own_tree, original_init)
     filter_class.__init__ = init_own_tree
+
+
+def _install_sys_path_filter_isolated() -> None:
+    """:func:`_install_sys_path_filter`, whose failure warns instead of stopping the other patches."""
+    try:
+        _install_sys_path_filter()
+    except Exception as error:
+        logger.warning(
+            f"Could not install the sys.path network filter ({error}): network paths in a "
+            "project's own sys.path changes are NOT filtered (#1048)"
+        )
 
 
 def _install_sys_path_filter() -> None:

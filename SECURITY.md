@@ -245,6 +245,21 @@ they can't drift from it.
   None of these writes the analysed source files.
 - **No network access** is needed for analysis. Imports of a networking module
   in the server's code: <!-- fact:begin security.network_imports -->none<!-- fact:end -->.
+- **A repository's network paths are never looked up** (#1048). On Windows,
+  checking whether `\\host\share\x` exists connects to that host over SMB, which
+  can send it your NTLM credentials. So a path that a repository supplies is
+  refused before anything touches it when it is a network (UNC) or device path,
+  or relative to a drive's current directory or root. That covers `.pth` lines
+  and editable-install finder targets, declared path dependencies,
+  `[tool.pyright]` extra paths, the project's own config files, `.gitmodules`
+  and `.git` pointers, and the `sys.path` changes Jedi reads in the project's
+  code. A `~` path is checked after expansion too: with a roaming profile on a
+  share, a repository entry written as `~/x` is refused. So are a
+  repository-supplied `\\?\C:\long` path and a POSIX-style `/opt/libs`; a shared
+  config that needs one should use a relative or drive-qualified path. Paths
+  you pass to a tool, and your own global config, are your choice and are not
+  refused. On POSIX nothing is refused. A mapped network drive, or a link
+  pointing at a share, can't be recognised this way.
 
 ## Security Checks in Development
 

@@ -73,12 +73,18 @@ from pyeye.mcp.operations.completeness import (
     check_cap,
 )
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
-from pyeye.path_utils import anchor, normalize_path
-from pyeye.project_layout import is_namespace_stub_init, mark_stub
+from pyeye.path_utils import anchor, normalize_path, paths_equal, relative_within
+from pyeye.project_layout import (
+    file_for_module,
+    is_namespace_stub_init,
+    mark_stub,
+    standalone_shadow,
+)
 from pyeye.resolver import (
     Ambiguous,
     NotFound,
     Resolved,
+    handle_for_anchor,
     is_restricted_detail,
     local_member_full_name,
     resolve_handle,
@@ -310,6 +316,42 @@ def _no_source_file(file_path: Path) -> _Miss | None:
     return None
 
 
+#: The module Jedi names a file that is on none of its sys.path roots.
+_JEDI_MAIN = "__main__"
+
+
+def _unplaced_miss(file_path: Path, analyzer: JediAnalyzer) -> _Miss:
+    """The honest miss for a definition in a file the mapper can't name (#1041).
+
+    A standalone script whose name another module already owns (the standard
+    library, the environment, an earlier root) is searched but has no handle:
+    a handle would answer as that other module. Say what shadows it.
+    """
+    where = file_path.as_posix()
+    for standalone in getattr(analyzer, "standalone_paths", None) or []:
+        rel = relative_within(file_path, standalone)
+        if rel is None:
+            continue
+        name = ".".join([*rel.parts[:-1], file_path.stem])
+        owner = file_for_module(analyzer, name)
+        shadow = (
+            owner.as_posix()
+            if owner is not None and not paths_equal(owner, file_path)
+            else standalone_shadow(analyzer, name.split(".", 1)[0])
+        )
+        if shadow is not None:
+            return _miss(
+                "unresolved",
+                f"{where} is shadowed by {shadow}: the name {name!r} is that module's, so "
+                "this script has no handle of its own. Rename it to search it by name.",
+            )
+    return _miss(
+        "unresolved",
+        f"{where} is on no import root pyeye knows, so it has no module name. Add its "
+        "directory to packages or standalone.dirs in the project's config.",
+    )
+
+
 #: How a handleless definition's Jedi type reads in a detail (#1026).
 _KIND_WORDS = {"statement": "variable", "param": "parameter"}
 
@@ -403,6 +445,13 @@ async def _resolve_at_position(
     if not full_name:
         # There IS a definition here; it just has no handle (#1026).
         return _handleless_miss(name, file_path, analyzer)
+    if full_name == _JEDI_MAIN or full_name.startswith(f"{_JEDI_MAIN}."):
+        # Jedi calls a file on none of its sys.path roots ``__main__`` (a
+        # standalone script): its module comes from the one mapper (#1041).
+        placed = handle_for_anchor(name, full_name, analyzer)
+        if placed is None:
+            return _unplaced_miss(file_path, analyzer)
+        full_name = placed
     # ``goto`` on the ``x`` of ``self.x = …`` lands on the target itself, whose
     # full_name reads as a local of the method.  It binds nothing there, and
     # placing its full_name could find an unrelated same-named binding (#567).

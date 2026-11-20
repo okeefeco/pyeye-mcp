@@ -181,11 +181,12 @@ REBINDINGS: dict[str, tuple[str, str, str | None]] = {
     "withed": ("", "with open('f') as X:\n        pass", "ambiguous_local"),
     "walrused": ("", "if (X := 1):\n        pass", "ambiguous_local"),
     "redefined": ("", "def X():\n        pass", "ambiguous_local"),
-    # ``resolve`` places by Jedi's definitions, which list neither a parameter
-    # nor an import (it is listed under the module it imports) as a second
-    # ``f.X``: X still resolves, so it is named.
-    "parameter": ("X", "pass", None),
-    "imported": ("", "import os as X", None),
+    # The Python reference's other binding forms (#1049 ruling): Jedi doesn't
+    # list these as a second ``f.X``, so both sides count from pyeye._bindings.
+    "parameter": ("X", "pass", "ambiguous_local"),
+    "imported": ("", "import os as X", "ambiguous_local"),
+    "from_imported": ("", "from os import path as X", "ambiguous_local"),
+    "match_captured": ("", "match 1:\n        case X:\n            pass", "ambiguous_local"),
     # A binding in another scope, or of an attribute, leaves X unique.
     "comprehended": ("", "_ = [X for X in ()]", None),
     "lambdaed": ("", "_ = lambda X: X", None),
@@ -257,3 +258,46 @@ class TestTheGraphNamesOnlyWhatResolveResolves:
         result: dict[str, Any] = dict(await resolve("app.r.holder.Form.Meta", rebinding))
 
         assert result.get("handle") is None, result
+
+
+class TestTheAmbiguousAnswerNamesEverySite:
+    """resolve's detail lists each binding of the name, by line and form (#1049).
+
+    Text only: ``candidates`` stay the definitions Jedi can anchor, and no
+    response key is added (coordinator-3, 2026-11-21).
+    """
+
+    @pytest.fixture
+    def rebinding(self, tmp_path: Path) -> JediAnalyzer:
+        files = {
+            "app/__init__.py": "",
+            "app/base.py": "class Base:\n    pass\n",
+            "app/r.py": _rebinding_module(),
+        }
+        for rel, text in files.items():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text(text, encoding="utf-8")
+        return JediAnalyzer(tmp_path.as_posix())
+
+    @pytest.mark.asyncio
+    async def test_resolve_is_ambiguous_with_the_one_anchorable_candidate(
+        self, rebinding: JediAnalyzer
+    ) -> None:
+        """A parameter has no definition to anchor on: the class is the only candidate."""
+        result: dict[str, Any] = dict(await resolve("app.r.parameter.X", rebinding))
+        twins: dict[str, Any] = dict(await resolve("app.r.redefined.X", rebinding))
+
+        assert result["found"] is True and result["ambiguous"] is True, result
+        assert [c["kind"] for c in result["candidates"]] == ["class"]
+        assert set(result) == set(twins)  # #1022's shape, no new key
+
+    @pytest.mark.asyncio
+    async def test_the_not_found_detail_names_every_site(self, rebinding: JediAnalyzer) -> None:
+        from pyeye.mcp.operations.inspect import inspect
+
+        result: dict[str, Any] = dict(await inspect("app.r.parameter.X", rebinding))
+        twins: dict[str, Any] = dict(await inspect("app.r.redefined.X", rebinding))
+
+        assert result["found"] is False and result["reason"] == "unresolved", result
+        assert "a parameter at line" in result["detail"] and "a class at line" in result["detail"]
+        assert set(result) == set(twins)

@@ -535,3 +535,59 @@ class TestEditableFinderTargets:
 
         assert touched == []
         assert not any(HOST in p for p in paths)
+
+
+class TestFollowUps:
+    """#1056: the low items from #1053's final review."""
+
+    def test_posix_never_expands_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On POSIX nothing is refused, so ``~user`` isn't expanded (no pointless pwd lookup)."""
+        import os
+
+        from pyeye.path_utils import repo_path_refusal
+
+        monkeypatch.setattr(path_utils, "_ON_WINDOWS", False)
+
+        def boom(_: str) -> str:
+            raise AssertionError("expanded on POSIX")
+
+        monkeypatch.setattr(os.path, "expanduser", boom)
+
+        assert repo_path_refusal("~someone/lib") is None
+        assert repo_path_refusal("~/lib") is None
+
+    def test_the_filter_installs_even_when_an_earlier_patch_step_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import jedi.inference.sys_path as jedi_sys_path
+
+        from pyeye import _parso_cache
+
+        unwrapped = jedi_sys_path.check_sys_path_modifications.__wrapped__
+        monkeypatch.setattr(jedi_sys_path, "check_sys_path_modifications", unwrapped)
+
+        def broken(*_: Any) -> None:
+            raise RuntimeError("a Jedi upgrade moved this")
+
+        monkeypatch.setattr(_parso_cache, "_install_own_tree_guard", broken)
+
+        with pytest.raises(RuntimeError, match="moved this"):
+            _parso_cache._install_recovery()
+
+        assert _parso_cache._is_marked(jedi_sys_path.check_sys_path_modifications)
+
+    def test_a_failing_filter_install_warns_and_recovery_still_completes(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from pyeye import _parso_cache
+
+        def broken() -> None:
+            raise RuntimeError("filter install failed")
+
+        monkeypatch.setattr(_parso_cache, "_install_sys_path_filter", broken)
+
+        with caplog.at_level("WARNING"):
+            _parso_cache._install_recovery()  # must not raise
+
+        assert "filter install failed" in caplog.text
+        assert "NOT filtered" in caplog.text

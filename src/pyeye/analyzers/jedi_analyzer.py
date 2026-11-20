@@ -13,6 +13,7 @@ import jedi
 
 from .. import file_artifact_cache, settings
 from .._ast_targets import unsubscripted
+from .._bindings import binding_sites
 from .._jedi_project import make_project
 from ..config import ProjectConfig
 from ..environment import discover as discover_environment
@@ -138,25 +139,6 @@ def _site_key(py_file: Path, node: ast.ClassDef) -> str:
     return f"{py_file.as_posix()}:{node.lineno}:{node.col_offset}"
 
 
-#: Nodes whose bound names belong to their own scope, not the enclosing one.
-_OWN_SCOPES = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
-
-
-def _bound_names(node: ast.AST) -> list[str]:
-    """The names *node* itself binds or deletes, as Jedi lists them as definitions.
-
-    An assignment, ``for`` / ``with`` / walrus target, ``except … as`` or
-    ``del``. Not a parameter or an import: Jedi doesn't list either under the
-    function's scope, so neither makes ``resolve`` ambiguous (#1024). Whether
-    that rule is right is #1049; change this with it.
-    """
-    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
-        return [node.id]
-    if isinstance(node, ast.ExceptHandler) and node.name:
-        return [node.name]
-    return []
-
-
 def _named_classes(
     tree: ast.Module, module_path: str | None
 ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
@@ -170,34 +152,37 @@ def _named_classes(
     - its file has no module path (``no_module_path``);
     - it is two or more function levels deep (``nested_local``);
     - it is one function level deep and its dotted name is bound more than
-      once in its scope (``if``/``else`` branches, a ``def``, an assignment,
-      ``del``: the bindings ``resolve`` counts), or an enclosing local class's
-      is (``ambiguous_local``);
+      once in its scope, by any binding the Python reference lists (a second
+      class, a ``def``, a parameter, an import, an assignment, ``del``…;
+      :func:`pyeye._bindings.binding_sites`, the count ``resolve`` uses too,
+      #1049), or an enclosing local class's is (``ambiguous_local``);
     - the handle grammar rejects the name (``not_a_handle``).
     """
     # (node, candidate dotted name, function depth, index of the enclosing class)
     found: list[tuple[ast.ClassDef, str | None, int, int | None]] = []
-    # Every dotted name bound in a local scope: classes, and the other bindings
-    # ``resolve`` counts there, so a name the graph gives resolves (#1022).
+    # Every dotted name bound in a local scope, counted by the one rule
+    # ``resolve`` uses too (#1049), so a name the graph gives resolves (#1022).
     local_names: Counter[str] = Counter()
 
-    def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
-        def bind(name: str) -> str | None:
-            dotted = f"{prefix}.{name}" if prefix is not None else None
-            if dotted is not None and depth >= 1:
-                local_names[dotted] += 1
-            return dotted
+    def count(scope: ast.AST, dotted: str | None) -> None:
+        for name, sites in binding_sites(scope).items():
+            local_names[f"{dotted}.{name}"] += len(sites)
 
+    def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
         for child in ast.iter_child_nodes(owner):
+            dotted = (
+                f"{prefix}.{child.name}" if prefix is not None and hasattr(child, "name") else None
+            )
             if isinstance(child, ast.ClassDef):
-                found.append((child, bind(child.name), depth, parent))
-                visit(child, found[-1][1], depth, len(found) - 1)
+                found.append((child, dotted, depth, parent))
+                if dotted is not None and depth >= 1:
+                    count(child, dotted)  # a local class's body is a scope too (#1025)
+                visit(child, dotted, depth, len(found) - 1)
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # A def rebinds a same-named class; its body is one level deeper.
-                visit(child, bind(child.name), depth + 1, parent)
-            elif not isinstance(child, _OWN_SCOPES):  # a lambda's names are its own
-                for name in _bound_names(child):
-                    bind(name)
+                if dotted is not None:
+                    count(child, dotted)  # its body is one level deeper
+                visit(child, dotted, depth + 1, parent)
+            elif not isinstance(child, ast.Lambda):
                 visit(child, prefix, depth, parent)
 
     visit(tree, module_path, 0, None)

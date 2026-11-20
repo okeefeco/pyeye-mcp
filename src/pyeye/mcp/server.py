@@ -38,6 +38,7 @@ from ..settings import settings
 from ..validation import PathValidator, validate_mcp_inputs
 from . import meta
 from .jedi_worker import on_jedi_worker
+from .list_changed import announces_new_tools
 from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
 from .operations.outline import outline as _outline_impl
@@ -193,8 +194,9 @@ def redetect_plugins(project_path: str, config: ProjectConfig) -> list[str]:
     Runs ``detect()`` (root and configured paths) for each plugin class not yet
     active, and registers ONLY the new plugins' tools, through the same
     decorator stack as at startup.  Add-only: nothing already registered is
-    unregistered or renamed.  No ``tools/list_changed`` is sent (#770); a client
-    can call the new tools by name, and the caller reports the names.
+    unregistered or renamed.  A client can call the new tools by name; the
+    caller reports the names, and ``configure_packages`` announces them with a
+    tools-changed event (#770).
     """
     active = {type(plugin) for plugin in _plugins}
     new = [
@@ -289,26 +291,40 @@ def _build_plugin_context(plugin_class: type[AnalyzerPlugin], project_path: str)
     return _PluginContext(plugin, SmartScopeResolver(config))
 
 
+def _keep_nothing() -> None:
+    """The commit for a context that is already cached, or is the registered one."""
+
+
 def _plugin_context_for(
     plugin: AnalyzerPlugin, resolver: SmartScopeResolver | None, project_path: str | None
-) -> _PluginContext:
-    """The plugin and resolver to answer a call about *project_path* (#665).
+) -> tuple[_PluginContext, Callable[[], None]]:
+    """The plugin and resolver to answer a call about *project_path*, and a commit (#665).
 
     No ``project_path``, or the registered plugin's own project, keeps the
     registered instance (and its resolver), so the default call is unchanged.
     Any other project gets its own, cached in ``ProjectManager`` beside its
     analyzer.  A registration without a resolver (tests) stays without one.
+
+    A context not cached yet is built here but cached only by the returned
+    commit, which the caller runs once the call SUCCEEDED (#1061): a refused
+    call (``project_path="/"`` with ``scope="main"``, #856) leaves no entry.
     """
     if project_path is None or paths_equal(project_path, plugin.project_path):
-        return _PluginContext(plugin, resolver)
-    context: _PluginContext = get_project_manager().get_plugin_context(
-        project_path,
-        type(plugin),
-        lambda path: _build_plugin_context(type(plugin), path),
-    )
+        return _PluginContext(plugin, resolver), _keep_nothing
+    manager = get_project_manager()
+    plugin_class = type(plugin)
+    context: _PluginContext | None = manager.peek_plugin_context(project_path, plugin_class)
+    commit: Callable[[], None] = _keep_nothing
+    if context is None:
+        fresh = _build_plugin_context(plugin_class, project_path)
+        context = fresh
+
+        def commit() -> None:
+            manager.store_plugin_context(project_path, plugin_class, fresh)
+
     if resolver is None:
-        return _PluginContext(context.plugin, None)
-    return context
+        return _PluginContext(context.plugin, None), commit
+    return context, commit
 
 
 def reapply_plugin_paths(project_path: str | Path, config: ProjectConfig) -> None:
@@ -365,7 +381,7 @@ def _plugin_tool(
         # (ProjectNotFoundError), never a scan of nothing reported as [].
         if project_path is not None:
             get_analyzer(project_path)
-        target, target_resolver = _plugin_context_for(plugin, resolver, project_path)
+        (target, target_resolver), commit = _plugin_context_for(plugin, resolver, project_path)
         target_func = func if target is plugin else target.register_tools()[tool_name]
         bound = signature.bind_partial(*args, **kwargs)
         if target_resolver is not None:
@@ -397,6 +413,7 @@ def _plugin_tool(
         # Before the envelope, so the bare list and `results` carry the same.
         result = respell_paths(result, [absolute_path(project_path or target.project_path)])
         if not envelope:
+            commit()  # the call succeeded: keep its context (#1061)
             return result
         searched, unsearched = target.describe_scope(bound.arguments["scope"])
         wrapped: dict[str, Any] = {
@@ -413,6 +430,7 @@ def _plugin_tool(
         # A plugin's own keys follow (#921: find_pydantic_models' unplaced_classes).
         extras = await target.envelope_extras(tool_name, dict(bound.arguments))
         wrapped.update(respell_paths(extras, [absolute_path(project_path or target.project_path)]))
+        commit()  # the call succeeded: keep its context (#1061)
         return wrapped
 
     # Keep the tool's own return type, so the SDK builds the same structured
@@ -746,6 +764,7 @@ def _config_entry_targets(entry: str, final: str) -> list[str]:
 
 
 @mcp.tool()
+@announces_new_tools
 @tool_errors
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
@@ -784,9 +803,11 @@ def configure_packages(
     newly added package (e.g. Flask) activates, and its tools are registered
     immediately; the result's ``activated_plugins`` names them (``[]`` when none
     newly activated; absent for any other project, which isn't re-detected).
-    The new tools are **callable by name right away**, even if your client
-    doesn't refresh its tool list: no ``tools/list_changed`` notification is
-    sent (#770).  Registration is add-only; nothing is ever removed.
+    The new tools are **callable by name right away**.  A call that activates
+    a plugin also sends one tools-changed event (``notifications/tools/list_changed``,
+    or a ``subscriptions/listen`` event from protocol 2026-07-28 on), so a client that
+    honours it re-lists its tools (#770).  Registration is add-only; nothing is
+    ever removed.
     """
     from ..analyzers import project_graph
     from .operations import typeref
@@ -1118,7 +1139,9 @@ async def expand(
         and listed in ``handleless_subclasses`` as ``{name, file, line,
         reason}``, ``reason`` one of ``nested_local`` (two or more function
         levels deep), ``ambiguous_local`` (its name is bound more than once in
-        its function: another class, a ``def``, an assignment, ``del``), ``no_module_path`` or ``not_a_handle``, sorted by file
+        its function by any Python binding: another class, a ``def``, a
+        parameter, an import, an assignment, ``del``; #1049), ``no_module_path``
+        or ``not_a_handle``, sorted by file
         then line, never dropped (#1006).  ``max_stubs`` caps that list
         separately: a cut list shows as ``count > len(list)``.  Add the count to
         ``len(stubs)`` (and ``total``) for every direct subclass.

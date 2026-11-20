@@ -363,7 +363,7 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
 - **`handleless_subclass_counts`** (present only when you traced `subclasses`): a
   `{handle: count}` map of nodes with direct subclasses that **no handle can name**: a
   class two or more function levels deep (`nested_local`), one whose name is bound more
-  than once in its function, by another class, a `def` or an assignment (`ambiguous_local`), or one in a file with no module path
+  than once in its function, by any Python binding: another class, a `def`, a parameter, an import or an assignment (`ambiguous_local`), or one in a file with no module path
   (`migrations/0001_initial.py`). A class in a function, one level deep and unique, does
   have a handle (`pkg.mod.func.Name`). They're real subclasses, so add them when you count, but `trace`
   can't walk below them. `expand(handle, "subclasses")` carries `handleless_subclass_count`

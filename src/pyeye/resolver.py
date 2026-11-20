@@ -118,10 +118,14 @@ class _SharedLocalName:
 
     Python reuses one dotted name (``pkg.mod.outer.Twin``) for every ``class
     Twin`` in ``outer``. :func:`resolve_handle` turns this into a
-    :class:`NotFound` carrying every definition, never one of them.
+    :class:`NotFound` carrying every definition, never one of them. *sites*
+    are every binding of the name in its scope, by the Python reference's
+    rules (:func:`pyeye._bindings.binding_sites`, #1049): a parameter or an
+    import binds it too, though Jedi gives it no definition to anchor on.
     """
 
     anchors: tuple[Any, ...]
+    sites: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -326,14 +330,15 @@ def _shared_local(path: str, shared: _SharedLocalName, analyzer: JediAnalyzer) -
                 anchor=anchor,
             )
         )
-    lines = ", ".join(str(a.line) for a in shared.anchors)
+    if shared.sites:
+        where = ", ".join(f"a {site.form} at line {site.line}" for site in shared.sites)
+        what = f"is bound {len(shared.sites)} times in its scope ({where})"
+    else:
+        lines = ", ".join(str(a.line) for a in shared.anchors)
+        what = f"names {len(shared.anchors)} definitions in one function (lines {lines})"
     return NotFound(
         reason="unresolved",
-        detail=(
-            f"{path!r} names {len(shared.anchors)} definitions in one function "
-            f"(lines {lines}), so no single answer is true. Use resolve_at on the "
-            "one you mean."
-        ),
+        detail=f"{path!r} {what}, so no single answer is true. Use resolve_at on the one you mean.",
         candidates=tuple(candidates),
     )
 
@@ -688,9 +693,7 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
         # nothing in this scope (#567).
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             # Several definitions of one function-local name: none is THE answer (#1022).
@@ -719,13 +722,10 @@ def _place_in_namespace_stubs(
     The portions are tried in sys.path order, so a name two portions declare is
     the first portion's, as Jedi resolves it.
     """
-    rest = path[len(module_dotted) + 1 :]
     for init in namespace_stub_inits(module_dotted, analyzer):
         names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, rest, analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             anchor = _anchor_on_bindings(matches, init, path)
@@ -817,15 +817,45 @@ def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName
     ``None`` when there is one definition, or any match is not function-local:
     module-level names keep #857's binding rules.
     """
-    if len(matches) < 2 or not all(is_function_local(m) for m in matches):
+    if not matches or not all(is_function_local(m) for m in matches):
         return None
     anchors: dict[tuple[Any, int, int], Any] = {}
     for match in matches:
         anchor = _anchor_on_definition(match, path)
         anchors.setdefault((anchor.module_path, anchor.line or 0, anchor.column or 0), anchor)
-    if len(anchors) < 2:
+    sites = _local_binding_sites(matches[0], path)
+    if len(anchors) < 2 and len(sites) < 2:
         return None
-    return _SharedLocalName(tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:])))
+    ordered = tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:]))
+    return _SharedLocalName(ordered, tuple(sites))
+
+
+def _local_binding_sites(match: Any, path: str) -> list[Any]:
+    """Every binding of *path*'s last part in *match*'s scope, per the Python reference (#1049).
+
+    The scope is the function or class *match* is defined in, found in the
+    module's AST by its line and name. ``[]`` when that can't be found, which
+    leaves the decision to Jedi's own definitions, as before.
+    """
+    from ._bindings import binding_sites
+
+    scope = match.parent() if callable(getattr(match, "parent", None)) else None
+    module_path = getattr(match, "module_path", None)
+    if scope is None or module_path is None or scope.type not in ("function", "class"):
+        return []
+    try:
+        tree = file_artifact_cache.get_ast(module_path)
+    except (OSError, SyntaxError, ValueError):
+        return []
+    leaf = path.rsplit(".", 1)[-1]
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and node.lineno == scope.line
+            and node.name == scope.name
+        ):
+            return binding_sites(node).get(leaf, [])
+    return []
 
 
 #: The ``(star source module, name)`` pairs already tried in this resolution, so a
@@ -886,30 +916,20 @@ def _follow_star(
             _STAR_SEEN.reset(token)
 
 
-def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
-    """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
+def _names_path(name: Any, path: str) -> bool:
+    """Whether Jedi's *name* is the definition *path* names: its ``full_name`` is *path*.
 
-    Jedi names a file from the first sys_path root that contains it, so a
-    package added inside the project (``.hidden/upstream/clonepkg``) gets a
-    module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
-    pyeye's name comes from the one file -> module mapper (#714), through
-    :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
-    The cheap checks run first, so the mapper is asked only about candidates:
-    the respelling changes only the module part, so a name whose Jedi
-    ``full_name`` doesn't end with *qualname* (the part of *path* after its
-    module) can't match.
+    #814 respelled the ``full_name`` through the file -> module mapper first,
+    because Jedi named a configured package nested in the project from the
+    project root (``.hidden.upstream.clonepkg.thing.X``). Since #858 (PR #966)
+    every configured package is on Jedi's own sys_path, so Jedi's names agree
+    with the mapper; the respelling matched nothing in the test suite or on
+    django and is retired (#971).
     """
     # ``name.name`` is cheap; ``full_name`` makes Jedi compute the scope chain.
     if name.name != path.rsplit(".", 1)[-1]:
         return False
-    full_name = name.full_name
-    if not full_name:
-        return False
-    if full_name == path:
-        return True
-    if not full_name.endswith(f".{qualname}"):
-        return False
-    return handle_for_anchor(name, full_name, analyzer) == path
+    return bool(name.full_name) and name.full_name == path
 
 
 def _follow_alias(

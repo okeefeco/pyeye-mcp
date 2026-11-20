@@ -299,8 +299,11 @@ def repo_path_refusal(entry: str | PurePath) -> str | None:
     :func:`network_path` on *entry* as written and, for a ``~`` form, on its
     expansion too: ``~`` is expanded before the lookup, and a roaming profile
     puts the home directory on a share (#1053 review). Expanding reads only the
-    environment (and, for ``~user`` on POSIX, the local user database).
+    environment. On POSIX nothing is refused, so nothing is expanded there
+    either: ``~user`` would cost a user-database lookup for no answer (#1056).
     """
+    if not _ON_WINDOWS:
+        return None
     if (why := network_path(entry)) is not None:
         return why
     text = os.fspath(entry)

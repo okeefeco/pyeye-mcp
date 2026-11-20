@@ -82,6 +82,18 @@ class TestFill:
             "``members`` → class, module; ``callees`` → function"
         )
 
+    def test_tiers_list_each_tier_with_its_edges(self) -> None:
+        """The determinism form (#452): ``- ``tier`` (``edge``, ...): meaning.``."""
+        facts = _facts()
+        tier = Fact(
+            "determinism.goto", {"meaning": "goto targets", "edges": ["callees", "imports"]}, ""
+        )
+        facts[tier.id] = tier
+        facts["determinism.table"] = view("determinism.table", [tier], "")
+        assert fill("    <<fact:determinism.table:tiers>>", facts) == (
+            "    - ``goto`` (``callees``, ``imports``): goto targets."
+        )
+
     def test_literal_braces_are_untouched(self) -> None:
         doc = '{ "found": False, "edge": str }  <<fact:edge.members>>  {x}'
         assert fill(doc, _facts()) == '{ "found": False, "edge": str }  ``members``  {x}'
@@ -93,6 +105,7 @@ class TestFill:
             ("<<fact:edges.implemented:table>>", "unknown form 'table'"),
             ("<<fact:edges.implemented:bullets>>", "has no meaning"),
             ("<<fact:ceilings.table:applies_to>>", "has no applies_to"),
+            ("<<fact:edges.implemented:tiers>>", "is not a determinism tier"),
             ("<<fact:edges.implemented", "malformed slot"),
             ("<<fact:Edges Implemented>>", "malformed slot"),
         ],
