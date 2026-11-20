@@ -68,7 +68,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
-from pyeye.project_layout import package_kind
+from pyeye.project_layout import mark_stub, package_kind
 from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
 if TYPE_CHECKING:
@@ -901,6 +901,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         "location": location,
         "docstring": docstring,
     }
+    mark_stub(node, location.get("file") if isinstance(location, dict) else None)  # #933
     node.update(kind_fields)
     # Phase 4: edge_counts populated with per-measurement budgeted counts.
     # `superclasses` is passed for call-site stability but is unused by

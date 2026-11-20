@@ -168,6 +168,102 @@ def layout_key(analyzer: Any) -> str:
     return "\n".join(parts)
 
 
+#: A stub file's suffix (PEP 484).
+STUB_SUFFIX = ".pyi"
+
+#: A PEP 561 stub-only distribution's directory suffix (``foo-stubs``).
+STUBS_PACKAGE_SUFFIX = "-stubs"
+
+DeclarationKind = Literal["source", "stub"]
+
+
+def declaration_kind(file: str | Path) -> DeclarationKind:
+    """Whether a definition in *file* is declared in a stub or in source (#933).
+
+    The ONE predicate behind the ``declared_in`` marker, whose placement in the
+    responses is pending. A ``.pyi`` (any case) is a stub: a project stub-only
+    module, typeshed, a stub-only installed package. Anything else is source.
+    """
+    return "stub" if Path(file).suffix.lower() == STUB_SUFFIX else "source"
+
+
+#: The node key that marks a definition declared in a stub (#933): ``True``
+#: when present, absent for source. A documented flag, not a measurement left
+#: out: whether a definition site is a ``.pyi`` is always known, so its absence
+#: is a measured "no" (the maintainer's ruling, as resolve's ``truncated``).
+STUB_KEY = "stub"
+
+
+def mark_stub(node: dict[str, Any], file: str | Path | None) -> dict[str, Any]:
+    """Set ``stub: true`` on *node* when *file*, its definition site, is a stub; else drop it.
+
+    The one place the flag is written (#933): every node that carries
+    ``scope`` passes through here with the file it is located at. Returns
+    *node*, changed in place. A *file* of ``None`` (no definition file, e.g.
+    a compiled builtin with no stub) is not a stub.
+    """
+    if file is not None and declaration_kind(file) == "stub":
+        node[STUB_KEY] = True
+    else:
+        node.pop(STUB_KEY, None)
+    return node
+
+
+def in_stubs_package(file: str | Path, root: str | Path | None = None) -> bool:
+    """Whether *file* is inside a ``foo-stubs`` directory (below *root*, when given).
+
+    A PEP 561 stubs package is someone else's type information, vendored or
+    installed: it gets no handles and is never enumerated (#933). Only the
+    parts below *root* are tested, so a project that itself lives under a
+    ``-stubs`` directory still scans.
+    """
+    path = Path(file)
+    if root is not None:
+        rel = relative_within(path, root)
+        if rel is None:
+            return False
+        path = rel
+    return any(part.endswith(STUBS_PACKAGE_SUFFIX) for part in path.parts[:-1])
+
+
+def is_stub_only_module(file: str | Path) -> bool:
+    """Whether *file* is a ``<name>.pyi`` with no ``<name>.py`` beside it (#933).
+
+    Such a module is declared only, and gets a handle located at the stub. A
+    stub beside its source is not: the ``.py`` is the module (#885). A package's
+    ``__init__.pyi`` is not either: a stub-only package directory is a
+    namespace package at runtime, and isn't supported (#933).
+    """
+    path = Path(file)
+    return (
+        path.suffix == STUB_SUFFIX
+        and path.name != "__init__.pyi"
+        and not path.with_suffix(".py").is_file()
+    )
+
+
+def is_module_file(file: str | Path) -> bool:
+    """Whether *file* is a module's file: a ``.py``, or a stub-only ``.pyi`` (#933)."""
+    path = Path(file)
+    return path.suffix == ".py" or is_stub_only_module(path)
+
+
+def iter_module_files(root: Path) -> list[Path]:
+    """Every module file under *root*, sorted: ``.py`` files and stub-only ``.pyi``.
+
+    The project-scan rule (:func:`pyeye.async_utils.filtered_rglob`) applies,
+    and nothing in a ``foo-stubs`` directory below *root* is listed (#933).
+    """
+    from .async_utils import filtered_rglob
+
+    files = [
+        f
+        for f in filtered_rglob(("*.py", f"*{STUB_SUFFIX}"), root)  # one walk (#933)
+        if is_module_file(f) and not in_stubs_package(f, root)
+    ]
+    return sorted(files, key=lambda f: f.as_posix())
+
+
 def _root_is_package(analyzer: Any) -> bool:
     flag = getattr(analyzer, "_jedi_root_is_parent", None)
     if flag is not None:
@@ -207,13 +303,15 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
     not, through a symlink): roots and file are compared as given and then
     resolved (:func:`pyeye.path_utils.relative_within`, #714).
 
-    Returns ``None`` when the file is under none of them, is not a ``.py``
-    file, is an ``__init__.py`` directly at a root, or has a path part that
-    isn't a Python identifier. It never returns an invented name; callers must
-    treat ``None`` as "can't be named", not as "not there" (#668).
+    Returns ``None`` when the file is under none of them, is not a module file
+    (a ``.py``, or a stub-only ``.pyi`` since #933: :func:`is_module_file`),
+    is an ``__init__.py`` directly at a root, or has a path part that isn't a
+    Python identifier (which also leaves out a ``foo-stubs`` directory). It
+    never returns an invented name; callers must treat ``None`` as "can't be
+    named", not as "not there" (#668).
     """
     file = Path(file)
-    if file.suffix != ".py":
+    if not is_module_file(file):
         return None
     project = Path(analyzer.project_path)
 
@@ -253,7 +351,7 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
 
 
 def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
-    """Return the ``__init__.py`` or ``<name>.py`` defining *module_dotted*.
+    """Return the ``__init__.py``, ``<name>.py`` or stub-only ``<name>.pyi`` defining *module_dotted*.
 
     The one module → file mapper (#625), the inverse of
     :func:`module_name_for_file`. Searches the ``MODULE_LOOKUP`` roots in
@@ -293,14 +391,18 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
 
 
 def _module_file_under(base: Path, rel_parts: list[str]) -> Path | None:
-    """``base/<rel>/__init__.py``, else ``base/<rel>.py``, if it exists."""
+    """``base/<rel>/__init__.py``, else ``base/<rel>.py``, else ``base/<rel>.pyi``, if it exists.
+
+    The stub comes last, so a ``.py`` beside it always wins (#885, #933).
+    """
     pkg_init = base.joinpath(*rel_parts) / "__init__.py"
     if pkg_init.exists():
         return pkg_init
     if rel_parts:
-        mod_file = base.joinpath(*rel_parts[:-1], rel_parts[-1] + ".py")
-        if mod_file.exists():
-            return mod_file
+        for suffix in (".py", STUB_SUFFIX):
+            mod_file = base.joinpath(*rel_parts[:-1], rel_parts[-1] + suffix)
+            if mod_file.exists():
+                return mod_file
     return None
 
 

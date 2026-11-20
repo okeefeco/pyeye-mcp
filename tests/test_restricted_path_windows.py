@@ -43,6 +43,24 @@ def home_at(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[[Path], None]]
     validation._credential_pattern.cache_clear()
 
 
+def _explain(path: Path) -> str:
+    """What ``restricted_path`` saw for *path*, so a failure explains itself (#1019)."""
+    try:
+        strict: object = resolver.normalize_path_strict(path)
+    except BaseException as exc:  # noqa: BLE001 - reported, not handled
+        strict = f"{type(exc).__name__}: {exc} (winerror={getattr(exc, 'winerror', None)})"
+    try:
+        loose: object = resolver.normalize_path(path)
+    except BaseException as exc:  # noqa: BLE001
+        loose = f"{type(exc).__name__}: {exc}"
+    stores = validation._credential_pattern()
+    return (
+        f"path={path.as_posix()!r} strict={strict!r} non_strict={loose!r} "
+        f"home={Path.home().as_posix()!r} pattern={stores.pattern.pattern!r} "
+        f"linked={stores.linked!r}"
+    )
+
+
 def _strict_raises(monkeypatch: pytest.MonkeyPatch, exc: BaseException) -> None:
     def fail(_path: object) -> Path:
         raise exc
@@ -149,7 +167,9 @@ class TestOnWindows:
         assert restricted_path(target) is False
 
     def test_the_servers_own_credential_store_is_refused(self) -> None:
-        assert restricted_path(Path.home() / ".ssh" / "id_rsa") is True
+        target = Path.home() / ".ssh" / "id_rsa"
+
+        assert restricted_path(target) is True, _explain(target)
 
     def test_a_symlink_loop_is_refused(self, tmp_path: Path) -> None:
         loop = tmp_path / "loop"
@@ -179,6 +199,29 @@ class TestOnWindows:
             pytest.skip("this runner can't create a junction")
 
         assert restricted_path(junction / "id_rsa") is True
+
+    def test_a_store_that_is_a_junction_is_refused_at_its_target(
+        self, tmp_path: Path, home_at: Callable[[Path], None]
+    ) -> None:
+        """``~/.ssh`` is a junction to another directory: its files resolve there (#1019)."""
+        import subprocess  # nosec B404 - mklink, a fixed argv in a temp dir
+
+        keys = tmp_path / "keys"
+        keys.mkdir()
+        (keys / "id_rsa").write_text("", encoding="utf-8")
+        home = tmp_path / "home"
+        home.mkdir()
+        made = subprocess.run(  # nosec B603 B607 - cmd's mklink builtin, fixed arguments
+            ["cmd", "/c", "mklink", "/J", str(home / ".ssh"), str(keys)],
+            capture_output=True,
+            check=False,
+        )
+        if made.returncode != 0:
+            pytest.skip("this runner can't create a junction")
+        home_at(home)
+
+        assert restricted_path(keys / "id_rsa") is True, _explain(keys / "id_rsa")
+        assert restricted_path(home / ".ssh" / "id_rsa") is True
 
     def test_a_windowsapps_alias_is_not_refused(self) -> None:
         local = os.environ.get("LOCALAPPDATA")
