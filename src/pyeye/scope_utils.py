@@ -836,12 +836,12 @@ class LazyNamespaceLoader:
 
 
 async def parallel_search(
-    pattern: str, search_paths: list[Path], max_concurrent: int = 10
+    pattern: str | tuple[str, ...], search_paths: list[Path], max_concurrent: int = 10
 ) -> list[Path]:
     """Search multiple paths in parallel for better performance.
 
     Args:
-        pattern: File pattern to search for
+        pattern: File pattern to search for, or a tuple matched in one walk
         search_paths: Paths to search
         max_concurrent: Maximum concurrent searches
 

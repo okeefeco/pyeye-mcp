@@ -86,18 +86,8 @@ _BOTH_MODES = ("bare", "get_analyzer")
 
 KNOWN_GAPS: dict[tuple[str, ...], str] = {
     # == 1. round trip: none since #623 slice 5 (#602) and #674 (#626),
-    #    including the opt-in self-dogfood corpus (src/pyeye), except: =======
-    # A stub-only module (#933): Jedi follows the .pyi, so expand(imports)
-    # emits pkg.stubonly.S / .f, but resolve and inspect read .py sources only.
-    # #933 option A (approved, post-v2.2.0) makes these resolve; this test then
-    # fails until the entries are deleted.
-    **_round_trip(
-        "stub_only",
-        "#933: stub-only module handles are emitted but not resolvable",
-        _MISS,
-        "pkg.stubonly.S",
-        "pkg.stubonly.f",
-    ),
+    #    including the opt-in self-dogfood corpus (src/pyeye), and since #933
+    #    for stub-only modules (resolved at their .pyi). ===================
     # == 3. counts: none today ==============================================
     # == 2. tools agree =====================================================
     # == 4. trace vs expand: none since #621.
@@ -166,8 +156,8 @@ _SWEEP_CORPORA: dict[str, Path] = {
         "subclasses_resolution",
         "lookup_project",
         "determinism_subclasses",
-        # A module that exists only as a .pyi stub (#933): edges emit its
-        # handles, which nothing else accepts yet (see KNOWN_GAPS).
+        # A module that exists only as a .pyi stub (#933): its handles, located
+        # at the stub, round-trip like any other.
         "stub_only",
     )
 }
@@ -201,17 +191,26 @@ _EXTRA_SEEDS: dict[str, list[str]] = {
 }
 
 
-def _module_seeds(root: Path) -> list[str]:
-    """Return the dotted module handle of every ``.py`` file under *root*.
+def _module_seeds(root: Path, *, stubs_only: bool = False) -> list[str]:
+    """Return the dotted module handle of every module file under *root*.
+
+    A module file is a ``.py``, or a stub-only ``.pyi`` (#933), as pyeye's
+    one predicate (:func:`pyeye.project_layout.is_module_file`) says. With
+    *stubs_only*, only the stub-only modules.
 
     A ``src/`` layout is rooted at ``src``.  A root-package project (the root
     itself has ``__init__.py``) prefixes every module with the root's name —
     the canonical form ``resolve`` returns for such projects.
     """
+    from pyeye.project_layout import is_module_file, is_stub_only_module
+
     base = root / "src" if (root / "src").is_dir() else root
     prefix = [root.name] if (root / "__init__.py").exists() else []
     seeds: list[str] = []
-    for path in sorted(base.rglob("*.py")):
+    files = sorted([*base.rglob("*.py"), *base.rglob("*.pyi")], key=lambda p: p.as_posix())
+    for path in files:
+        if not is_module_file(path) or (stubs_only and not is_stub_only_module(path)):
+            continue
         parts = prefix + list(path.relative_to(base).with_suffix("").parts)
         if parts[-1] == "__init__":
             parts = parts[:-1]

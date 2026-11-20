@@ -93,3 +93,30 @@ def test_excluded_directories_are_never_entered(
     pruned = (".venv", ".claude/worktrees/feature", "thing.egg-info", "build")
     assert not [d for d in listed if d.startswith(pruned)]
     assert not [d for d in listed if "__pycache__" in d]
+
+
+class TestSeveralPatterns:
+    """Several patterns are matched in ONE walk (#933): a walk per suffix doubled scan costs."""
+
+    def test_the_result_is_the_union_of_single_pattern_calls(self, tree: Path) -> None:
+        (tree / "app" / "declared.pyi").write_text("X: int\n", encoding="utf-8")
+        together = filtered_rglob(("*.py", "*.pyi"), tree)
+        apart = filtered_rglob("*.py", tree) + filtered_rglob("*.pyi", tree)
+
+        assert sorted(together) == sorted(apart)
+        assert any(p.suffix == ".pyi" for p in together)
+
+    def test_the_tree_is_walked_once(self, tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import pyeye.async_utils as async_utils
+
+        walks: list[Path] = []
+        real = async_utils.pruned_walk
+
+        def counting(path: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            walks.append(path)
+            return real(path, *args, **kwargs)
+
+        monkeypatch.setattr(async_utils, "pruned_walk", counting)
+        filtered_rglob(("*.py", "*.pyi"), tree)
+
+        assert walks == [tree]

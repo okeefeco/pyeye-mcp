@@ -124,6 +124,14 @@ Notes that matter:
   `reason: "unparseable"` and `outline` marks the node `truncation_reason: "unparseable"`
   with no `children`; `inspect` leaves the count out. That is unknown, not empty: `Read`
   the file (the `detail` names the line), or run pyeye on a newer Python.
+- **Stubs:** a module that exists only as a `.pyi` stub has handles like any other,
+  located at the stub; a `.py` beside a stub always wins. Every node declared in a
+  `.pyi` (a project stub, typeshed, an installed stub package) carries `stub: true`;
+  its absence means source, a measured "no", not an unknown. A stub has no bodies, so
+  `callees` on a stub declaration (also typeshed's, e.g. `math.sqrt`) answers
+  `reason: "stub_declaration"`: unknown, not "calls nothing". A stub's own imports
+  are declarations, so `imported_by` doesn't count them. A `foo-stubs/` package
+  has no handles.
 - **`scope`** is `"project"` or `"external"`. Project symbols get full-graph answers;
   external symbols (stdlib, site-packages) get project-scoped answers — see the scope
   example below.
@@ -191,7 +199,7 @@ of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The 
 | `package_reexports` | import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module \_\_getattr\_\_ are not included |
 | `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
 | `static_definitions` | definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, \_\_getattr\_\_, type(), \_\_init\_subclass\_\_) are not included |
-| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included |
+| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933) |
 <!-- fact:end -->
 
 `enclosing_scope` has none: lexical nesting is exact.
@@ -698,7 +706,7 @@ anti-pattern. Map a few key modules with `expand(…, "imports")` to see which
 shape you have before refactoring.
 
 > Same static-surface ceiling as everywhere else: `imports` covers
-> <!-- fact:begin ceiling.static_imports -->import statements written in source; importlib / \_\_import\_\_ with a computed name is not included<!-- fact:end -->, so an absent edge
+> <!-- fact:begin ceiling.static_imports -->import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933)<!-- fact:end -->, so an absent edge
 > means "not imported in source," not "never loaded."
 
 ## Stating Your Mental Model
