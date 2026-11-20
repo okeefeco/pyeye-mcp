@@ -52,6 +52,7 @@ from pyeye.project_layout import (
     file_for_module,
     find_namespace_package_dirs,
     module_name_for_file,
+    namespace_stub_inits,
     project_roots,
 )
 from pyeye.scope import classify_scope
@@ -613,6 +614,11 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         module_dotted = ".".join(parts[:split_at])
         mod_file = file_for_module(analyzer, module_dotted)
         if mod_file is None:
+            # A namespace package's members are declared in its portions'
+            # __init__.pyi, the first portion first, as Jedi merges them (#1004).
+            in_stubs = _place_in_namespace_stubs(path, module_dotted, analyzer)
+            if in_stubs is not None:
+                return in_stubs
             continue
         rest = parts[split_at:]
         # The module file exists, so a failure reading its names is internal (#704).
@@ -642,6 +648,31 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
             module_dotted, mod_file, rest, analyzer, hops
         )
+    return None
+
+
+def _place_in_namespace_stubs(
+    path: str, module_dotted: str, analyzer: JediAnalyzer
+) -> tuple[str, Any] | None:
+    """*path* declared in one of namespace *module_dotted*'s ``__init__.pyi`` (#1004).
+
+    The portions are tried in sys.path order, so a name two portions declare is
+    the first portion's, as Jedi resolves it.
+    """
+    rest = path[len(module_dotted) + 1 :]
+    for init in namespace_stub_inits(module_dotted, analyzer):
+        names = file_artifact_cache.get_script(init, analyzer.project).get_names(
+            all_scopes=True, definitions=True, references=False
+        )
+        matches = [
+            name
+            for name in names
+            if _names_path(name, path, rest, analyzer) and not is_attribute_target(name)
+        ]
+        if matches:
+            anchor = _anchor_on_bindings(matches, init, path)
+            placed = _canonical_of(anchor, path, analyzer)
+            return (placed, anchor) if placed is not None else None
     return None
 
 

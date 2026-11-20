@@ -84,6 +84,7 @@ from pyeye.project_layout import (
     file_for_module,
     find_namespace_package_dirs,
     is_module_file,
+    namespace_stub_inits,
     package_kind,
 )
 from pyeye.resolver import (
@@ -691,8 +692,25 @@ def _module_members(
     """
     file_path = _own_source(jedi_name)
     if file_path is None:
-        return []
+        # A namespace package has no body of its own, but its portions'
+        # __init__.pyi declare its members, as Jedi merges them (#1004). The
+        # first portion's declaration of a name wins (_collect_members keeps
+        # the first per handle), as sys.path order does.
+        return _collect_members(
+            (
+                pair
+                for init in namespace_stub_inits(handle, analyzer)
+                for pair in _module_member_names(init, handle, analyzer)
+            ),
+            analyzer,
+        )
+    return _collect_members(_module_member_names(file_path, handle, analyzer), analyzer)
 
+
+def _module_member_names(
+    file_path: Path, handle: str, analyzer: JediAnalyzer
+) -> list[tuple[Any, str]]:
+    """``(Jedi Name, full_name)`` for each top-level definition in *file_path*, imports excluded."""
     # A module whose own file doesn't parse has unknown members, not none:
     # raised, never swallowed into [] (#703).  Parse first, so Jedi's error
     # recovery can't produce a partial list for a file Python rejects. Any other
@@ -723,12 +741,11 @@ def _module_members(
 
     # Step 3: emit (handle, name) pairs for every non-import top-level name.
     # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
-    selected = (
+    return [
         (name, name.full_name or f"{handle}.{name.name}")
         for name in names
         if name.name not in import_bound_names and not is_attribute_target(name)
-    )
-    return _collect_members(selected, analyzer)
+    ]
 
 
 def _collect_members(

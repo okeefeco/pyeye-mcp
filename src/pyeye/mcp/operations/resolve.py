@@ -74,7 +74,7 @@ from pyeye.mcp.operations.completeness import (
 )
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
-from pyeye.project_layout import mark_stub
+from pyeye.project_layout import is_namespace_stub_init, mark_stub
 from pyeye.resolver import (
     Ambiguous,
     NotFound,
@@ -650,9 +650,10 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
     A ``.pyi`` stub beside its ``.py`` resolves as that source: the same handle
     and location its ``file:line`` form already lands on (#885). A project
     stub-only module resolves at its stub (#933): the one file↔module mapper
-    names it (:func:`pyeye.project_layout.module_name_for_file`). A stub the
-    mapper can't name (typeshed, a ``foo-stubs`` package, a stub-only
-    ``__init__.pyi``) stays an honest miss that says why.
+    names it (:func:`pyeye.project_layout.module_name_for_file`). A namespace
+    portion's ``__init__.pyi`` resolves as its package does, at the package's
+    directory (#1004). A stub the mapper can't name (typeshed, a ``foo-stubs``
+    package) stays an honest miss that says why.
     """
     if not file_path.exists():
         return _miss("file_not_found")
@@ -668,6 +669,10 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:
         return _stub_only_miss(file_path) if _stub_only(file_path) else _miss("unresolved")
+    if is_namespace_stub_init(file_path):
+        # One portion's declarations of a namespace package (#1004): the package
+        # itself is anchored at its directory, so answer as its dotted name does.
+        return _from_resolver(module_path, analyzer)
 
     try:
         handle = Handle(module_path)

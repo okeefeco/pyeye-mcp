@@ -206,7 +206,13 @@ def mark_stub(node: dict[str, Any], file: str | Path | None) -> dict[str, Any]:
     *node*, changed in place. A *file* of ``None`` (no definition file, e.g.
     a compiled builtin with no stub) is not a stub.
     """
-    if file is not None and declaration_kind(file) == "stub":
+    # A namespace portion's __init__.pyi declares the package's members, but the
+    # package NODE has no single definition file: it is anchored at its
+    # directory, so it is never a stub node (#1004).
+    is_package_node = (
+        file is not None and node.get("kind") == "module" and is_namespace_stub_init(file)
+    )
+    if file is not None and declaration_kind(file) == "stub" and not is_package_node:
         node[STUB_KEY] = True
     else:
         node.pop(STUB_KEY, None)
@@ -235,8 +241,9 @@ def is_stub_only_module(file: str | Path) -> bool:
 
     Such a module is declared only, and gets a handle located at the stub. A
     stub beside its source is not: the ``.py`` is the module (#885). A package's
-    ``__init__.pyi`` is not either: a stub-only package directory is a
-    namespace package at runtime, and isn't supported (#933).
+    ``__init__.pyi`` is not either: without an ``__init__.py`` its directory is
+    a namespace package, and the stub is one portion's declarations of it
+    (:func:`is_namespace_stub_init`, #1004).
     """
     path = Path(file)
     return (
@@ -246,10 +253,27 @@ def is_stub_only_module(file: str | Path) -> bool:
     )
 
 
-def is_module_file(file: str | Path) -> bool:
-    """Whether *file* is a module's file: a ``.py``, or a stub-only ``.pyi`` (#933)."""
+def is_namespace_stub_init(file: str | Path) -> bool:
+    """Whether *file* is an ``__init__.pyi`` with no ``__init__.py`` beside it (#1004).
+
+    Its directory is a PEP 420 namespace package at runtime, and Jedi treats it
+    as one (``type == "namespace"``), merging the stub's declarations into the
+    namespace. So the stub declares the namespace's members, and names them as
+    the package (``mixed/__init__.pyi`` declares ``mixed.M``), but it is not the
+    package's file: the package is anchored at its directory (#444).
+    """
     path = Path(file)
-    return path.suffix == ".py" or is_stub_only_module(path)
+    return path.name == "__init__.pyi" and not (path.parent / "__init__.py").is_file()
+
+
+def is_module_file(file: str | Path) -> bool:
+    """Whether *file* is a module's file, for naming (#933, #1004).
+
+    A ``.py``, a stub-only ``.pyi``, or a namespace portion's ``__init__.pyi``
+    (named as its package, :func:`is_namespace_stub_init`).
+    """
+    path = Path(file)
+    return path.suffix == ".py" or is_stub_only_module(path) or is_namespace_stub_init(path)
 
 
 def iter_module_files(root: Path) -> list[Path]:
@@ -284,7 +308,7 @@ def _dotted(rel: Path, file: Path) -> str | None:
     reach the file under that name, so the mapper never invents one (#668).
     """
     parts = list(rel.parts[:-1])
-    if file.name != "__init__.py":
+    if file.name not in ("__init__.py", "__init__.pyi"):
         parts.append(file.stem)
     if not parts or not all(part.isidentifier() for part in parts):
         return None
@@ -572,8 +596,11 @@ def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
         name = entry.name
         if name.startswith(".") or name == "__pycache__":
             continue
-        # (a) a direct .py file.
-        if entry.is_file() and entry.suffix == ".py":
+        # (a) a direct .py file, or a stub that declares a module or this
+        # package (a stub-only package is a namespace, #1004).
+        if entry.is_file() and (
+            entry.suffix == ".py" or is_stub_only_module(entry) or is_namespace_stub_init(entry)
+        ):
             return True
         if entry.is_dir():
             # (b) a direct child dir that is a regular package.
@@ -584,6 +611,20 @@ def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
             if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
                 return True
     return False
+
+
+def namespace_stub_inits(module_dotted: str, analyzer: Any) -> list[Path]:
+    """Each portion's ``__init__.pyi`` of the namespace *module_dotted*, in portion order (#1004).
+
+    What declares the namespace's own members, as Jedi merges them: the first
+    portion (sys.path order) that declares a name is the one that counts.
+    """
+    inits = []
+    for portion in find_namespace_package_dirs(module_dotted, analyzer):
+        init = portion / "__init__.pyi"
+        if init.is_file():
+            inits.append(init)
+    return inits
 
 
 def find_namespace_package_dirs(module_dotted: str, analyzer: Any) -> list[Path]:
