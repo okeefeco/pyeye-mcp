@@ -1045,9 +1045,13 @@ class TestResolveFileLineErrorPaths:
         """A Jedi failure at a valid position is internal, not "no symbol" (#704)."""
         import jedi
 
+        from pyeye import file_artifact_cache
         from pyeye.mcp.operations.resolve import _resolve_file_line
 
         widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+        # A cached Script keeps its all-scope names (#1044): start cold, so
+        # this call is the one that reads them and meets the failure.
+        file_artifact_cache.invalidate(widgets_path)
 
         with (
             patch.object(jedi.Script, method, side_effect=RuntimeError("jedi fail")),

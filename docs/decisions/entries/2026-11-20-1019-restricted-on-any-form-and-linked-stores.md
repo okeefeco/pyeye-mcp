@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "A result is refused when any form of its file is restricted, and a credential store that is a link is matched at its target (#1019)"
 issues: [1019, 999, 909, 1005, 856, 1016]
 anchors: ["pyeye.validation.restricted_reason", "pyeye.validation.credential_path", "pyeye.validation._credential_pattern", "pyeye.validation._StoreCache", "pyeye.validation._store_key", "pyeye.validation.restricted_dir", "pyeye.resolver.restricted_path", "tests/test_restricted_any_form.py", "tests/test_restricted_path_windows.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-20-999-results-resolving-into-a-restricted-directory-are-refused.md", "2026-11-19-909-deny-list-adds-boot-and-secrets-dirs-and-home-credential-stores.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1030-home-roots-resolve-and-the-passwd-home-counts.md"]
 superseded_by: []
 ---
 

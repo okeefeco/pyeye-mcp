@@ -193,7 +193,7 @@ Configuration is loaded in the following order (later sources override earlier o
   - `[tool.uv.workspace]` `members` (a glob member stays inside the workspace; a literal path can point anywhere);
   - Poetry `path` dependencies, in the main table and in groups;
   - `name @ file:...` references in `[project]` dependencies, optional dependencies and `[dependency-groups]`. PDM's `${PROJECT_ROOT}` and Hatch's `{root:uri}` are expanded.
-- **An editable install** in the project's environment that writes its path to a `.pth` file. That covers every common build backend with a `src/` layout, and flat layouts on hatchling, pdm-backend, flit, poetry-core and uv_build. Setuptools' flat-layout install uses an import-hook `.pth` instead, which pyeye doesn't run, so declare such a package or configure it.
+- **An editable install** in the project's environment. Most installs write their path to a `.pth` file. A few use an import hook instead: setuptools with a flat layout, hatchling's `dev-mode-exact`, and pdm-backend's `editables` mode. For those, pyeye reads the hook's module as text for its target directories. It never runs it.
 - **Your pyeye config:** `packages`, `namespaces`, or `configure_packages`.
 
 A declared directory with a `src/` layout is read from its `src/`. When a top-level import doesn't resolve, `resolve` and `inspect` suggest declaring the package or adding it with `configure_packages`.
