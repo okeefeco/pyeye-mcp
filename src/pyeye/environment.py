@@ -372,6 +372,9 @@ def _finder_roots(pth: Path, line: str) -> list[str]:
             root = _root_for(name, target)
             if root is not None:
                 roots.append(root)
+            if len(roots) >= MAX_PTH_LINES:
+                logger.warning(f"{module.as_posix()}: path limit ({MAX_PTH_LINES}) reached")
+                return roots
     return roots
 
 
@@ -426,10 +429,14 @@ def _root_for(name: str, target: str) -> str | None:
     file, given absolute. The root is the directory above it, and only when
     *name* (a plain, undotted name) is the target's own name.
     """
+    from .project_layout import package_kind
+
     path = Path(target)
     if not name.isidentifier() or not path.is_absolute():
         return None
-    if path.name == "__init__.py":
+    # The one package predicate (#625); asked only of a .py, so a mapped
+    # directory costs no stat here.
+    if path.suffix == ".py" and package_kind(path) == "regular":
         path = path.parent
     own = path.stem if path.suffix == ".py" else path.name
     return path.parent.as_posix() if own == name else None
