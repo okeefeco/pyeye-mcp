@@ -147,10 +147,16 @@ they can't drift from it.
   `~`, `/home` or `/Users` works and simply skips them. A project placed inside
   one, such as a repository at `~/.config/gh/x`, is refused, as intended. A
   user home is matched by pattern, so a home created after the server started
-  is covered too. The server's own home is read once, when the process starts,
-  and is matched both as `$HOME` spells it and as it resolves, so a symlinked
-  home (an NFS or autofs `/home/u` that points at `/data/u`) is covered under
-  either name. A credential store below the server's home that is itself a
+  is covered too. When `/home`, `/Users` or `/root` is itself a symlink (BSD's
+  `/home` pointing at `/usr/home`), the homes are also matched where it points,
+  so a walk through `/home/bob` still skips `/usr/home/bob/.ssh`; the link is
+  read when the stores are next looked up, not on every check (#1030). The
+  server's own home is read once, when the process starts, and is matched both
+  as `$HOME` spells it and as it resolves, so a symlinked home (an NFS or
+  autofs `/home/u` that points at `/data/u`) is covered under either name.
+  When `$HOME` isn't the user's home in the password database (a service
+  started with `HOME=/srv/app`), that home counts as the server's own too
+  (#1030). A credential store below the server's home that is itself a
   symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
   matched where it points, so a file reached through the target is refused
   and a walk skips it. A store linked, removed or repointed while the server
@@ -158,8 +164,8 @@ they can't drift from it.
   at once: the change is noticed through the times of `~` and `~/.config`,
   which also catch an mtime set back with `touch -d` on Linux and macOS,
   since the inode change time can't be set back. A walk looks at the stores
-  once, so a relink during a walk applies from the next one. Two limits
-  (#1019):
+  once, so a relink during a walk applies from the next one. Limits (#1019,
+  #1030):
   - a store that links to a second link outside `~` and `~/.config`, where
     that second link is repointed, keeps its old target until `~` or
     `~/.config` next changes, or the server restarts; paths spelled through
@@ -169,7 +175,14 @@ they can't drift from it.
     old value isn't noticed;
   - a home on a filesystem whose clock runs well behind the server's (NFS
     clock skew) can hide a relink made within the same timestamp tick as
-    an earlier one. Homes anywhere other than directly in `/home`, `/Users` or
+    an earlier one;
+  - another user's store that is a symlink (`/home/bob/.ssh` pointing at
+    `/data/bob`) is refused by its spelling only, not where it points:
+    finding those would mean reading every user's home (#1030);
+  - `/home`, `/Users` or `/root` relinked while the server runs is seen when
+    the server's own stores next change, or after a restart (#1030).
+
+  Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
   `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
   user; other users' homes there are not (#909).

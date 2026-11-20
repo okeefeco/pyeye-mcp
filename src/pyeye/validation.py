@@ -1,6 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import contextlib
+import functools
 import os
 import re
 import threading
@@ -350,8 +351,8 @@ _RECENT_NS = 2_000_000_000
 #: ``os.utime`` can't set back: POSIX. On Windows it is the creation time.
 _CTIME_IS_CHANGE = os.name != "nt"
 
-#: ``(home spelling or None, the times of each _STORE_LINK_DIRS entry)``: cheap.
-_DirKey = tuple[str | None, tuple[tuple[int, int] | None, ...]]
+#: ``(each home's spelling, the times of each _STORE_LINK_DIRS entry of each)``: cheap.
+_DirKey = tuple[tuple[str, ...], tuple[tuple[int, int] | None, ...]]
 #: ``(dir key, link target of the home and of each _STORE_LINK_PATHS entry)``.
 _StoreKey = tuple[_DirKey, tuple[str | None, ...]]
 
@@ -362,6 +363,29 @@ def _home_spelling() -> str | None:
         return Path.home().as_posix()
     except (RuntimeError, KeyError, OSError):
         return None
+
+
+@functools.cache
+def _passwd_home() -> str | None:
+    """The server user's home from the passwd database (POSIX), or ``None`` (#1030).
+
+    ``$HOME`` can name another directory (a service started with ``HOME=/srv``),
+    and the user's real stores stay under this one. Read once per process: the
+    uid doesn't change, and a lookup can be slow (NSS, LDAP).
+    """
+    if os.name == "nt":
+        return None
+    try:
+        import pwd
+
+        return Path(pwd.getpwuid(os.getuid()).pw_dir).as_posix()
+    except (ImportError, KeyError, OSError):
+        return None
+
+
+def _homes() -> tuple[str, ...]:
+    """The server's homes as spelled: ``$HOME`` and the passwd home, deduped (#1030)."""
+    return tuple(dict.fromkeys(h for h in (_home_spelling(), _passwd_home()) if h))
 
 
 def _dir_times(path: str) -> tuple[int, int] | None:
@@ -378,17 +402,22 @@ def _dir_times(path: str) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_ctime_ns if _CTIME_IS_CHANGE else 0)
 
 
-def _dir_key(home: str | None) -> _DirKey:
-    """The home's spelling and the times of the directories its stores sit in (two ``stat``).
+def _dir_key(homes: tuple[str, ...]) -> _DirKey:
+    """The homes' spellings and the times of the directories their stores sit in.
 
-    Making, removing or repointing a link in a directory changes its mtime and
-    (POSIX) its ctime, so this changes whenever a store's own link does, except
-    within one tick of an earlier change (see :data:`_RECENT_NS`).
+    Two ``stat`` per home (one home when ``$HOME`` is the passwd home). Making,
+    removing or repointing a link in a directory changes its mtime and (POSIX)
+    its ctime, so this changes whenever a store's own link does, except within
+    one tick of an earlier change (see :data:`_RECENT_NS`).
     """
-    if home is None:
-        return (None, ())
-    root = home.rstrip("/")
-    return (home, tuple(_dir_times(f"{root}/{d}" if d else root) for d in _STORE_LINK_DIRS))
+    return (
+        homes,
+        tuple(
+            _dir_times(f"{root}/{d}" if d else root)
+            for root in (home.rstrip("/") for home in homes)
+            for d in _STORE_LINK_DIRS
+        ),
+    )
 
 
 def _link_target(path: str) -> str | None:
@@ -405,25 +434,64 @@ def _store_key() -> _StoreKey:
     The full key: :func:`_dir_key` plus one ``readlink`` of the home and of
     each :data:`_STORE_LINK_PATHS` entry.
     """
-    home = _home_spelling()
-    if home is None:
-        return ((None, ()), ())
-    root = home.rstrip("/")
-    links = (_link_target(root),) + tuple(
-        _link_target(f"{root}/{rel}") for rel in _STORE_LINK_PATHS
+    homes = _homes()
+    links = tuple(
+        _link_target(f"{root}/{rel}" if rel else root)
+        for root in (home.rstrip("/") for home in homes)
+        for rel in ("", *_STORE_LINK_PATHS)
     )
-    return (_dir_key(home), links)
+    return (_dir_key(homes), links)
 
 
-def _build_credential_stores(home_spelling: str | None) -> _CredentialStores:
-    """The stores for the server's home *home_spelling* (see :class:`_StoreCache`)."""
-    homes = list(PathValidator.USER_HOMES)
+#: The suffix of a :data:`PathValidator.USER_HOMES` pattern for a directory of
+#: homes (``^/home/[^/]+/``); a pattern without it is one home (``^/root/``).
+_MANY_HOMES = "/[^/]+/"
+#: An unescaped regex metacharacter: a pattern holding one isn't a literal root.
+_REGEX_META = re.compile(r"(?<!\\)[*+?()\[\]{}|^$]")
+
+
+def _home_root(pattern: str) -> tuple[str, bool] | None:
+    """``(root directory, holds many homes)`` for a USER_HOMES *pattern*, or ``None``.
+
+    ``^/home/[^/]+/`` is ``("/home", True)``; ``^/root/`` is ``("/root", False)``.
+    """
+    if not pattern.startswith("^") or not pattern.endswith("/"):
+        return None
+    many = pattern.endswith(_MANY_HOMES)
+    body = pattern[1 : -len(_MANY_HOMES)] if many else pattern[1:-1]
+    if not body.startswith("/") or _REGEX_META.search(body):
+        return None
+    return re.sub(r"\\(.)", r"\1", body), many
+
+
+def _resolved_home_roots() -> list[str]:
+    """Each USER_HOMES root's resolved form, as a pattern, where it differs (#1030).
+
+    A symlinked root (BSD ``/home -> /usr/home``) puts every home at a resolved
+    form no pattern names, and the walkers judge resolved forms. Read once per
+    build, never per call.
+    """
+    patterns = []
+    for pattern in PathValidator.USER_HOMES:
+        if (root := _home_root(pattern)) is None:
+            continue
+        literal, many = root
+        with contextlib.suppress(RuntimeError, OSError):
+            resolved = normalize_path(Path(literal)).as_posix().rstrip("/")
+            if resolved.lower() != literal.rstrip("/").lower():
+                patterns.append("^" + re.escape(resolved) + (_MANY_HOMES if many else "/"))
+    return patterns
+
+
+def _build_credential_stores(home_spellings: tuple[str, ...]) -> _CredentialStores:
+    """The stores for the server's homes *home_spellings* (see :class:`_StoreCache`)."""
+    homes = [*PathValidator.USER_HOMES, *_resolved_home_roots()]
     linked: dict[str, str] = {}
-    # The home both as spelled ($HOME) and resolved: with a symlinked home
-    # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
-    # the resolved check see, names neither the spelling nor a fixed root
-    # (#909 review). No resolvable home: the fixed roots still apply.
-    if home_spelling is not None:
+    # Each home both as spelled and resolved: with a symlinked home (NFS/autofs
+    # /home/u -> /data/u) the resolved form, which the walks and the resolved
+    # check see, names neither the spelling nor a fixed root (#909 review). No
+    # resolvable home: the fixed roots still apply.
+    for home_spelling in home_spellings:
         with contextlib.suppress(RuntimeError, OSError):
             home = Path(home_spelling)
             resolved_home = normalize_path(home)
@@ -475,7 +543,7 @@ class _StoreCache:
 
     def __call__(self) -> _CredentialStores:
         built = self._built
-        if built is not None and built[2] and _dir_key(_home_spelling()) == built[0][0]:
+        if built is not None and built[2] and _dir_key(_homes()) == built[0][0]:
             return built[1]
         read_ns = time.time_ns()  # before the key is read, so it can vouch for it
         key = _store_key()

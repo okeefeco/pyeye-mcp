@@ -416,16 +416,17 @@ class TestTheStoreCacheIsKeyed:
     def test_with_no_home_only_the_fixed_roots_apply(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """``Path.home()`` failing (no ``$HOME``) still leaves every fixed user home covered."""
+        """No home at all (``Path.home()`` failing and no passwd entry): the fixed roots apply."""
 
         def no_home() -> Path:
             raise RuntimeError("Could not determine home directory.")
 
         monkeypatch.setattr(Path, "home", no_home)
+        monkeypatch.setattr(validation, "_passwd_home", lambda: None)  # #1030
         validation._credential_pattern.cache_clear()
         try:
-            assert validation._store_key() == ((None, ()), ())
-            assert validation._dir_key(None) == (None, ())
+            assert validation._store_key() == (((), ()), ())
+            assert validation._dir_key(()) == ((), ())
             assert credential_path("/home/someone/.ssh/id_rsa") == ".ssh"
             assert credential_path((tmp_path / "x" / ".ssh" / "id_rsa").as_posix()) is None
             assert credential_path("/Users/someone/.aws/credentials") == ".aws"  # served again
