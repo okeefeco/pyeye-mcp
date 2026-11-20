@@ -29,7 +29,7 @@ from ..project_layout import (
     layout_key,
     module_name_for_file,
 )
-from ..resolver import Resolved, resolve_item
+from ..resolver import Resolved, base_class_target, resolve_item
 from ..scope_utils import (
     ScopedCache,
     ScopeLayout,
@@ -1462,9 +1462,9 @@ class JediAnalyzer:
         AST-first via :func:`resolve_base` (path-independent — this is what
         preserves the old fast-path's macOS-symlink robustness, issue #335;
         ``star_sources`` lets it follow ``import *`` re-exports too, #419).
-        Only when the AST cannot commit does it fall back to Jedi ``goto``
-        (memoised by source position) plus canonicalisation, exactly as the old
-        resolver did across re-export boundaries.  Both routes yield the same
+        Only when the AST cannot commit does it fall back to
+        :func:`pyeye.resolver.base_class_target` (memoised by source position),
+        the resolution ``superclasses`` uses, plus canonicalisation (#1057).  Both routes yield the same
         definition-site string, so index keys are consistent regardless of which
         path resolved a given base.
         """
@@ -1474,28 +1474,19 @@ class JediAnalyzer:
         if ast_resolved is not None:
             return ast_resolved
 
-        leaf_name = base_dotted.split(".")[-1]
-        goto_line, goto_col = self._get_ast_leaf_position(base, leaf_name)
-        cache_key = (child_file.as_posix(), goto_line, goto_col)
+        cache_key = (child_file.as_posix(), base.lineno, base.col_offset)
         if cache_key not in resolved_cache:
-            resolved_fqn: str | None = None
+            # The one base resolution ``superclasses`` uses too, so a child is
+            # filed under a base exactly when that base is in its superclasses
+            # (#1057). A name bound to two classes (a try/except import shim)
+            # gets no key: the old first-goto-result pick differed between
+            # processes and between rebuilds (#419).
             try:
                 script = file_artifact_cache.get_script(child_file, self.project)
-                # ``goto`` is already aimed at the base's leaf token via
-                # ``_get_ast_leaf_position``, so the first result carrying a
-                # ``full_name`` IS the resolved base.  Do NOT gate on
-                # ``gr.name == leaf_name``: for an aliased base (``class X(A)``
-                # where ``A`` aliases ``Animal``) Jedi returns the *resolved*
-                # name (``Animal``), not the alias, so that gate silently drops
-                # the subclass when the alias isn't statically followable
-                # (e.g. a try/except / TYPE_CHECKING import — #420 review #1).
-                for gr in script.goto(goto_line, goto_col, follow_imports=True):
-                    if gr.full_name:
-                        resolved_fqn = gr.full_name
-                        break
             except Exception:
-                resolved_fqn = None
-            resolved_cache[cache_key] = resolved_fqn
+                script = None  # as before: a file Jedi can't load keys no base
+            target = base_class_target(script, base) if script is not None else None
+            resolved_cache[cache_key] = getattr(target, "full_name", None) or None
 
         resolved = resolved_cache[cache_key]
         if resolved is None:
@@ -1596,26 +1587,6 @@ class JediAnalyzer:
                 logger.debug(f"Error resolving aliases in {file_path_str}: {e}")
 
         return resolved_sites
-
-    @staticmethod
-    def _get_ast_leaf_position(base: Any, leaf_name: str) -> tuple[int, int]:
-        """Get the source position of the leaf name in a base class AST node.
-
-        For a simple ``ast.Name`` node the col_offset already points at the name.
-        For an ``ast.Attribute`` chain like ``_core.widgets.Widget`` the node's
-        col_offset points at the first component (``_core``), while Jedi needs
-        to be positioned at ``Widget`` to follow imports to the class definition.
-
-        Uses ``end_col_offset`` (present in Python 3.8+) to compute where the
-        final attribute name starts. A subscripted base (``Box[int]``) is
-        positioned on the class it subscripts (#921).
-        """
-        base = unsubscripted(base)
-        if isinstance(base, ast.Attribute) and base.attr == leaf_name:
-            end_col = getattr(base, "end_col_offset", None)
-            if end_col is not None:
-                return base.lineno, end_col - len(leaf_name)
-        return base.lineno, base.col_offset
 
     @staticmethod
     def _get_base_name_from_ast(base: Any) -> str | None:

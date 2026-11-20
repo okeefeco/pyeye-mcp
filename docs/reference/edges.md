@@ -26,8 +26,8 @@ Reference edges, deferred until an indexed reference backend lands (`expand` ans
 
 | Ceiling | Complete over |
 |---|---|
-| `declared_bases` | the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved\_superclasses |
-| `literal_subclassing` | project classes whose class statement names this class as a base; classes built with type(), class factories or \_\_init\_subclass\_\_ registration are not included |
+| `declared_bases` | the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve to exactly one class are listed in unresolved\_superclasses, an ambiguous base (imported by a try/except shim, or rebound by an if/else) among them (#1057) |
+| `literal_subclassing` | project classes whose class statement names this class as a base, resolved as superclasses resolves it: a class whose base is ambiguous (imported by a try/except shim, or rebound by an if/else) is not listed under any of its candidates (#1057). Classes built with type(), class factories or \_\_init\_subclass\_\_ registration are not included |
 | `on_disk_modules` | modules and subpackages present on disk under the package; entries added to \_\_path\_\_ at runtime are not included |
 | `package_reexports` | import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module \_\_getattr\_\_ are not included |
 | `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
@@ -41,4 +41,4 @@ Reference edges, deferred until an indexed reference backend lands (`expand` ans
 | `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
 | `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
 | `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
-| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. A name bound to more than one target (a base imported by a try/except shim, or rebound by an if/else) resolves to none, never to a pick (#1057) |

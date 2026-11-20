@@ -18,11 +18,11 @@ module holds it to that tier's contract (``edges.DETERMINISM_MEANINGS``):
    ``superclasses(C)``.
 
 The fixture, ``tests/fixtures/determinism_traps``, gives every edge a source and
-holds the two known traps (its README). ``subclasses`` falls into both today
-(#1057): the project-shim case is a strict expected failure below, and the
-stdlib-shim case, which passes in some processes, is excluded from the
-rebuild and cross-process comparisons in :data:`_KNOWN_1057`. Fixing #1057 turns the strict
-case green and must empty that set.
+holds the two known traps (its README): a base named through a project
+try/except import shim, and one named through the standard library's
+``threading.local`` shim. Both used to flip ``subclasses`` between processes
+and between rebuilds (#1057); :func:`test_shim_bases_follow_the_goto_policy`
+pins how they resolve now.
 """
 
 from __future__ import annotations
@@ -72,25 +72,23 @@ _SOURCES = (
     "pkg.users.ShimChild",
     "pkg.users.Gadget",
     "pkg.users.make",
+    "pkg.users.CursorChild",
+    "pkg.users.make_local",
+    "pkg.users.make_local.LocalCursor",
+    "pkg.rebind",
+    "pkg.rebind.Cursor",
     "pkg.sub",
     "pkg.sub.leaf",
     "_threading_local.local",
 )
 
-#: Probes ``subclasses`` gets wrong today (#1057): their bases are named
-#: through a try/except shim, and the class graph keys each through whichever
-#: branch Jedi's goto picks, which can change on a rebuild in the same process,
-#: not only between processes. The rebuild and cross-process checks skip them.
-#: Fixing #1057 empties it.
-_KNOWN_1057 = frozenset(
-    {
-        ("pkg._fast.Local", "subclasses"),
-        ("pkg._slow.Local", "subclasses"),
-        ("_threading_local.local", "subclasses"),
-    }
+_BASES = (
+    "pkg.core.Widget",
+    "pkg._fast.Local",
+    "pkg._slow.Local",
+    "pkg.rebind.Cursor",
+    "_threading_local.local",
 )
-
-_BASES = ("pkg.core.Widget", "pkg._fast.Local", "pkg._slow.Local", "_threading_local.local")
 
 
 def _fresh_analyzer() -> JediAnalyzer:
@@ -122,20 +120,6 @@ def test_every_edge_has_a_tier_and_every_tier_a_meaning() -> None:
     assert set(EDGE_DETERMINISM.values()) == set(DETERMINISM_MEANINGS)
 
 
-def test_known_1057_skip_set_only_shrinks() -> None:
-    """The skip set holds exactly #1057's shim probes; nothing else may hide in it.
-
-    A ratchet: adding an unrelated flaky probe to quiet the rebuild or
-    cross-process check fails here. #1057's fix deletes every entry and this
-    expected set with them.
-    """
-    assert {
-        ("pkg._fast.Local", "subclasses"),
-        ("pkg._slow.Local", "subclasses"),
-        ("_threading_local.local", "subclasses"),
-    } == _KNOWN_1057
-
-
 async def test_every_edge_is_exercised_by_the_fixture() -> None:
     """Each edge has a source with stubs, so no check below passes vacuously."""
     results = await _expand_all(_fresh_analyzer())
@@ -151,9 +135,7 @@ async def test_every_edge_is_exercised_by_the_fixture() -> None:
 async def test_every_edge_repeats_after_a_cache_rebuild() -> None:
     first = await _expand_all(_fresh_analyzer())
     second = await _expand_all(_fresh_analyzer())
-    differ = sorted(
-        k for k in first if first[k] != second[k] and tuple(k.split("|")) not in _KNOWN_1057
-    )
+    differ = sorted(k for k in first if first[k] != second[k])
     assert differ == []
 
 
@@ -283,9 +265,7 @@ def test_every_edge_meets_its_tier_across_processes(
     assert set(first) == set(second)
     differ = []
     for key in sorted(first):
-        source, edge = key.split("|")
-        if (source, edge) in _KNOWN_1057:
-            continue
+        edge = key.split("|")[1]
         if _contract_view(edge, first[key]) != _contract_view(edge, second[key]):
             differ.append(key)
     assert differ == []
@@ -298,12 +278,7 @@ def test_cross_process_check_sees_project_stubs(
     first, _ = two_processes
     for tier in DETERMINISM_MEANINGS:
         tier_edges = [e for e, t in EDGE_DETERMINISM.items() if t == tier]
-        views = [
-            _contract_view(e, first[f"{s}|{e}"])
-            for s in _SOURCES
-            for e in tier_edges
-            if (s, e) not in _KNOWN_1057
-        ]
+        views = [_contract_view(e, first[f"{s}|{e}"]) for s in _SOURCES for e in tier_edges]
         assert any(v.get("stubs") if isinstance(v, dict) else v for v in views), tier
 
 
@@ -317,24 +292,68 @@ def test_cross_process_check_sees_project_stubs(
     [
         "pkg.core.Widget",
         "pkg.users.Gadget",
-        pytest.param(
-            "pkg.users.ShimChild",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="#1057: subclasses keys the shim base through one goto branch",
-            ),
-        ),
+        "pkg.users.ShimChild",
+        "pkg.users.ThreadState",
+        "pkg.users.CursorChild",
+        "pkg.users.make_local.LocalCursor",
     ],
 )
 async def test_subclasses_and_superclasses_agree(cls: str) -> None:
     """``cls`` is under ``subclasses(B)`` exactly when ``B`` is in ``superclasses(cls)``.
 
-    ``ShimChild`` fails in every process: its superclasses are unresolved, yet
-    the class graph files it under one of the two ``Local`` classes. The stdlib
-    case, ``ThreadState``, isn't here: it agrees in some processes, so it would
-    pass a strict expected failure by chance (it's in :data:`_KNOWN_1057`).
+    Both edges resolve a base with ``resolver.base_class_target`` (#1057), so
+    they agree by construction; ``ShimChild`` and ``ThreadState`` are the cases
+    that used to disagree.
     """
     analyzer = _fresh_analyzer()
     supers = set(_handles(await expand(cls, "superclasses", analyzer)))
     under = {b for b in _BASES if cls in _handles(await expand(b, "subclasses", analyzer))}
     assert under == supers & set(_BASES)
+
+
+async def test_shim_bases_follow_the_goto_policy() -> None:
+    """A shim-bound base resolves as the one goto policy says, in every build (#1057).
+
+    ``ShimChild``'s ``Local`` is one of two classes, so it is unresolved: the
+    class is in neither ``Local``'s subclasses, and ``superclasses`` lists the
+    base by its source text. ``threading.local`` has one class target, so
+    ``ThreadState`` is always under ``_threading_local.local``. Repeated over
+    rebuilds because the old pick could change between them.
+    """
+    for _ in range(3):
+        analyzer = _fresh_analyzer()
+        assert _handles(await expand("pkg._fast.Local", "subclasses", analyzer)) == []
+        assert _handles(await expand("pkg._slow.Local", "subclasses", analyzer)) == []
+        shim_child = await expand("pkg.users.ShimChild", "superclasses", analyzer)
+        assert _handles(shim_child) == []
+        assert shim_child["unresolved_superclasses"] == ["Local"]
+        assert _handles(await expand("_threading_local.local", "subclasses", analyzer)) == [
+            "pkg.users.ThreadState"
+        ]
+        # An if/else rebinding (``class Cursor`` / ``Cursor = object``) is as
+        # ambiguous as a shim, whether imported at module level or in a function.
+        assert _handles(await expand("pkg.rebind.Cursor", "subclasses", analyzer)) == []
+        for child, spelling in (
+            ("pkg.users.CursorChild", "Cursor"),
+            ("pkg.users.make_local.LocalCursor", "LocalBase"),
+        ):
+            result = await expand(child, "superclasses", analyzer)
+            assert _handles(result) == []
+            assert result["unresolved_superclasses"] == [spelling]
+
+
+async def test_a_file_jedi_cannot_load_keys_no_goto_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The graph's goto fallback treats a file Jedi can't load as unresolved, not a crash.
+
+    Bases the AST resolves (``Gadget``'s ``Widget``) don't need Jedi and are
+    still keyed.
+    """
+    from pyeye.analyzers import jedi_analyzer
+
+    def refuse(*_args: Any, **_kwargs: Any) -> Any:
+        raise RuntimeError("Jedi can't load this file")
+
+    analyzer = _fresh_analyzer()
+    monkeypatch.setattr(jedi_analyzer.file_artifact_cache, "get_script", refuse)
+    graph = await analyzer.find_subclasses("pkg.core.Widget", scope="main")
+    assert [s["full_name"] for s in graph["subclasses"]] == ["pkg.users.Gadget"]
