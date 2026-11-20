@@ -522,6 +522,7 @@ class TestDenyListChecksLexicalAndResolvedForms:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A stand-in for macOS: <tmp>/etc -> <tmp>/private/etc, and a pattern for <tmp>/etc."""
+        from pyeye import validation
         from pyeye.exceptions import ValidationError
         from pyeye.validation import PathValidator
 
@@ -529,9 +530,8 @@ class TestDenyListChecksLexicalAndResolvedForms:
         real.mkdir(parents=True)
         link = tmp_path / "sysetc"
         link.symlink_to(real, target_is_directory=True)
-        monkeypatch.setattr(
-            PathValidator, "RESTRICTED_TARGETS", (f"^{re.escape(link.as_posix())}/",)
-        )
+        # The restricted directories the one predicate tests (#1019).
+        monkeypatch.setattr(validation, "_RESTRICTED_DIRS", (link.as_posix(),))
         project = tmp_path / "a" / "project"
         project.mkdir(parents=True)
 
