@@ -461,7 +461,9 @@ def _definition_at(script: Any, file_path: Path, line: int, column: int) -> Any 
     match = _DEFINITION_HEADER_RE.match(lines[line - 1]) if line <= len(lines) else None
     if match is None or not match.start("name") <= column <= match.end("name"):
         return None
-    for name in script.get_names(all_scopes=True, definitions=True, references=False):
+    # Read once per cached Script: an all-scopes get_names per call grew its
+    # inference state without bound (#1044).
+    for name in file_artifact_cache.all_scope_names(script):
         if name.line == line and name.column == match.start("name"):
             return name
     return None

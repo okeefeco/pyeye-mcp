@@ -451,6 +451,11 @@ def get_all_scope_names(path: Path | str, project: jedi.Project) -> tuple[Any, .
     return _default_cache.all_scope_names(get_script(path, project))
 
 
+def all_scope_names(script: jedi.Script) -> tuple[Any, ...]:
+    """:func:`get_all_scope_names` for a Script already loaded with :func:`get_script` (#1044)."""
+    return _default_cache.all_scope_names(script)
+
+
 def invalidate(path: Path | str) -> None:
     """Invalidate cached entries for *path* in the default cache."""
     _default_cache.invalidate(path)
