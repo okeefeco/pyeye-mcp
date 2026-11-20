@@ -33,11 +33,12 @@ import os
 import re
 import stat
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .path_utils import absolute_path, normalize_path, paths_equal
+from .path_utils import absolute_path, network_path, normalize_path, paths_equal
 
 logger = logging.getLogger(__name__)
 
@@ -311,14 +312,26 @@ def _pth_paths(pth: Path, limit: int, _mtime_ns: int, _size: int) -> tuple[tuple
             logger.warning(f"{pth.as_posix()}: path limit ({limit}) reached; reading no further")
             break
         lines[line] = None
+    return _pth_dirs(lines, pth), len(lines)
+
+
+def _pth_dirs(lines: Iterable[str], pth: Path) -> tuple[str, ...]:
+    """The directories *pth*'s path *lines* name that exist and pass the path checks.
+
+    Each line is checked as written, before any lookup: on Windows looking up a
+    UNC path connects to its host over SMB (#1048).
+    """
     out: dict[str, None] = {}
     for line in lines:
+        if (why := network_path(line)) is not None:
+            logger.warning(f"Skipping .pth path {line!r} (from {pth.as_posix()}): {why}")
+            continue
         entry = Path(line) if Path(line).is_absolute() else pth.parent / line
         if entry.is_dir():
             resolved = normalize_path(entry)
             if _allowed(resolved, pth, what=".pth path"):
                 out[resolved.as_posix()] = None
-    return tuple(out), len(lines)
+    return tuple(out)
 
 
 def _allowed(resolved: Path, source: Path, *, what: str) -> bool:

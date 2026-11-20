@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
-from .path_utils import normalize_path, path_to_key
+from .path_utils import network_path, normalize_path, path_to_key
 from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
 
@@ -103,6 +103,22 @@ IGNORED_TOP_LEVEL_KEYS: tuple[str, ...] = (
 )
 
 
+def _local_paths(entries: list[Any], what: str) -> list[str]:
+    """The string *entries* that aren't network paths, checked before any lookup (#1048).
+
+    For paths ``pyproject.toml`` supplies outside pyeye's own section; the rest
+    are skipped with a warning naming *what* they are.
+    """
+    out = []
+    for entry in entries:
+        why = network_path(entry) if isinstance(entry, str) else "not a path"
+        if why is None:
+            out.append(entry)
+        else:
+            logger.warning(f"Skipping {what} {entry!r}: {why}")
+    return out
+
+
 class ProjectConfig:
     """Manages project-specific configuration for code intelligence."""
 
@@ -132,6 +148,9 @@ class ProjectConfig:
         #: Packages pyeye added on its own, as ``(entry, reason)`` in the
         #: config's own spelling; see :meth:`discovered` (#1038).
         self._derived: list[tuple[str, str]] = []
+        #: Entries of the project's own config files refused as network paths
+        #: before any lookup (#1048), as :meth:`rejected_paths` records.
+        self._network_refusals: list[dict[str, str]] = []
         self.load_config()
 
     def load_config(self) -> None:
@@ -161,7 +180,7 @@ class ProjectConfig:
         # 3. Load override file (highest precedence)
         override_path = self.project_path / OVERRIDE_FILE
         if override_path.exists():
-            self._load_from_file(override_path)
+            self._load_from_file(override_path, repo_file=True)
             self.has_explicit_config = True
 
         # 4. Auto-discover if no config found
@@ -253,12 +272,18 @@ class ProjectConfig:
             "this warning."
         )
 
-    def _load_from_file(self, config_path: Path, *, project_file: bool = False) -> None:
+    def _load_from_file(
+        self, config_path: Path, *, project_file: bool = False, repo_file: bool = False
+    ) -> None:
         """Load configuration from a file.
 
         With *project_file*, its pyeye section is also kept as the project
-        layer, the base of what a save writes (#1038).
+        layer, the base of what a save writes (#1038). A project file, or one
+        with *repo_file* (the override file), comes with the repository: its
+        network paths are refused before any lookup (#1048). The project layer
+        keeps them as written, so a save doesn't silently delete them.
         """
+        repo = project_file or repo_file
         logger.info(f"Loading config from {config_path.as_posix()}")
 
         try:
@@ -266,7 +291,7 @@ class ProjectConfig:
                 with open(config_path) as f:
                     data = json.load(f)
                     section = data.get(PROJECT_NAME, data)
-                    self.config.update(section)
+                    self.config.update(self._without_network(section, config_path, repo))
                     if project_file:
                         self._project_layer = copy.deepcopy(section)
 
@@ -276,7 +301,7 @@ class ProjectConfig:
 
                     data = yaml.safe_load(f)
                     section = data.get(PROJECT_NAME, data)
-                    self.config.update(section)
+                    self.config.update(self._without_network(section, config_path, repo))
                     if project_file:
                         self._project_layer = copy.deepcopy(section)
 
@@ -288,7 +313,9 @@ class ProjectConfig:
 
                     # Read PyEye-specific config first
                     if "tool" in data and PROJECT_NAME in data["tool"]:
-                        self.config.update(data["tool"][PROJECT_NAME])
+                        self.config.update(
+                            self._without_network(data["tool"][PROJECT_NAME], config_path, repo)
+                        )
                         if project_file:
                             self._project_layer = copy.deepcopy(data["tool"][PROJECT_NAME])
 
@@ -304,6 +331,55 @@ class ProjectConfig:
         except Exception as e:
             logger.error(f"Error loading config from {config_path.as_posix()}: {e}")
             self.load_errors.append(f"{config_path.as_posix()}: {e}")
+
+    def _without_network(self, section: dict[str, Any], source: Path, repo: bool) -> dict[str, Any]:
+        """*section* without the network paths a repository file names (#1048).
+
+        A UNC path that reaches ``exists()`` or ``resolve()`` on Windows opens an
+        SMB connection to its host, so these are dropped before anything looks
+        them up, and recorded for :meth:`rejected_paths`. A file that isn't
+        the repository's (the user's global config) is the user's choice and is
+        returned unchanged, as are paths an agent passes to a tool.
+        """
+        if not repo or not isinstance(section, dict):
+            return section
+        out = dict(section)
+
+        def kept(scope: str, entries: Any) -> Any:
+            if not isinstance(entries, list):
+                return entries
+            keep = []
+            for entry in entries:
+                why = network_path(entry) if isinstance(entry, str) else None
+                if why is None:
+                    keep.append(entry)
+                    continue
+                logger.warning(
+                    f"Skipping config path {entry!r} ({scope}, {source.as_posix()}): {why}"
+                )
+                self._network_refusals.append(
+                    {"scope": scope, "path": entry, "reason": REJECTED_PATH, "detail": why}
+                )
+            return keep
+
+        if "packages" in out:
+            out["packages"] = kept("packages", out["packages"])
+        if isinstance(out.get("namespaces"), dict):
+            out["namespaces"] = {
+                ns: kept(f"namespace:{ns}", paths) for ns, paths in out["namespaces"].items()
+            }
+        if isinstance(out.get("standalone"), dict) and "dirs" in out["standalone"]:
+            out["standalone"] = {
+                **out["standalone"],
+                "dirs": kept("standalone", out["standalone"]["dirs"]),
+            }
+        environment = out.get("environment")
+        if isinstance(environment, str) and (why := network_path(environment)) is not None:
+            logger.warning(
+                f"Skipping config environment {environment!r} ({source.as_posix()}): {why}"
+            )
+            del out["environment"]
+        return out
 
     def _load_global_config(self) -> None:
         """Load global configuration from user home.
@@ -417,7 +493,7 @@ class ProjectConfig:
             return
 
         valid_paths = []
-        for path in detected_paths:
+        for path in _local_paths(detected_paths, "detected source layout"):
             full_path = self.project_path / path
             if full_path.exists() and full_path.is_dir():
                 valid_paths.append(path)
@@ -466,7 +542,7 @@ class ProjectConfig:
 
         # Resolve relative paths and add as packages
         resolved = []
-        for p in extra_paths:
+        for p in _local_paths(extra_paths, "[tool.pyright] extra path"):
             path = Path(p)
             if not path.is_absolute():
                 path = self.project_path / path
@@ -769,7 +845,7 @@ class ProjectConfig:
                 )
         for raw in self.get_standalone_config().get("dirs", []):
             record("standalone", raw, self._path_refusal(self._standalone_dir(raw).as_posix()))
-        return rejected
+        return rejected + self._network_refusals
 
     def _package_refusal(self, raw: str) -> str | None:
         """Why :meth:`_process_package_path` skips package entry *raw*, or ``None``."""
