@@ -27,12 +27,14 @@ deviation, recorded in the decision entry):
 
 from __future__ import annotations
 
+import ast
 import functools
 import logging
 import os
 import re
 import stat
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,9 @@ SOURCE_PROJECT = "project"
 SOURCE_NONE = "none"
 
 _PTH_IMPORT = re.compile(r"^import[ \t]")
+#: The one import-line shape whose module is read: ``import M`` (then
+#: anything after a ``;``), with M a plain module name (#1035).
+_PTH_FINDER_IMPORT = re.compile(r"import[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*")
 
 #: Bounds on what one environment's ``.pth`` files may cost (#993 review): the
 #: environment can come from the repository. Each is far above a real
@@ -62,6 +67,12 @@ MAX_PTH_BYTES = 1 << 20  # per .pth file; the rest of the file is ignored
 MAX_PTH_LINES = 1000  # paths per .pth file
 MAX_SITE_PATHS = 1000  # per environment: import roots that exist (junk lines can't use it up)
 MAX_PTH_LOOKUPS = 20_000  # per environment: .pth paths looked up, found or not; bounds the time
+#: Editable-install finder modules (#1035): real ones are a few KB.
+MAX_FINDER_BYTES = 64 << 10  # per finder module; a bigger one is not read
+MAX_FINDER_MODULES = 32  # per environment, far above one per editable install
+#: What reading one finder module costs against MAX_PTH_LOOKUPS: one lookup
+#: per KiB it may hold, so parsing is paid for like the lookups it replaces.
+FINDER_LOOKUP_COST = MAX_FINDER_BYTES >> 10
 
 
 @dataclass(frozen=True)
@@ -216,6 +227,7 @@ def site_paths(env: Path) -> list[str]:
     """
     out: dict[str, None] = {}
     lookups = MAX_PTH_LOOKUPS
+    seen_finders: set[str] = set()  # each finder module read once per environment (#1035)
     for site_dir in _site_packages_dirs(env):
         if not _allowed(site_dir, site_dir, what="site-packages"):
             continue
@@ -227,8 +239,12 @@ def site_paths(env: Path) -> list[str]:
                     "looked up; reading no further"
                 )
                 return list(out)
-            entries, looked_up = _cached_pth_paths(pth, lookups)
+            entries, looked_up, finders = _cached_pth_paths(pth, lookups)
             lookups -= max(1, looked_up)
+            if finders:
+                found, cost = _finder_paths(site_dir, finders, seen_finders, lookups)
+                lookups -= cost
+                entries = (*entries, *found)
             for entry in entries:
                 if entry in out:
                     continue
@@ -264,7 +280,7 @@ def _pyvenv_version(env: Path) -> str | None:
     return f"{match.group(1)}.{match.group(2)}" if match else None
 
 
-def _cached_pth_paths(pth: Path, budget: int) -> tuple[tuple[str, ...], int]:
+def _cached_pth_paths(pth: Path, budget: int) -> tuple[tuple[str, ...], int, tuple[str, ...]]:
     """:func:`_pth_paths`, cached while the file is unchanged (#993 review).
 
     Each analyzer rebuild and each ``configure_packages`` reads the environment
@@ -274,51 +290,263 @@ def _cached_pth_paths(pth: Path, budget: int) -> tuple[tuple[str, ...], int]:
     was first read is missed until the ``.pth`` changes (#993 re-review). That
     is fine: installers write the target first (an editable install's source
     tree exists before its ``.pth`` is written), and a new analyzer for a new
-    session reads it afresh.
+    session reads it afresh. Finder modules are not read here, so a finder
+    that changes on its own is never served stale (#1035 review).
     """
     try:
         info = pth.stat()
     except OSError:
-        return (), 0
+        return (), 0, ()
     return _pth_paths(pth, min(budget, MAX_PTH_LINES), info.st_mtime_ns, info.st_size)
 
 
 @functools.lru_cache(maxsize=512)
-def _pth_paths(pth: Path, limit: int, _mtime_ns: int, _size: int) -> tuple[tuple[str, ...], int]:
-    """The directories *pth* adds, as ``site.addpackage`` reads them, minus its code lines.
+def _pth_paths(
+    pth: Path, limit: int, _mtime_ns: int, _size: int
+) -> tuple[tuple[str, ...], int, tuple[str, ...]]:
+    """The directories *pth*'s plain lines add, the paths looked up, and its finder modules.
 
-    Returns them with the number of paths looked up on disk. Bounded: at most
-    :data:`MAX_PTH_BYTES` are read and *limit* distinct paths looked up; lines
-    are deduplicated first. Each directory is path-checked on its RESOLVED
-    form. *_mtime_ns* and *_size* only key the cache.
+    As ``site.addpackage`` reads a ``.pth``, minus its code lines: a code line
+    is never run. ``import M[; ...]`` (M a plain name) names an editable
+    install's finder module, returned deduplicated for :func:`_finder_paths`
+    to read (#1035). Bounded: at most :data:`MAX_PTH_BYTES` are read and
+    *limit* distinct paths looked up; lines are deduplicated first. Each
+    directory is path-checked on its RESOLVED form. *_mtime_ns* and *_size*
+    only key the cache.
     """
+    opened = _open_regular(pth, follow_symlinks=True)
+    if opened is None:
+        return (), 0, ()
+    fd, _ = opened
     try:
-        with pth.open("rb") as handle:
-            data = handle.read(MAX_PTH_BYTES + 1)
+        data = os.read(fd, MAX_PTH_BYTES + 1)
     except OSError:
-        return (), 0
+        return (), 0, ()
+    finally:
+        os.close(fd)
     if len(data) > MAX_PTH_BYTES:
         logger.warning(f"{pth.as_posix()} is over {MAX_PTH_BYTES} bytes; reading only the start")
         data = data[:MAX_PTH_BYTES]
     lines: dict[str, None] = {}
+    finders: dict[str, None] = {}
     for raw in data.decode("utf-8", errors="replace").splitlines():
         line = raw.rstrip()
-        if not line or line.startswith("#") or _PTH_IMPORT.match(line):
+        if not line or line.startswith("#") or line in lines:
             continue
-        if line in lines:
+        if _PTH_IMPORT.match(line):
+            match = _PTH_FINDER_IMPORT.fullmatch(line.split(";", 1)[0])
+            if match is not None and len(finders) < MAX_FINDER_MODULES:
+                finders[match.group(1)] = None
             continue
         if len(lines) >= limit:
             logger.warning(f"{pth.as_posix()}: path limit ({limit}) reached; reading no further")
             break
         lines[line] = None
+    out = _checked_dirs(lines, pth)
+    return tuple(out), len(lines), tuple(finders)
+
+
+def _checked_dirs(entries: Iterable[str], source: Path) -> list[str]:
+    """The existing directories among *entries* that pass the path check, resolved, POSIX."""
     out: dict[str, None] = {}
-    for line in lines:
-        entry = Path(line) if Path(line).is_absolute() else pth.parent / line
+    for line in entries:
+        entry = Path(line) if Path(line).is_absolute() else source.parent / line
         if entry.is_dir():
             resolved = normalize_path(entry)
-            if _allowed(resolved, pth, what=".pth path"):
+            if _allowed(resolved, source, what=".pth path"):
                 out[resolved.as_posix()] = None
-    return tuple(out), len(lines)
+    return list(out)
+
+
+def _finder_paths(
+    site_dir: Path, names: Iterable[str], seen: set[str], lookups: int
+) -> tuple[list[str], int]:
+    """The import roots *names*' finder modules give, and what reading them cost (#1035).
+
+    Each module is read at most once per environment (*seen*), and at most
+    :data:`MAX_FINDER_MODULES` per environment, whatever they contain. Each
+    read is charged :data:`FINDER_LOOKUP_COST` against the lookup budget, and
+    each root it gives one more. Returns the roots and the lookups charged.
+    """
+    roots: list[str] = []
+    cost = 0
+    for name in names:
+        if name in seen:
+            continue
+        if len(seen) >= MAX_FINDER_MODULES or lookups - cost < FINDER_LOOKUP_COST:
+            logger.warning(f"{site_dir.as_posix()}: finder budget reached; reading no more")
+            break
+        seen.add(name)
+        cost += FINDER_LOOKUP_COST
+        targets = _finder_module_roots(site_dir / f"{name}.py")[: max(0, lookups - cost)]
+        cost += len(targets)
+        roots.extend(_checked_dirs(targets, site_dir / f"{name}.py"))
+    return roots, cost
+
+
+def _open_regular(path: Path, *, follow_symlinks: bool) -> tuple[int, os.stat_result] | None:
+    """A read-only descriptor for *path* and its ``fstat``, only if it is a regular file.
+
+    Opened with ``O_NONBLOCK``, so a FIFO (or a device) named like a ``.pth``
+    or a finder can't block discovery waiting for a writer (#1045 review);
+    regular files read as usual. The type is checked with ``fstat`` on the
+    same descriptor, so it can't change between check and read. Without
+    *follow_symlinks* a symlink is refused: with ``O_NOFOLLOW`` where the OS
+    has it, else by an ``is_symlink`` check first (Windows; racy only against
+    a concurrent local writer). ``None`` when any of this fails; the caller
+    closes the descriptor.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    if not follow_symlinks:
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        elif path.is_symlink():
+            return None
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+    except OSError:
+        os.close(fd)
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        os.close(fd)
+        return None
+    return fd, info
+
+
+#: Parsed finder modules, keyed on (path, device, inode, mtime, ctime, size): each is
+#: parsed at most once while it is unchanged, across environments too.
+_FINDER_CACHE: dict[tuple[str, int, int, int, int, int], tuple[str, ...]] = {}
+_FINDER_CACHE_SIZE = 128
+
+
+def _finder_module_roots(module: Path) -> tuple[str, ...]:
+    """The roots an editable install's finder *module* names, read as text, never run (#1035).
+
+    *module* is read only if it is a regular file, not a symlink, and at most
+    :data:`MAX_FINDER_BYTES`. On POSIX it is opened with ``O_NOFOLLOW`` and
+    checked with ``fstat`` on the same descriptor, so a swap between the check
+    and the read can't redirect it. It is parsed with :mod:`ast` and never
+    imported, and only the two literal shapes :func:`_finder_targets` accepts
+    are read. A target's root is the directory above it, and only when the
+    mapped name is the target's own name (:func:`_root_for`). A parse failure
+    reads nothing.
+    """
+    opened = _open_regular(module, follow_symlinks=False)
+    if opened is None:
+        return ()  # absent, a symlink, or not a regular file (a FIFO, a device)
+    fd, info = opened
+    try:
+        if info.st_size > MAX_FINDER_BYTES:
+            logger.warning(f"Not reading {module.as_posix()}: over {MAX_FINDER_BYTES} bytes")
+            return ()
+        # ctime too: an in-place rewrite that restores the mtime still moves it.
+        key = (
+            module.as_posix(),
+            info.st_dev,
+            info.st_ino,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+            info.st_size,
+        )
+        if key in _FINDER_CACHE:
+            return _FINDER_CACHE[key]
+        data = os.read(fd, MAX_FINDER_BYTES + 1)
+    except OSError:
+        return ()
+    finally:
+        os.close(fd)
+    roots = _parse_finder(module, data[:MAX_FINDER_BYTES])
+    if len(_FINDER_CACHE) >= _FINDER_CACHE_SIZE:
+        _FINDER_CACHE.pop(next(iter(_FINDER_CACHE)))
+    _FINDER_CACHE[key] = roots
+    return roots
+
+
+def _parse_finder(module: Path, data: bytes) -> tuple[str, ...]:
+    """The roots in a finder module's *data*: the two literal shapes only, at most MAX_PTH_LINES."""
+    try:
+        tree = ast.parse(data.decode("utf-8", errors="replace"), filename=module.as_posix())
+    except (SyntaxError, ValueError, RecursionError, MemoryError) as error:
+        logger.debug(f"Not reading {module.as_posix()}: {error}")
+        return ()
+    roots: dict[str, None] = {}
+    for statement in tree.body:
+        for name, target in _finder_targets(statement):
+            root = _root_for(name, target)
+            if root is not None:
+                roots[root] = None
+            if len(roots) >= MAX_PTH_LINES:
+                logger.warning(f"{module.as_posix()}: path limit ({MAX_PTH_LINES}) reached")
+                return tuple(roots)
+    return tuple(roots)
+
+
+def _str(node: ast.AST | None) -> str | None:
+    """*node*'s value when it is a plain string literal, else ``None``."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _finder_targets(statement: ast.stmt) -> list[tuple[str, str]]:
+    """``(mapped name, target path)`` pairs from one top-level *statement*."""
+    if isinstance(statement, ast.AnnAssign | ast.Assign):
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        names = [t.id for t in targets if isinstance(t, ast.Name)]
+        value = statement.value
+        if len(names) != 1 or not isinstance(value, ast.Dict) or None in value.keys:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for key_node, value_node in zip(value.keys, value.values, strict=True):
+            key = _str(key_node)
+            if key is None:
+                return []
+            if names[0] == "MAPPING" and (path := _str(value_node)) is not None:
+                pairs.append((key, path))
+            elif names[0] == "NAMESPACES" and isinstance(value_node, ast.List):
+                paths = [_str(item) for item in value_node.elts]
+                if None in paths:
+                    return []
+                pairs.extend((key, p) for p in paths if p is not None)
+            else:
+                return []
+        return pairs if names[0] in ("MAPPING", "NAMESPACES") else []
+    if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+        call = statement.value
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "map_module"
+            and len(call.args) == 2
+            and not call.keywords
+        ):
+            name, path = _str(call.args[0]), _str(call.args[1])
+            if name is not None and path is not None:
+                return [(name, path)]
+    return []
+
+
+def _root_for(name: str, target: str) -> str | None:
+    """The sys.path root that imports *target* as *name*, or ``None``.
+
+    *target* is a package directory, a package's ``__init__.py`` or a module
+    file, given absolute. The root is the directory above it, and only when
+    *name* (a plain, undotted name) is the target's own name.
+    """
+    from .project_layout import package_kind
+
+    path = Path(target)
+    if not name.isidentifier() or not path.is_absolute():
+        return None
+    # The one package predicate (#625); asked only of a .py, so a mapped
+    # directory costs no stat here.
+    if path.suffix == ".py" and package_kind(path) == "regular":
+        path = path.parent
+    own = path.stem if path.suffix == ".py" else path.name
+    return path.parent.as_posix() if own == name else None
 
 
 def _allowed(resolved: Path, source: Path, *, what: str) -> bool:

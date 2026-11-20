@@ -78,7 +78,14 @@ they can't drift from it.
   `VIRTUAL_ENV` or `CONDA_PREFIX` names another environment. The project's
   environment (its virtualenv) is read from disk, its `site-packages` and the
   plain-path lines of its `.pth` files, and its Python is never run; a `.pth`
-  line that would run code is skipped. The environment, wherever it was found
+  line that would run code is never run. For an editable install whose `.pth`
+  imports a finder module, that module is read as text instead, under these limits:
+  - it must sit beside the `.pth` file, isn't followed through a symlink, and must be within `MAX_FINDER_BYTES` (in `pyeye.environment`, far below the `.pth` bound);
+  - it's opened without following links and checked on the same file handle;
+  - each one is parsed at most once, and at most `MAX_FINDER_MODULES` are read per environment;
+  - it's parsed with `ast`, never imported, and only two plain-literal shapes are taken from it (setuptools' `MAPPING`/`NAMESPACES`, and `map_module` calls; [#1035](https://github.com/okeefeco/pyeye-mcp/issues/1035)).
+
+  A target's root is the directory above it, so a target directly in a home directory makes that home an import root, as a plain `.pth` line naming it could. Each root still gets the restricted-location check below. The environment, wherever it was found
   (the config, the project, `VIRTUAL_ENV` or `CONDA_PREFIX`), and each path it
   adds are checked once their symlinks are resolved: one that is, is inside,
   or contains a restricted directory or credential store is skipped with a
