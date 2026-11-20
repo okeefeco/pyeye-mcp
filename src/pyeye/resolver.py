@@ -626,9 +626,7 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
         # nothing in this scope (#567).
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             # Several definitions of one function-local name: none is THE answer (#1022).
@@ -657,13 +655,10 @@ def _place_in_namespace_stubs(
     The portions are tried in sys.path order, so a name two portions declare is
     the first portion's, as Jedi resolves it.
     """
-    rest = path[len(module_dotted) + 1 :]
     for init in namespace_stub_inits(module_dotted, analyzer):
         names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, rest, analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             anchor = _anchor_on_bindings(matches, init, path)
@@ -824,30 +819,20 @@ def _follow_star(
             _STAR_SEEN.reset(token)
 
 
-def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
-    """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
+def _names_path(name: Any, path: str) -> bool:
+    """Whether Jedi's *name* is the definition *path* names: its ``full_name`` is *path*.
 
-    Jedi names a file from the first sys_path root that contains it, so a
-    package added inside the project (``.hidden/upstream/clonepkg``) gets a
-    module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
-    pyeye's name comes from the one file -> module mapper (#714), through
-    :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
-    The cheap checks run first, so the mapper is asked only about candidates:
-    the respelling changes only the module part, so a name whose Jedi
-    ``full_name`` doesn't end with *qualname* (the part of *path* after its
-    module) can't match.
+    #814 respelled the ``full_name`` through the file -> module mapper first,
+    because Jedi named a configured package nested in the project from the
+    project root (``.hidden.upstream.clonepkg.thing.X``). Since #858 (PR #966)
+    every configured package is on Jedi's own sys_path, so Jedi's names agree
+    with the mapper; the respelling matched nothing in the test suite or on
+    django and is retired (#971).
     """
     # ``name.name`` is cheap; ``full_name`` makes Jedi compute the scope chain.
     if name.name != path.rsplit(".", 1)[-1]:
         return False
-    full_name = name.full_name
-    if not full_name:
-        return False
-    if full_name == path:
-        return True
-    if not full_name.endswith(f".{qualname}"):
-        return False
-    return handle_for_anchor(name, full_name, analyzer) == path
+    return bool(name.full_name) and name.full_name == path
 
 
 def _follow_alias(
