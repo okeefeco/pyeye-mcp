@@ -181,47 +181,52 @@ def _named_classes(
     local_names: Counter[str] = Counter()
 
     def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
+        def bind(name: str) -> str | None:
+            dotted = f"{prefix}.{name}" if prefix is not None else None
+            if dotted is not None and depth >= 1:
+                local_names[dotted] += 1
+            return dotted
+
         for child in ast.iter_child_nodes(owner):
             if isinstance(child, ast.ClassDef):
-                dotted = f"{prefix}.{child.name}" if prefix is not None else None
-                found.append((child, dotted, depth, parent))
-                if dotted is not None and depth >= 1:
-                    local_names[dotted] += 1
-                visit(child, dotted, depth, len(found) - 1)
+                found.append((child, bind(child.name), depth, parent))
+                visit(child, found[-1][1], depth, len(found) - 1)
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                inner = f"{prefix}.{child.name}" if prefix is not None else None
-                if inner is not None and depth >= 1:
-                    local_names[inner] += 1  # a def rebinds a same-named class
-                visit(child, inner, depth + 1, parent)
-            elif isinstance(child, _OWN_SCOPES):
-                continue  # a lambda's or comprehension's names are its own
-            else:
-                if prefix is not None and depth >= 1:
-                    for name in _bound_names(child):
-                        local_names[f"{prefix}.{name}"] += 1
+                # A def rebinds a same-named class; its body is one level deeper.
+                visit(child, bind(child.name), depth + 1, parent)
+            elif not isinstance(child, _OWN_SCOPES):  # a lambda's names are its own
+                for name in _bound_names(child):
+                    bind(name)
                 visit(child, prefix, depth, parent)
 
     visit(tree, module_path, 0, None)
     reasons: list[str | None] = []
     for _node, dotted, depth, parent in found:
-        if dotted is None:
-            reason: str | None = UNNAMED_NO_MODULE_PATH
-        elif depth >= 2:
-            reason = UNNAMED_NESTED_LOCAL
-        elif depth == 1 and (
-            local_names[dotted] > 1
-            or (parent is not None and reasons[parent] == UNNAMED_AMBIGUOUS_LOCAL)
-        ):
-            reason = UNNAMED_AMBIGUOUS_LOCAL
-        elif not parse_compound_symbol(dotted)[1]:
-            reason = UNNAMED_NOT_A_HANDLE
-        else:
-            reason = None
-        reasons.append(reason)
+        under_ambiguous = parent is not None and reasons[parent] == UNNAMED_AMBIGUOUS_LOCAL
+        reasons.append(_unnamed_reason(dotted, depth, local_names, under_ambiguous))
     return [
         (node, dotted if reason is None else None, reason)
         for (node, dotted, _, _), reason in zip(found, reasons, strict=True)
     ]
+
+
+#: The function depth from which a class has no handle (#1011, #1024).
+_NESTED_LOCAL_DEPTH = 2
+
+
+def _unnamed_reason(
+    dotted: str | None, depth: int, local_names: Counter[str], under_ambiguous: bool
+) -> str | None:
+    """Why the class at *dotted* has no handle, or ``None`` if it has one."""
+    if dotted is None:
+        return UNNAMED_NO_MODULE_PATH
+    if depth >= _NESTED_LOCAL_DEPTH:
+        return UNNAMED_NESTED_LOCAL
+    if depth == 1 and (local_names[dotted] > 1 or under_ambiguous):
+        return UNNAMED_AMBIGUOUS_LOCAL
+    if not parse_compound_symbol(dotted)[1]:
+        return UNNAMED_NOT_A_HANDLE
+    return None
 
 
 def _class_fact(
