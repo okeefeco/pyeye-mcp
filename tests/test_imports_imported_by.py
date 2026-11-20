@@ -11,6 +11,11 @@ if module ``M``'s ``imports`` shows project module ``B``, then ``M`` is in
 ``imported_by(B)``. The reverse fails by design for function- and class-body
 imports, and that asymmetry is pinned here so it can't change by accident.
 
+A stub-only module (#933) is the one importer the forward direction exempts: a
+stub's imports are declarations, not runtime dependencies, so ``imported_by``
+doesn't count them while the stub's own ``imports`` lists them. That is pinned
+too.
+
 Only MODULE stubs are checked. A symbol stub (``from pkg import Thing``) is
 reported at its canonical definition site, so a re-exported name points at a
 module ``M`` never imported directly; that is canonicalization, not scope.
@@ -51,7 +56,10 @@ async def test_imports_implies_imported_by_over_fixtures(corpus: str) -> None:
     sweep = await _sweep(corpus)
     analyzer = ProjectManager().get_analyzer(str(_SWEEP_CORPORA[corpus]))
     missing = []
+    stubs = set(_module_seeds(_SWEEP_CORPORA[corpus], stubs_only=True))
     for module in _module_seeds(_SWEEP_CORPORA[corpus]):
+        if module in stubs:
+            continue  # a stub's imports are declarations (#933): pinned below
         for target in _project_module_stubs(sweep.expanded[module]["imports"]):
             if target in sweep.expanded:
                 importers = _handles(sweep.expanded[target]["imported_by"])
@@ -63,6 +71,16 @@ async def test_imports_implies_imported_by_over_fixtures(corpus: str) -> None:
             if module not in importers:
                 missing.append(f"{module} -> {target}: imported_by={importers}")
     assert not missing, "\n".join(missing)
+
+
+async def test_a_stub_importer_is_exempt_by_design() -> None:
+    """#933: the stub's ``imports`` lists the target; the target's ``imported_by`` doesn't."""
+    sweep = await _sweep("stub_only")
+
+    assert "pkg.declared" in set(_module_seeds(_SWEEP_CORPORA["stub_only"], stubs_only=True))
+    assert "pkg.base" in _project_module_stubs(sweep.expanded["pkg.declared"]["imports"])
+    assert "pkg.base.Base" in _handles(sweep.expanded["pkg.declared"]["imports"])
+    assert "pkg.declared" not in _handles(sweep.expanded["pkg.base"]["imported_by"])
 
 
 # ---------------------------------------------------------------------------

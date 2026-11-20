@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "A .pyi stub path resolves through the .py beside it; a stub-only file stays unresolved, saying why (#885)"
 issues: [885, 882, 625, 602, 933]
 anchors: ["pyeye.mcp.operations.resolve._resolve_file_only", "pyeye.mcp.operations.resolve._resolve_at_position", "pyeye.mcp.operations.resolve._parse_identifier", "pyeye.mcp.operations.not_found._path_hint", "tests/test_resolve_pyi_stubs.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-933-a-stub-only-module-has-handles-at-its-stub.md"]
 superseded_by: []
 ---
 

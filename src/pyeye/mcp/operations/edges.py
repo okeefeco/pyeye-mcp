@@ -79,9 +79,11 @@ from pyeye.canonicalization import re_export_scan
 from pyeye.handle import Handle
 from pyeye.kinds import KINDS, normalise_kind_from_name
 from pyeye.project_layout import (
+    declaration_kind,
     dir_shallow_qualifies,
     file_for_module,
     find_namespace_package_dirs,
+    is_module_file,
     package_kind,
 )
 from pyeye.resolver import Resolved, handle_for_anchor, in_restricted_dir, resolve_external_item
@@ -215,6 +217,15 @@ STATUS_NOT_APPLICABLE = "not_applicable"
 #: depends on the handle, so :func:`edge_status` never returns it: it comes from
 #: :class:`UnparseableSource`, raised by the resolver.
 STATUS_UNPARSEABLE = "unparseable"
+#: The edge reads a definition's BODY, but the source is declared in a stub
+#: (``.pyi``), which has no bodies (#933): typeshed, a stub-only installed
+#: package, or a project stub-only module. Like ``not_applicable`` it depends on
+#: the handle: see :func:`stub_declaration_file`.
+STATUS_STUB_DECLARATION = "stub_declaration"
+
+#: The edges read from a definition's body, which a stub declaration doesn't
+#: have (#933). Every other edge reads declarations, which a stub does have.
+BODY_EDGES: frozenset[str] = frozenset({"callees"})
 
 
 class UnparseableSource(Exception):
@@ -395,7 +406,9 @@ CEILING_MEANINGS: dict[str, str] = {
     ),
     "static_imports": (
         "import statements written in source; importlib / __import__ with a computed "
-        "name is not included"
+        "name is not included. A stub's (.pyi) own imports are declarations, not "
+        "runtime imports: imported_by doesn't count them, while imports on a stub "
+        "module lists them (#933)"
     ),
     "static_calls": (
         "calls whose target static analysis resolves; dynamic calls are counted in "
@@ -421,6 +434,30 @@ def edge_kind(jedi_name: Any) -> str:
 def edge_applies(edge: str, jedi_name: Any) -> bool:
     """Whether *edge* applies to *jedi_name*'s kind, per :data:`EDGE_APPLIES_TO`."""
     return edge_kind(jedi_name) in EDGE_APPLIES_TO.get(edge, frozenset())
+
+
+def stub_declaration_file(edge: str, jedi_name: Any) -> str | None:
+    """The stub declaring *jedi_name*, when *edge* reads a body it doesn't have (#933).
+
+    The POSIX path of the ``.pyi`` (:func:`pyeye.project_layout.declaration_kind`)
+    when *edge* is in :data:`BODY_EDGES`; ``None`` otherwise, including for a
+    definition with no file.
+    """
+    if edge not in BODY_EDGES:
+        return None
+    module_path = getattr(jedi_name, "module_path", None)
+    if module_path is None or declaration_kind(module_path) != "stub":
+        return None
+    return Path(module_path).as_posix()
+
+
+def stub_declaration_detail(edge: str, source: str, stub: str) -> str:
+    """The ``detail`` for a :data:`STATUS_STUB_DECLARATION` answer."""
+    return (
+        f"Edge '{edge}' reads a definition's body, and {source} is declared only in "
+        f"a stub ({stub}), which has none, so it can't be measured. Its other edges "
+        "read declarations, so they still apply."
+    )
 
 
 def not_applicable_detail(edge: str, kind: str) -> str:
@@ -1628,7 +1665,8 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
     ``__pycache__`` and dot-names always skipped:
 
     - ``X.py`` (``X != "__init__"``) → module child, ``file = X.py``,
-      ``is_subpackage=False``.
+      ``is_subpackage=False``. A stub-only ``X.pyi`` is one too, ``file =
+      X.pyi`` (#933); a ``.pyi`` beside its ``.py`` is not a second child.
     - ``X/`` with ``X/__init__.py`` → regular subpackage, ``file = X/__init__.py``,
       ``is_subpackage=True``.
     - ``X/`` with no ``__init__.py`` that :func:`_dir_shallow_qualifies` →
@@ -1687,7 +1725,9 @@ def _enumerate_submodule_paths(jedi_name: Any, analyzer: JediAnalyzer) -> list[_
                 else:
                     continue
             elif child.is_file():
-                if child.suffix != ".py" or child.stem == "__init__":
+                # A ``.py``, or a stub-only ``.pyi`` (#933); a stub beside its
+                # source isn't a second module file, so the pair can't clash.
+                if not is_module_file(child) or child.stem == "__init__":
                     continue
                 handle = f"{parent_handle}.{child.stem}"
                 cand = (_PRECEDENCE_MODULE, _SubmoduleEntry(handle, child, False))

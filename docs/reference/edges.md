@@ -32,4 +32,4 @@ Reference edges, deferred until an indexed reference backend lands (`expand` ans
 | `package_reexports` | import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module \_\_getattr\_\_ are not included |
 | `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
 | `static_definitions` | definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, \_\_getattr\_\_, type(), \_\_init\_subclass\_\_) are not included |
-| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included |
+| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933) |
