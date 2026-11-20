@@ -637,8 +637,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     handle_depth = len(handle.split("."))
     # Jedi recovers from syntax errors, so a failure here is internal: it
     # propagates, never a measured empty (#704).
-    script = file_artifact_cache.get_script(file_path, analyzer.project)
-    names = script.get_names(all_scopes=True, definitions=True, references=False)
+    names = file_artifact_cache.get_all_scope_names(file_path, analyzer.project)
 
     selected = (
         (name, full_name)
