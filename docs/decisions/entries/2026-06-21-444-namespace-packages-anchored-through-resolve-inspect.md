@@ -6,7 +6,7 @@ anchors: ["canonicalization.find_namespace_package_dirs", "canonicalization._dir
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md"]
+amended_by: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md", "2026-11-20-1004-a-namespace-package-is-declared-by-its-portions-stubs.md"]
 superseded_by: []
 ---
 
