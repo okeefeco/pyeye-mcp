@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "Subclasses with no handle are reported, and the class graph is keyed by definition site (#1006)"
 issues: [1006, 445, 435, 397, 1011]
 anchors: ["pyeye.analyzers.project_graph.ClassFact", "pyeye.mcp.operations.edges.resolve_subclasses", "pyeye.mcp.operations.edges.EdgeResult", "pyeye.mcp.operations.expand.expand_resolved", "tests/unit/mcp/operations/test_handleless_subclasses.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1024-unique-local-classes-are-named-handle-segments-are-identifiers.md"]
 superseded_by: []
 ---
 

@@ -40,7 +40,6 @@ Conservative behavior: return whatever Jedi sees.
 
 from __future__ import annotations
 
-import ast
 import logging
 import threading
 from collections import OrderedDict, deque
@@ -59,6 +58,7 @@ from pyeye.project_layout import (
     layout_key,
     module_name_for_file,
 )
+from pyeye.star_exports import bound_names, build_star_sources, star_exported_from, static_all
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -351,6 +351,57 @@ async def _collect_re_exports_impl(
 _BindingIndex = dict[str, list[tuple[str, bool]]]
 
 
+@dataclass(frozen=True)
+class _ModuleBindings:
+    """One module's statically read bindings, for :func:`_build_binding_index`."""
+
+    py_file: Path
+    table: dict[str, str]  # explicit binding -> its source (build_import_table)
+    listed: frozenset[str] | None  # static __all__ (pyeye.star_exports.static_all)
+    stars: list[str]  # ``from X import *`` sources, in source order
+    bound: set[str]  # names bound other than by a star (pyeye.star_exports.bound_names)
+
+
+def _star_bindings(modules: dict[str, _ModuleBindings]) -> dict[str, dict[str, str]]:
+    """``module -> {name: f"{source}.{name}"}`` for the names its stars bind (#1010).
+
+    The shared rule (:mod:`pyeye.star_exports`): a source exports its static
+    ``__all__``, else its names not starting with ``_``, which include what the
+    source's own stars bring in. As in ``resolve``, a name the module binds
+    itself beats a star, and the first star source that exports a name wins.
+    Only sources in *modules* (this package) are read; a star cycle ends.
+    """
+    received: dict[str, dict[str, str]] = {}
+    in_progress: set[str] = set()
+
+    def exports(module_name: str) -> frozenset[str] | set[str]:
+        module = modules[module_name]
+        if module.listed is not None:
+            return module.listed
+        names = module.bound | set(receive(module_name))
+        return {name for name in names if star_exported_from(None, name)}
+
+    def receive(module_name: str) -> dict[str, str]:
+        if module_name in received:
+            return received[module_name]
+        if module_name in in_progress:
+            return {}  # a star cycle: what's received so far is all there is
+        in_progress.add(module_name)
+        module = modules[module_name]
+        got: dict[str, str] = {}
+        for source in module.stars:
+            if source not in modules or source == module_name:
+                continue  # outside this package, or a self-star: not read
+            for name in sorted(exports(source)):
+                if name not in module.bound and name not in got:
+                    got[name] = f"{source}.{name}"
+        in_progress.discard(module_name)
+        received[module_name] = got
+        return got
+
+    return {name: got for name in modules if (got := receive(name))}
+
+
 def _build_binding_index(
     package_root: Path,
     analyzer: JediAnalyzer,
@@ -381,6 +432,8 @@ def _build_binding_index(
     # has its root here, which may hold nested worktrees or a .venv.
     py_files = sorted(filtered_rglob("*.py", package_root))
 
+    # In file order; two files can map to one module name, and both are indexed.
+    modules: list[tuple[str, _ModuleBindings]] = []
     for py_file in py_files:
         # Derive the module dotted path for this file (one mapper, #625:
         # additional-package and root-package files are named too).
@@ -402,13 +455,35 @@ def _build_binding_index(
             unparseable.append(path_to_key(py_file))
             continue
         is_package = py_file.name == "__init__.py"
-        table = build_import_table(tree, mod_path, resolve_relative_import, is_package)
+        modules.append(
+            (
+                mod_path,
+                _ModuleBindings(
+                    py_file=py_file,
+                    table=build_import_table(tree, mod_path, resolve_relative_import, is_package),
+                    listed=static_all(tree),  # read once per file, not once per binding
+                    stars=build_star_sources(tree, mod_path, resolve_relative_import, is_package),
+                    bound=bound_names(tree),
+                ),
+            )
+        )
 
-        # __all__ is read once per file, not once per binding.
-        all_names = _static_all(tree)
+    # Star sources are looked up by module name; the first file of a name wins.
+    by_name: dict[str, _ModuleBindings] = {}
+    for mod_path, module in modules:
+        by_name.setdefault(mod_path, module)
+    star_tables = _star_bindings(by_name)
+    for mod_path, module in modules:
+        # Explicit bindings first, then star ones (#1010): ``source.N`` for each
+        # name N a ``from source import *`` binds in this module. A star never
+        # binds a name the module binds itself, so the two don't overlap.
+        table = dict(module.table)
+        if by_name[mod_path] is module:
+            for surface, source in star_tables.get(mod_path, {}).items():
+                table.setdefault(surface, source)
         for surface, source in table.items():
             public = _is_public_binding(
-                py_file, mod_path, surface, tree, table, static_all=all_names
+                module.py_file, mod_path, surface, table, listed=module.listed
             )
             index.setdefault(source, []).append((f"{mod_path}.{surface}", public))
 
@@ -450,40 +525,13 @@ def _is_private_module(module: str) -> bool:
     )
 
 
-def _static_all(tree: ast.Module) -> set[str]:
-    """The names in a module's ``__all__``, read statically (``=`` and ``+=`` of a literal).
-
-    A dynamic ``__all__`` contributes nothing: it can't be read without running
-    the module, so its names aren't claimed.
-    """
-    names: set[str] = set()
-    for node in tree.body:
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        elif isinstance(node, ast.AugAssign | ast.AnnAssign):
-            targets = [node.target]
-        else:
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
-            continue
-        value = node.value
-        if isinstance(value, ast.List | ast.Tuple):
-            names.update(
-                e.value
-                for e in value.elts
-                if isinstance(e, ast.Constant) and isinstance(e.value, str)
-            )
-    return names
-
-
 def _is_public_binding(
     py_file: Path,
     module: str,
     binding: str,
-    tree: ast.Module,
     table: dict[str, str],
     *,
-    static_all: set[str] | None = None,
+    listed: frozenset[str] | None = None,
 ) -> bool:
     """Whether binding *binding* in *module* (file *py_file*) is a re-export (#712).
 
@@ -495,12 +543,14 @@ def _is_public_binding(
        module that is private (``pkg/api.py``: ``from ._impl import X``).
 
     A plain internal import between public modules is not a re-export: the
-    ``imported_by`` edge reports it. *static_all*, when given, is
-    ``_static_all(tree)`` already computed by the caller.
+    ``imported_by`` edge reports it. *table* maps each binding to its source,
+    star bindings included (#1010). *listed* is the module's static
+    ``__all__`` (:func:`pyeye.star_exports.static_all`), already read by the
+    caller; ``None`` when it has none, or a dynamic one that can't be read.
     """
     if py_file.name == "__init__.py":
         return True
-    if binding in (static_all if static_all is not None else _static_all(tree)):
+    if listed is not None and binding in listed:
         return True
     if _is_private_module(module):
         return False

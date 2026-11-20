@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "A save writes only the project's explicit config; discovered packages are reported, never saved (#1038)"
 issues: [1038, 1035, 953]
 anchors: ["pyeye.config.ProjectConfig.save_config", "pyeye.config.ProjectConfig.add_explicit", "pyeye.config.ProjectConfig.discovered", "pyeye.mcp.server.configure_packages", "tests/test_config_save_explicit.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1035-sibling-packages-come-only-from-declarations.md"]
 superseded_by: []
 ---
 

@@ -9,9 +9,10 @@
 
 On django that hid 23-64% of the direct subclasses of ``Model``, ``Form``,
 ``ModelAdmin`` and ``Migration``. Each literal ``class B(A):`` is now one entry,
-named by its real dotted name, or by none when it has no handle (defined in a
-function, in a file with no module path, or under a name the ASCII-only handle
-grammar rejects). An unnamed class is never given a false handle.
+named by its real dotted name, or by none when it has no handle. An unnamed
+class is never given a false handle. Since #1024 a class one function level
+deep and unique there is named ``module.func.Name``, and non-ASCII names are
+handles; the remaining cases are in ``test_local_class_naming``.
 """
 
 from __future__ import annotations
@@ -95,8 +96,9 @@ class TestNestedSameNameClasses:
         assert _sites(await _entries(analyzer), tmp_path) == [
             ("app/m.py", 3, "app.m.Foo", None),
             ("app/m.py", 7, "app.m.Outer.Foo", None),
-            ("app/m.py", 11, None, "function_local"),
-            ("app/m.py", 15, None, "function_local"),
+            # Each is unique in its own function, so named in pyeye's notation (#1024).
+            ("app/m.py", 11, "app.m.f.Foo", None),
+            ("app/m.py", 15, "app.m.g.Foo", None),
         ]
 
     @pytest.mark.asyncio
@@ -109,14 +111,24 @@ class TestNestedSameNameClasses:
     async def test_a_function_local_class_is_never_given_a_module_level_handle(
         self, tmp_path: Path
     ) -> None:
-        """The false answer #1006 removes: ``app.m.Foo`` pointing at a class in ``f``."""
+        """The false answer #1006 removes: ``app.m.Foo`` pointing at a class in ``f``.
+
+        Since #1024 the classes in ``f`` and ``g`` have their own handles.
+        """
         analyzer = _project(tmp_path, {"app/m.py": NESTED})
 
-        assert await _stub_handles(analyzer) == [("app.m.Foo", 3), ("app.m.Outer.Foo", 7)]
+        assert await _stub_handles(analyzer) == [
+            ("app.m.Foo", 3),
+            ("app.m.Outer.Foo", 7),
+            ("app.m.f.Foo", 11),
+            ("app.m.g.Foo", 15),
+        ]
 
     @pytest.mark.asyncio
-    async def test_a_lone_function_local_class_gets_no_handle(self, tmp_path: Path) -> None:
-        """No module-level ``Foo`` exists, so the old key was a handle that resolves nowhere."""
+    async def test_a_lone_function_local_class_gets_its_functions_handle(
+        self, tmp_path: Path
+    ) -> None:
+        """No module-level ``Foo``: the old key resolved nowhere; #1024 names it ``app.m.f.Foo``."""
         analyzer = _project(
             tmp_path,
             {
@@ -124,10 +136,8 @@ class TestNestedSameNameClasses:
             },
         )
 
-        assert _sites(await _entries(analyzer), tmp_path) == [
-            ("app/m.py", 4, None, "function_local")
-        ]
-        assert await _stub_handles(analyzer) == []
+        assert _sites(await _entries(analyzer), tmp_path) == [("app/m.py", 4, "app.m.f.Foo", None)]
+        assert await _stub_handles(analyzer) == [("app.m.f.Foo", 4)]
 
 
 MIGRATION = "from app.base import Base\n\nclass Migration(Base):\n    pass\n"
@@ -165,17 +175,17 @@ class TestFilesWithNoModulePath:
         assert await _stub_handles(analyzer) == []
 
 
-class TestNamesTheHandleGrammarRejects:
+class TestNonAsciiNames:
     @pytest.mark.asyncio
-    async def test_a_non_ascii_class_is_one_entry_with_no_handle(self, tmp_path: Path) -> None:
-        """Handles are ASCII identifiers (symbol_parser), so ``Héllo`` can't be one."""
+    async def test_a_non_ascii_class_is_one_named_entry(self, tmp_path: Path) -> None:
+        """Handle segments are any Python identifier since #1024 (PEP 3131)."""
         analyzer = _project(
             tmp_path,
             {"app/u.py": "from app.base import Base\n\nclass Héllo(Base):\n    pass\n"},
         )
 
-        assert _sites(await _entries(analyzer), tmp_path) == [("app/u.py", 3, None, "not_a_handle")]
-        assert await _stub_handles(analyzer) == []
+        assert _sites(await _entries(analyzer), tmp_path) == [("app/u.py", 3, "app.u.Héllo", None)]
+        assert await _stub_handles(analyzer) == [("app.u.Héllo", 3)]
 
 
 class TestTheGraphCountsEveryDefinition:

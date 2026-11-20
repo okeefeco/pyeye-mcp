@@ -173,10 +173,10 @@ class TestSymbolParser:
         assert valid is True
         assert components == ["Class1", "method2"]
 
-        # Unicode characters (should fail)
+        # A non-ASCII identifier is a segment (PEP 3131, #1024)
         components, valid = parse_compound_symbol("Class.方法")
-        assert valid is False
-        assert components == []
+        assert valid is True
+        assert components == ["Class", "方法"]
 
         # Special characters in component
         components, valid = parse_compound_symbol("Class.method$")

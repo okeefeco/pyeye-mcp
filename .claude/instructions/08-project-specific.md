@@ -22,7 +22,7 @@ This is the PyEye Server - an extensible MCP (Model Context Protocol) server tha
 - **Multi-Project Support**: Analyze multiple projects and dependencies simultaneously
 - **Namespace Packages**: Handle packages distributed across multiple repositories
 - **Auto-Update**: File watching automatically reflects code changes
-- **Configuration System**: Packages and namespaces from config files or auto-discovery; env vars tune performance and logging only
+- **Configuration System**: Packages and namespaces from config files, the project's declared path dependencies, or a `src/` layout; env vars tune performance and logging only
 - **Plugin Architecture**: Built-in framework plugins (Django, Pydantic, Flask)
 
 ## Architecture
@@ -48,7 +48,7 @@ The server supports configuration via:
 - `pyproject.toml` [tool.pyeye] section
 - Environment variables: performance tuning and logging ONLY (README "Performance Settings"). Packages and namespaces are NOT configurable through env vars (#556). NEVER document an env var that `src/` doesn't read (`tests/test_documented_env_vars.py` enforces this)
 - Global config `~/.config/pyeye/config.json`
-- Auto-discovery of sibling packages
+- Packages beside the project come ONLY from declarations (#1035): path dependencies in the project's `pyproject.toml` (`[tool.uv.sources]` paths, `[tool.uv.workspace]` members, Poetry `path` deps, PEP 621 / PEP 735 `name @ file:` references), editable installs in the project's environment, or explicit config (`packages`, `namespaces`, `configure_packages`). NEVER describe or reintroduce guessing packages from neighbouring directories; the user removed it. Auto-discovery is only the project's own `src/` layout
 
 Example `.pyeye.json`:
 

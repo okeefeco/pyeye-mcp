@@ -4,6 +4,7 @@ import ast
 import asyncio
 import logging
 import os
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -36,6 +37,7 @@ from ..scope_utils import (
     parallel_search,
     resolve_scope_paths,
 )
+from ..star_exports import static_all
 from ..symbol_parser import get_parent_and_member, is_compound_symbol, parse_compound_symbol
 from . import project_graph
 from .base_resolution import (
@@ -117,7 +119,8 @@ def _dotted_prefixes(dotted: str) -> list[str]:
 
 
 UNNAMED_NO_MODULE_PATH = project_graph.UNNAMED_NO_MODULE_PATH
-UNNAMED_FUNCTION_LOCAL = project_graph.UNNAMED_FUNCTION_LOCAL
+UNNAMED_NESTED_LOCAL = project_graph.UNNAMED_NESTED_LOCAL
+UNNAMED_AMBIGUOUS_LOCAL = project_graph.UNNAMED_AMBIGUOUS_LOCAL
 UNNAMED_NOT_A_HANDLE = project_graph.UNNAMED_NOT_A_HANDLE
 
 
@@ -135,37 +138,96 @@ def _site_key(py_file: Path, node: ast.ClassDef) -> str:
     return f"{py_file.as_posix()}:{node.lineno}:{node.col_offset}"
 
 
+#: Nodes whose bound names belong to their own scope, not the enclosing one.
+_OWN_SCOPES = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _bound_names(node: ast.AST) -> list[str]:
+    """The names *node* itself binds or deletes, as Jedi lists them as definitions.
+
+    An assignment, ``for`` / ``with`` / walrus target, ``except … as`` or
+    ``del``. Not a parameter or an import: Jedi doesn't list either under the
+    function's scope, so neither makes ``resolve`` ambiguous (#1024). Whether
+    that rule is right is #1049; change this with it.
+    """
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return [node.id]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    return []
+
+
 def _named_classes(
     tree: ast.Module, module_path: str | None
 ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
-    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006).
+    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006, #1024).
 
-    A class in a class is ``module.Outer.Inner``. A class in a function has no
-    handle (handles are importable dotted names), nor does one in a file with no
-    module path, nor one whose dotted name the ASCII-only handle grammar rejects.
+    Names follow pyeye's existing notation, which ``resolve`` / ``resolve_at``
+    already use: ``module.Outer.Inner`` for a class in a class,
+    ``module.func.Name`` / ``module.Cls.meth.Name`` for a class in a function
+    or method. A class has no handle when (in this order):
+
+    - its file has no module path (``no_module_path``);
+    - it is two or more function levels deep (``nested_local``);
+    - it is one function level deep and its dotted name is bound more than
+      once in its scope (``if``/``else`` branches, a ``def``, an assignment,
+      ``del``: the bindings ``resolve`` counts), or an enclosing local class's
+      is (``ambiguous_local``);
+    - the handle grammar rejects the name (``not_a_handle``).
     """
+    # (node, candidate dotted name, function depth, index of the enclosing class)
+    found: list[tuple[ast.ClassDef, str | None, int, int | None]] = []
+    # Every dotted name bound in a local scope: classes, and the other bindings
+    # ``resolve`` counts there, so a name the graph gives resolves (#1022).
+    local_names: Counter[str] = Counter()
 
-    def visit(
-        owner: ast.AST, prefix: str | None, in_function: bool
-    ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
+    def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
+        def bind(name: str) -> str | None:
+            dotted = f"{prefix}.{name}" if prefix is not None else None
+            if dotted is not None and depth >= 1:
+                local_names[dotted] += 1
+            return dotted
+
         for child in ast.iter_child_nodes(owner):
             if isinstance(child, ast.ClassDef):
-                dotted = f"{prefix}.{child.name}" if prefix is not None else None
-                if dotted is None:
-                    yield child, None, UNNAMED_NO_MODULE_PATH
-                elif in_function:
-                    yield child, None, UNNAMED_FUNCTION_LOCAL
-                elif not parse_compound_symbol(dotted)[1]:
-                    yield child, None, UNNAMED_NOT_A_HANDLE
-                else:
-                    yield child, dotted, None
-                yield from visit(child, dotted, in_function)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                yield from visit(child, prefix, True)
-            else:
-                yield from visit(child, prefix, in_function)
+                found.append((child, bind(child.name), depth, parent))
+                visit(child, found[-1][1], depth, len(found) - 1)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # A def rebinds a same-named class; its body is one level deeper.
+                visit(child, bind(child.name), depth + 1, parent)
+            elif not isinstance(child, _OWN_SCOPES):  # a lambda's names are its own
+                for name in _bound_names(child):
+                    bind(name)
+                visit(child, prefix, depth, parent)
 
-    return visit(tree, module_path, False)
+    visit(tree, module_path, 0, None)
+    reasons: list[str | None] = []
+    for _node, dotted, depth, parent in found:
+        under_ambiguous = parent is not None and reasons[parent] == UNNAMED_AMBIGUOUS_LOCAL
+        reasons.append(_unnamed_reason(dotted, depth, local_names, under_ambiguous))
+    return [
+        (node, dotted if reason is None else None, reason)
+        for (node, dotted, _, _), reason in zip(found, reasons, strict=True)
+    ]
+
+
+#: The function depth from which a class has no handle (#1011, #1024).
+_NESTED_LOCAL_DEPTH = 2
+
+
+def _unnamed_reason(
+    dotted: str | None, depth: int, local_names: Counter[str], under_ambiguous: bool
+) -> str | None:
+    """Why the class at *dotted* has no handle, or ``None`` if it has one."""
+    if dotted is None:
+        return UNNAMED_NO_MODULE_PATH
+    if depth >= _NESTED_LOCAL_DEPTH:
+        return UNNAMED_NESTED_LOCAL
+    if depth == 1 and (local_names[dotted] > 1 or under_ambiguous):
+        return UNNAMED_AMBIGUOUS_LOCAL
+    if not parse_compound_symbol(dotted)[1]:
+        return UNNAMED_NOT_A_HANDLE
+    return None
 
 
 def _class_fact(
@@ -1276,7 +1338,7 @@ class JediAnalyzer:
         """
         file_to_module = self._file_to_module(py_files)
         classes, _, unparseable = self._class_inventory(py_files, file_to_module)
-        import_tables, module_defines, star_sources = self._build_ast_resolution_tables(
+        import_tables, module_defines, star_sources, star_alls = self._build_ast_resolution_tables(
             py_files, file_to_module
         )
         # Memoised for this build: repeated goto / canonicalisation runs once.
@@ -1297,6 +1359,7 @@ class JediAnalyzer:
                     import_tables,
                     module_defines,
                     star_sources,
+                    star_alls,
                     resolved_cache,
                     canonical_cache,
                 )
@@ -1308,6 +1371,7 @@ class JediAnalyzer:
             import_tables=import_tables,
             module_defines=module_defines,
             star_sources=star_sources,
+            star_alls=star_alls,
             unparseable=unparseable,
         )
 
@@ -1319,7 +1383,11 @@ class JediAnalyzer:
         as before (#623).
         """
         key = self._target_index_key(
-            target_fqn, graph.import_tables, graph.module_defines, graph.star_sources
+            target_fqn,
+            graph.import_tables,
+            graph.module_defines,
+            graph.star_sources,
+            graph.star_alls,
         )
         if key is None:
             canon = self._canonical_cached(target_fqn, {})
@@ -1347,21 +1415,29 @@ class JediAnalyzer:
 
     def _build_ast_resolution_tables(
         self, py_files: list[Path], file_to_module: dict[Path, str | None]
-    ) -> tuple[dict[str, dict[str, str]], dict[str, dict[str, str]], dict[str, list[str]]]:
+    ) -> tuple[
+        dict[str, dict[str, str]],
+        dict[str, dict[str, str]],
+        dict[str, list[str]],
+        dict[str, frozenset[str]],
+    ]:
         """Build per-module AST import/define/star tables for AST-first resolution (#405).
 
-        Returns ``(import_tables, module_defines, star_sources)`` keyed by the
+        Returns ``(import_tables, module_defines, star_sources, star_alls)`` keyed by the
         same module derivation (:meth:`_get_import_path_for_file`, supplied
         pre-computed via *file_to_module*, #421) used to build class FQNs, so
         resolution keys line up.  ``star_sources`` lets :func:`resolve_base`
         follow ``from x import *`` re-exports (#419 — fewer Jedi ``goto``
         fallbacks, which are the non-deterministic ones).  ASTs come from the
         shared cache; relative imports use the module-level
-        :func:`resolve_relative_import` seam (#421).
+        :func:`resolve_relative_import` seam (#421).  ``star_alls`` holds each
+        static ``__all__``, so a star is followed only for a name its source
+        exports (the shared rule in :mod:`pyeye.star_exports`, #1010).
         """
         import_tables: dict[str, dict[str, str]] = {}
         module_defines: dict[str, dict[str, str]] = {}
         star_sources: dict[str, list[str]] = {}
+        star_alls: dict[str, frozenset[str]] = {}
         for py_file in py_files:
             module_name = file_to_module.get(py_file) or py_file.stem
             if module_name in import_tables:
@@ -1378,7 +1454,10 @@ class JediAnalyzer:
             stars = build_star_sources(tree, module_name, resolve_relative_import, is_package)
             if stars:
                 star_sources[module_name] = stars
-        return import_tables, module_defines, star_sources
+            listed = static_all(tree)
+            if listed is not None:
+                star_alls[module_name] = listed
+        return import_tables, module_defines, star_sources, star_alls
 
     def _resolve_base_to_key(
         self,
@@ -1389,6 +1468,7 @@ class JediAnalyzer:
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
         star_sources: dict[str, list[str]],
+        star_alls: dict[str, frozenset[str]],
         resolved_cache: dict[tuple[str, int, int], str | None],
         canonical_cache: dict[str, Handle | None],
     ) -> str | None:
@@ -1404,7 +1484,7 @@ class JediAnalyzer:
         path resolved a given base.
         """
         ast_resolved = resolve_base(
-            child_module, base_dotted, import_tables, module_defines, star_sources
+            child_module, base_dotted, import_tables, module_defines, star_sources, star_alls
         )
         if ast_resolved is not None:
             return ast_resolved
@@ -1444,6 +1524,7 @@ class JediAnalyzer:
         import_tables: dict[str, dict[str, str]],
         module_defines: dict[str, dict[str, str]],
         star_sources: dict[str, list[str]],
+        star_alls: dict[str, frozenset[str]],
     ) -> str | None:
         """Resolve a target FQN to its AST definition-site key, or ``None``.
 
@@ -1456,7 +1537,9 @@ class JediAnalyzer:
         if "." not in target_fqn:
             return None
         target_module, target_leaf = target_fqn.rsplit(".", 1)
-        return resolve_base(target_module, target_leaf, import_tables, module_defines, star_sources)
+        return resolve_base(
+            target_module, target_leaf, import_tables, module_defines, star_sources, star_alls
+        )
 
     async def _resolve_aliased_bases(
         self,

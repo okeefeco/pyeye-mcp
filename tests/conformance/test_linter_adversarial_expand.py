@@ -1023,7 +1023,7 @@ _HANDLELESS_ENTRY: dict = {
     "name": "Local",
     "file": "/proj/app/tests.py",
     "line": 7,
-    "reason": "function_local",
+    "reason": "ambiguous_local",
 }
 
 _VALID_EXPAND_SUBCLASSES: dict = {
