@@ -215,13 +215,14 @@ async def test_files_without_an_unplaced_shortcut_never_touch_the_resolver(
 
 
 #: A warm ``find_flask_routes`` over 50 files, one of them using 10 shortcuts on
-#: an imported blueprint. Measured on dev01 under pytest (inert watchers): about
-#: 60 ms warm alone when set (#920); the import placement is one resolve (~3 ms) per
-#: call. #957 made the warm call ~2.3x slower (#1034, which re-baselines this). The
-#: local base allows for two concurrent suites (#835); CI values follow
-#: ENRICH_MANY's ratios.
+#: an imported blueprint, measured with ``warm_median_ms(calls=3, repeats=3)``.
+#: Re-measured for #1034 on dev01 under pytest with one other suite running
+#: (2026-11-20): 133-157 ms with the url registry cached, 258-298 ms without it
+#: (#957 rebuilt it on every call). The local base is ~1.4x the cached value, so
+#: that slowdown fails it; the import placement is one resolve (~3 ms) per call.
+#: The CI values are unchanged (#920, ENRICH_MANY's ratios).
 IMPORTED_OWNER_ROUTES = PerformanceThresholds(
-    base=400.0, linux_ci=600.0, macos_ci=1200.0, windows_ci=1200.0
+    base=220.0, linux_ci=600.0, macos_ci=1200.0, windows_ci=1200.0
 )
 
 

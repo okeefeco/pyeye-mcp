@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ..analyzers import project_graph
+from ..analyzers.jedi_analyzer import _scope_key
 from ..async_utils import filtered_rglob, pruned_rglob
 from ..path_utils import path_to_key, relative_within
 from ..project_layout import module_name_for_file
@@ -14,6 +16,9 @@ from ..resolver import Resolved, resolve_item
 from .base import AnalyzerPlugin, Scope
 
 logger = logging.getLogger(__name__)
+
+#: The url registry's kind in ``project_graph``'s store (#1034).
+_URL_REGISTRY = "flask_url_registry"
 
 
 def _str_value(node: ast.AST) -> str | None:
@@ -532,6 +537,25 @@ class FlaskPlugin(AnalyzerPlugin):
         return ".".join([head, *chain[1:]])
 
     async def _url_registry(self, scope: Scope) -> "_UrlRegistry":
+        """The url registry for *scope*, built once per project generation (#1034).
+
+        Cached in ``project_graph`` beside the class and import graphs, so the
+        watcher, eviction and ``configure_packages`` drop it with them. It used
+        to be rebuilt on every call, which made a warm ``find_flask_routes``
+        ~2.3x slower (#957).
+        """
+        analyzer = self._analyzer()
+        root = analyzer.project_path.as_posix()
+        keys = {"layout_key": analyzer.layout_key, "scope_key": _scope_key(scope)}
+        cached = project_graph.cached_graph(_URL_REGISTRY, root, **keys)
+        if isinstance(cached, _UrlRegistry):
+            return cached
+        generation = project_graph.generation(root)  # before the build lists files
+        registry = await self._build_url_registry(scope)
+        project_graph.store_graph(_URL_REGISTRY, root, registry, generation, **keys)
+        return registry
+
+    async def _build_url_registry(self, scope: Scope) -> "_UrlRegistry":
         """Every Flask app and blueprint in *scope*, and each blueprint's registrations (#952)."""
         analyzer = self._analyzer()
         self._owner_paths: dict[str, str | None] = {}  # re-export -> handle, per call

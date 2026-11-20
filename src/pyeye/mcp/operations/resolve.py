@@ -308,6 +308,52 @@ def _no_source_file(file_path: Path) -> _Miss | None:
     return None
 
 
+#: How a handleless definition's Jedi type reads in a detail (#1026).
+_KIND_WORDS = {"statement": "variable", "param": "parameter"}
+
+
+def _handleless_miss(name: Any, file_path: Path, analyzer: JediAnalyzer) -> _Miss:
+    """The honest miss for a definition Jedi gives no dotted name (#1026).
+
+    ``goto`` found a definition, so ``no_symbol_at_position`` would tell the
+    caller they pointed at nothing. Such a definition (two or more function
+    levels deep, #1011) stays handleless: say so, and name the nearest
+    enclosing scope that has a handle. Jedi's scope wrappers carry no
+    ``full_name`` there either, so each enclosing scope's dotted path is built
+    from the module and offered only if the resolver accepts it.
+    """
+    kind = _KIND_WORDS.get(name.type, name.type or "name")
+    where = f"{file_path.as_posix()}:{name.line}"
+    scopes: list[Any] = []  # innermost first
+    scope = name.parent()
+    while scope is not None and scope.type != "module":
+        scopes.append(scope)
+        scope = scope.parent()
+    functions = [s.name for s in scopes if s.type == "function"]
+    nearest: str | None = None
+    module = getattr(name, "module_name", None)
+    for depth in range(len(scopes)):
+        if not module:
+            break
+        dotted = ".".join([module, *(s.name for s in reversed(scopes[depth:]))])
+        if not isinstance(resolve_handle(dotted, analyzer), NotFound):
+            nearest = dotted
+            break
+    if len(functions) >= 2:
+        why = (
+            f"is defined inside nested functions ({' -> '.join(reversed(functions))}). "
+            "pyeye gives no handle to definitions two or more function levels deep"
+        )
+    else:
+        why = "has no dotted name, so pyeye gives it no handle"
+    hint = (
+        f" The nearest enclosing scope with a handle is {nearest!r}."
+        if nearest
+        else " Resolve its module by its dotted name instead."
+    )
+    return _miss("unresolved", f"{name.name!r} (a {kind}) at {where} {why}.{hint}")
+
+
 async def _resolve_at_position(
     file_path: Path, line: int, column: int, analyzer: JediAnalyzer
 ) -> _HelperResult:
@@ -349,7 +395,8 @@ async def _resolve_at_position(
     # A member of a function-local class has no Jedi full_name (#1025).
     full_name = local_member_full_name(name)
     if not full_name:
-        return _miss("no_symbol_at_position")
+        # There IS a definition here; it just has no handle (#1026).
+        return _handleless_miss(name, file_path, analyzer)
     # ``goto`` on the ``x`` of ``self.x = …`` lands on the target itself, whose
     # full_name reads as a local of the method.  It binds nothing there, and
     # placing its full_name could find an unrelated same-named binding (#567).
