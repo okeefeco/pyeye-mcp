@@ -18,6 +18,7 @@ import pytest
 
 from pyeye.architecture_review import state as review_state
 from pyeye.docs_facts import registry, review
+from pyeye.docs_facts.cli import SNAPSHOT
 from pyeye.docs_facts.facts import Fact, view
 
 _TTL = Fact("env.PYEYE_CACHE_TTL", {"default": 300}, "")
@@ -461,6 +462,19 @@ def repo_facts() -> Any:
     return copy.deepcopy(_repo_facts_once())
 
 
+def _snapshot_differs_from_head() -> bool:
+    """Whether the on-disk facts snapshot differs from ``HEAD``'s, staged or not (#977)."""
+    import subprocess  # nosec B404 - a fixed git command
+
+    result = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
+        ["git", "diff", "--quiet", "HEAD", "--", SNAPSHOT],
+        cwd=_ROOT,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode != 0
+
+
 class TestScope:
     def test_there_is_no_default_scope(self, repo_facts: Any) -> None:
         with pytest.raises(ValueError, match="no default scope"):
@@ -495,10 +509,40 @@ class TestScope:
             review.scope(_ROOT, repo_facts, base="no-such-ref")
 
     def test_change_triggered_against_head_has_no_changed_facts(self, repo_facts: Any) -> None:
+        """On a committed tree, nothing has changed since ``HEAD``: the scope is empty.
+
+        ``scope`` compares ``HEAD``'s snapshot with the one on disk, so an
+        uncommitted ``docs/facts/facts.json`` (a merge in progress, or a
+        regenerated snapshot not yet committed) is a real change, not a bug.
+        Such a run skips, saying so; CI always runs on a committed tree (#977).
+        The same logic is checked on every tree below, with no disk involved.
+        """
+        if _snapshot_differs_from_head():
+            pytest.skip(
+                f"{SNAPSHOT} differs from HEAD (an uncommitted change or a merge "
+                "in progress), so the change-triggered scope isn't empty; this checks a "
+                "committed tree, as CI runs (#977)"
+            )
         out = review.scope(_ROOT, repo_facts, base="HEAD")
         assert out["changed"] == []
         assert out["pages"] == []
         assert isinstance(out["uncovered"], list)
+
+    def test_a_base_equal_to_the_snapshot_has_no_changed_facts(
+        self, repo_facts: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whatever the working tree holds: ``HEAD``'s snapshot against itself is empty (#977)."""
+        from pyeye.docs_facts import changed, cli
+
+        head = changed.base_snapshot(_ROOT, "HEAD", SNAPSHOT)
+        assert head is not None
+        # scope() imports it from cli when called, so patch it there.
+        monkeypatch.setattr(cli, "_committed_snapshot", lambda _root: head)
+
+        out = review.scope(_ROOT, repo_facts, base="HEAD")
+
+        assert out["changed"] == []
+        assert out["pages"] == []
 
     def test_change_triggered_picks_pages_binding_a_changed_fact(
         self, repo_facts: Any, monkeypatch: pytest.MonkeyPatch
