@@ -759,9 +759,8 @@ def _follow_star(
     the first that resolves wins. Explicit bindings were tried first, as Python
     lets them shadow a star. Bounded by the alias hop limit and a seen-set.
     """
-    from pyeye.analyzers.base_resolution import build_star_sources
     from pyeye.import_analyzer import resolve_relative_import
-    from pyeye.star_exports import star_exported
+    from pyeye.star_exports import build_star_sources, star_exported
 
     if hops >= _MAX_ALIAS_HOPS:
         return None

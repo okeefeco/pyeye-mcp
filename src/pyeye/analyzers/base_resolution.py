@@ -38,7 +38,7 @@ separate concern.
 from __future__ import annotations
 
 import ast
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 
 # build_import_table lives in the leaf module so canonicalization can share it
@@ -48,6 +48,13 @@ from pyeye._module_scope import (
     iter_module_scope_imports,
 )
 from pyeye._module_sentinel import DefinitionSentinel
+
+# The star rule and star-source walk live in pyeye.star_exports, shared with
+# resolve and the re-export binding index (#1010); re-exported here.
+from pyeye.star_exports import (
+    build_star_sources as build_star_sources,
+    star_exported_from,
+)
 
 #: Kinds in ``module_defines`` that represent a real top-level definition site
 #: (as opposed to ``"import"``, which marks a re-exported name to be followed).
@@ -64,6 +71,7 @@ def _follow(
     import_tables: Mapping[str, Mapping[str, str]],
     module_defines: Mapping[str, Mapping[str, str]],
     star_sources: Mapping[str, list[str]],
+    star_alls: Mapping[str, frozenset[str]],
     seen: set[str],
 ) -> str | None:
     """Follow re-export bindings (explicit and star) from *path* to a def site.
@@ -73,7 +81,10 @@ def _follow(
     - ``"import"`` → *leaf* is an explicit re-export; follow its target;
     - otherwise → try the owning module's ``from x import *`` sources (a star
       re-export of *leaf*) and recurse into each in order; the first that
-      resolves wins (explicit imports above already take precedence).
+      resolves wins (explicit imports above already take precedence). A source
+      is tried only when it star-exports *leaf* by the shared rule
+      (:func:`pyeye.star_exports.star_exported_from`, #1010): its static
+      ``__all__`` from *star_alls*, else a name not starting with ``_``.
 
     ``seen`` prevents mutual-re-export cycles (and is shared across star
     branches); ``_MAX_RESOLUTION_NODES`` is a runaway backstop.
@@ -91,12 +102,19 @@ def _follow(
         nxt = import_tables.get(owning_module, {}).get(leaf)
         if not nxt:
             return None
-        return _follow(nxt, import_tables, module_defines, star_sources, seen)
+        return _follow(nxt, import_tables, module_defines, star_sources, star_alls, seen)
 
     # leaf is neither defined nor an explicit import here — try star re-exports.
     for source_module in star_sources.get(owning_module, ()):
+        if not star_exported_from(star_alls.get(source_module), leaf):
+            continue
         resolved = _follow(
-            f"{source_module}.{leaf}", import_tables, module_defines, star_sources, seen
+            f"{source_module}.{leaf}",
+            import_tables,
+            module_defines,
+            star_sources,
+            star_alls,
+            seen,
         )
         if resolved is not None:
             return resolved
@@ -109,6 +127,7 @@ def resolve_base(
     import_tables: Mapping[str, Mapping[str, str]],
     module_defines: Mapping[str, Mapping[str, str]],
     star_sources: Mapping[str, list[str]] | None = None,
+    star_alls: Mapping[str, frozenset[str]] | None = None,
 ) -> str | None:
     """Resolve a class-base reference to its canonical definition-site path.
 
@@ -126,6 +145,9 @@ def resolve_base(
             (from :func:`build_star_sources`). When provided, a name re-exported
             via ``from x import *`` is followed into ``x``; omit it to disable
             star following (backward-compatible default).
+        star_alls: Optional ``module -> static __all__`` for the modules that
+            have one (:func:`pyeye.star_exports.static_all`). A star source
+            missing here exports its names not starting with ``_`` (#1010).
 
     Returns:
         The canonical definition-site dotted path, or ``None`` if the AST cannot
@@ -138,45 +160,7 @@ def resolve_base(
     # as a base).
     full = ".".join([tbl[head], *rest]) if head in tbl else f"{module}.{base_dotted}"
 
-    return _follow(full, import_tables, module_defines, star_sources or {}, set())
-
-
-def build_star_sources(
-    tree: ast.Module,
-    module: str,
-    resolve_relative: Callable[[str, str | None, int, bool], str | None],
-    is_package: bool = False,
-) -> list[str]:
-    """Return the modules this module star-imports (``from X import *``).
-
-    ``build_import_table`` deliberately skips star imports (the names they bring
-    in can't be known from this module's AST alone).  This records the star
-    *source modules* instead, so re-export following can resolve a name a
-    package re-exports via ``*`` by looking it up in the source.  Relative
-    sources are made absolute via *resolve_relative*; order is source order.
-
-    Args:
-        tree: Parsed module AST.
-        module: Dotted name of this module (for relative-import resolution).
-        resolve_relative: ``(module, imported_module_or_None, level, is_package)
-            -> abs path``.
-        is_package: ``True`` when *module* is a package ``__init__`` — required
-            for correct relative resolution of nested-package re-exports (#426).
-
-    Returns:
-        Absolute dotted names of the star-imported source modules.
-    """
-    sources: list[str] = []
-    for node in iter_module_scope_imports(tree, include_guarded=False):
-        if isinstance(node, ast.ImportFrom) and any(alias.name == "*" for alias in node.names):
-            base = (
-                resolve_relative(module, node.module, node.level, is_package)
-                if node.level > 0
-                else node.module
-            )
-            if base:
-                sources.append(base)
-    return sources
+    return _follow(full, import_tables, module_defines, star_sources or {}, star_alls or {}, set())
 
 
 def build_module_defines(tree: ast.Module) -> dict[str, str]:
