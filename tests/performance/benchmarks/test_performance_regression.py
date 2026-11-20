@@ -1,7 +1,6 @@
 """Performance regression tests to catch performance degradation."""
 
 import asyncio
-import statistics
 import time
 import timeit
 from pathlib import Path
@@ -15,6 +14,7 @@ from tests.utils.performance import (
     CommonThresholds,
     PerformanceThresholds,
     assert_performance_threshold,
+    warm_median_ms,
 )
 
 
@@ -62,13 +62,13 @@ class TestPerformanceBaselines:
 
         It used to assert p95/p50 over 10 samples: one scheduler stall on a
         shared runner was the p95.  Now the statistic is the minimum, across
-        repeated runs, of each run's median (see :func:`_warm_median_ms`).  The
+        repeated runs, of each run's median (see :func:`warm_median_ms`).  The
         cold first call (jedi import + parse, #383) is excluded by warming up.
         """
         analyzer = JediAnalyzer(str(temp_project))
         await analyzer.find_symbol("TestClass")  # warm-up, not measured
 
-        median_ms = await _warm_median_ms(lambda: analyzer.find_symbol("TestClass"))
+        median_ms = await warm_median_ms(lambda: analyzer.find_symbol("TestClass"))
         assert_performance_threshold(
             median_ms, CommonThresholds.WARM_FIND_SYMBOL_MS, "Warm symbol search median"
         )
@@ -192,7 +192,7 @@ class TestPerformanceUnderLoad:
         # Warm per-call latency, sequential so no call waits behind another.  The
         # p99 of 50 calls measured scheduler stalls (235 ms on macOS CI, #773); the
         # minimum of repeated medians doesn't.
-        median_ms = await _warm_median_ms(lambda: analyzer.find_symbol("test_function"))
+        median_ms = await warm_median_ms(lambda: analyzer.find_symbol("test_function"))
         assert_performance_threshold(
             median_ms, CommonThresholds.WARM_FIND_SYMBOL_MS, "Warm find_symbol median"
         )
@@ -215,23 +215,5 @@ class TestPerformanceUnderLoad:
                 pass
             return await analyzer.find_symbol("test_function")
 
-        median_ms = await _warm_median_ms(slowed)
+        median_ms = await warm_median_ms(slowed)
         assert median_ms > CommonThresholds.WARM_FIND_SYMBOL_MS.get_threshold()
-
-
-async def _warm_median_ms(call, calls: int = 40, repeats: int = 5) -> float:
-    """Per-call latency of *call*, robust to scheduler stalls (#773).
-
-    Times *calls* sequential awaits per run and takes each run's median (a few
-    stalled calls can't move it), then the minimum over *repeats* runs (a run
-    slowed throughout by a noisy neighbour can't either), as ``timeit`` advises.
-    """
-    medians = []
-    for _ in range(repeats):
-        samples = []
-        for _ in range(calls):
-            start = time.perf_counter()
-            await call()
-            samples.append((time.perf_counter() - start) * 1000)
-        medians.append(statistics.median(samples))
-    return min(medians)

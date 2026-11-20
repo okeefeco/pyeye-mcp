@@ -2,7 +2,11 @@
 
 import os
 import platform
+import statistics
+import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -174,3 +178,24 @@ def assert_performance_threshold(
     """
     limit = threshold.get_threshold()
     assert actual_value < limit, format_threshold_message(metric_name, actual_value, limit, unit)
+
+
+async def warm_median_ms(
+    call: Callable[[], Awaitable[Any]], calls: int = 40, repeats: int = 5
+) -> float:
+    """Per-call latency of *call* in ms, robust to scheduler stalls (#773, #1017).
+
+    Times *calls* sequential awaits per run and takes each run's median (a few
+    stalled calls can't move it), then the minimum over *repeats* runs (a run
+    slowed throughout by a noisy neighbour can't either), as ``timeit`` advises.
+    Warm *call* up first: the cold call is not excluded here.
+    """
+    medians = []
+    for _ in range(repeats):
+        samples = []
+        for _ in range(calls):
+            start = time.perf_counter()
+            await call()
+            samples.append((time.perf_counter() - start) * 1000)
+        medians.append(statistics.median(samples))
+    return min(medians)
