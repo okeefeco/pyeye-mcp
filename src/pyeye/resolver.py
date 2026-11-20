@@ -117,10 +117,14 @@ class _SharedLocalName:
 
     Python reuses one dotted name (``pkg.mod.outer.Twin``) for every ``class
     Twin`` in ``outer``. :func:`resolve_handle` turns this into a
-    :class:`NotFound` carrying every definition, never one of them.
+    :class:`NotFound` carrying every definition, never one of them. *sites*
+    are every binding of the name in its scope, by the Python reference's
+    rules (:func:`pyeye._bindings.binding_sites`, #1049): a parameter or an
+    import binds it too, though Jedi gives it no definition to anchor on.
     """
 
     anchors: tuple[Any, ...]
+    sites: tuple[Any, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -264,14 +268,15 @@ def _shared_local(path: str, shared: _SharedLocalName, analyzer: JediAnalyzer) -
                 anchor=anchor,
             )
         )
-    lines = ", ".join(str(a.line) for a in shared.anchors)
+    if shared.sites:
+        where = ", ".join(f"a {site.form} at line {site.line}" for site in shared.sites)
+        what = f"is bound {len(shared.sites)} times in its scope ({where})"
+    else:
+        lines = ", ".join(str(a.line) for a in shared.anchors)
+        what = f"names {len(shared.anchors)} definitions in one function (lines {lines})"
     return NotFound(
         reason="unresolved",
-        detail=(
-            f"{path!r} names {len(shared.anchors)} definitions in one function "
-            f"(lines {lines}), so no single answer is true. Use resolve_at on the "
-            "one you mean."
-        ),
+        detail=f"{path!r} {what}, so no single answer is true. Use resolve_at on the one you mean.",
         candidates=tuple(candidates),
     )
 
@@ -750,15 +755,45 @@ def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName
     ``None`` when there is one definition, or any match is not function-local:
     module-level names keep #857's binding rules.
     """
-    if len(matches) < 2 or not all(is_function_local(m) for m in matches):
+    if not matches or not all(is_function_local(m) for m in matches):
         return None
     anchors: dict[tuple[Any, int, int], Any] = {}
     for match in matches:
         anchor = _anchor_on_definition(match, path)
         anchors.setdefault((anchor.module_path, anchor.line or 0, anchor.column or 0), anchor)
-    if len(anchors) < 2:
+    sites = _local_binding_sites(matches[0], path)
+    if len(anchors) < 2 and len(sites) < 2:
         return None
-    return _SharedLocalName(tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:])))
+    ordered = tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:]))
+    return _SharedLocalName(ordered, tuple(sites))
+
+
+def _local_binding_sites(match: Any, path: str) -> list[Any]:
+    """Every binding of *path*'s last part in *match*'s scope, per the Python reference (#1049).
+
+    The scope is the function or class *match* is defined in, found in the
+    module's AST by its line and name. ``[]`` when that can't be found, which
+    leaves the decision to Jedi's own definitions, as before.
+    """
+    from ._bindings import binding_sites
+
+    scope = match.parent() if callable(getattr(match, "parent", None)) else None
+    module_path = getattr(match, "module_path", None)
+    if scope is None or module_path is None or scope.type not in ("function", "class"):
+        return []
+    try:
+        tree = file_artifact_cache.get_ast(module_path)
+    except (OSError, SyntaxError, ValueError):
+        return []
+    leaf = path.rsplit(".", 1)[-1]
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+            and node.lineno == scope.line
+            and node.name == scope.name
+        ):
+            return binding_sites(node).get(leaf, [])
+    return []
 
 
 #: The ``(star source module, name)`` pairs already tried in this resolution, so a

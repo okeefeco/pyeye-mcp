@@ -139,7 +139,7 @@ class TestHandleTakingTools:
         result = await inspect("app.m.outer.Twin", analyzer)
 
         assert result["found"] is False and result["reason"] == "unresolved", result
-        assert "2 definitions" in result["detail"]
+        assert "bound 2 times" in result["detail"]  # each site named since #1049
 
     @pytest.mark.asyncio
     async def test_expand_is_not_found_rather_than_one_of_them(

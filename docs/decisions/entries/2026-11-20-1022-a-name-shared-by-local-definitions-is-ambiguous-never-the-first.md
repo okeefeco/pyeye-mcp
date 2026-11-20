@@ -6,7 +6,7 @@ anchors: ["pyeye.resolver.resolve_handle", "pyeye.resolver.NotFound", "pyeye.res
 status: "amended"
 amends: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md"]
 supersedes: []
-amended_by: ["2026-11-20-1025-members-of-a-local-class-are-named-after-it.md"]
+amended_by: ["2026-11-20-1025-members-of-a-local-class-are-named-after-it.md", "2026-11-21-1049-a-local-names-bindings-follow-the-language-reference.md"]
 superseded_by: []
 ---
 
