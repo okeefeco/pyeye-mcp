@@ -9,7 +9,13 @@ source here, and it holds the two known cross-process traps:
 - `pkg.users.ThreadState` subclasses `threading.local`, which the standard
   library binds through the same kind of shim (`_thread._local` or
   `_threading_local.local`).
+- `pkg/rebind.py` binds `Cursor` with an if/else on a runtime condition: a class
+  in one branch, `object` in the other (django's `postgresql.base.Cursor`
+  pattern). `pkg.users.CursorChild` imports it at module level, and
+  `pkg.users.make_local.LocalCursor` inside a function.
 
-Jedi's goto picks one branch of a shim per process (#419). `subclasses` keys its
-bases through that goto, so its answer for these classes can differ between
-processes (#1057).
+Jedi's goto can return both branches of a shim, in an order that differs
+between processes (#419). `subclasses` used to key a base by the first one, so
+its answer for these classes changed between processes (#1057). Now an
+ambiguous base (a shim, or a rebinding in one file) is unresolved in both
+`subclasses` and `superclasses`.

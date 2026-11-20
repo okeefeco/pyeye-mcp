@@ -11,6 +11,9 @@ in another.
 The rule, the only one: **exactly one distinct target, or no answer.**
 
 - Results are de-duplicated by ``full_name``; results without one are ignored.
+  Of several results with one ``full_name`` (a name bound twice), the one of
+  the ``prefer`` type stands for it, else the earliest by position, never the
+  first returned: Jedi's order differs between processes (#1057).
 - ``prefer`` (e.g. ``"class"`` for a base class) breaks a tie only when it
   leaves exactly one distinct target.
 - Anything else is ``None``, which every caller reports honestly as
@@ -24,6 +27,7 @@ This is a lower layer: it must not import ``pyeye.mcp``
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import PurePath
 from typing import Any
 
 
@@ -39,11 +43,12 @@ def pick_target(defs: Iterable[Any], *, prefer: str | None = None) -> Any | None
         The first ``Name`` for the single distinct ``full_name``, or ``None``
         when there are none or several.
     """
-    by_name: dict[str, Any] = {}
+    grouped: dict[str, list[Any]] = {}
     for d in defs:
         full_name = getattr(d, "full_name", None)
-        if full_name and full_name not in by_name:
-            by_name[full_name] = d
+        if full_name:
+            grouped.setdefault(full_name, []).append(d)
+    by_name = {name: _representative(group, prefer) for name, group in grouped.items()}
     if len(by_name) == 1:
         return next(iter(by_name.values()))
     if prefer is not None and len(by_name) > 1:
@@ -51,6 +56,27 @@ def pick_target(defs: Iterable[Any], *, prefer: str | None = None) -> Any | None
         if len(preferred) == 1:
             return preferred[0]
     return None
+
+
+def _representative(group: list[Any], prefer: str | None) -> Any:
+    """The one ``Name`` to stand for several results that share a ``full_name``.
+
+    A name bound twice (``if X: class C`` / ``else: C = other``) comes back as
+    two results in an order that differs between processes, so the choice is
+    never the first one (#1057): a result of the *prefer* type wins, then the
+    earliest by file and position.
+    """
+
+    def key(d: Any) -> tuple[bool, str, int, int]:
+        module_path = getattr(d, "module_path", None)
+        return (
+            prefer is not None and getattr(d, "type", None) != prefer,
+            PurePath(module_path).as_posix() if module_path else "",
+            getattr(d, "line", None) or 0,
+            getattr(d, "column", None) or 0,
+        )
+
+    return min(group, key=key)
 
 
 def goto_target(script: Any, line: int, col: int, *, prefer: str | None = None) -> Any | None:

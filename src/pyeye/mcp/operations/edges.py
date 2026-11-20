@@ -68,7 +68,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 from pyeye import file_artifact_cache
-from pyeye._ast_targets import attr_target_position, find_function_def_at_line, unsubscripted
+from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
@@ -89,6 +89,7 @@ from pyeye.project_layout import (
 )
 from pyeye.resolver import (
     Resolved,
+    base_class_target,
     handle_for_anchor,
     in_restricted_dir,
     is_function_local,
@@ -405,13 +406,18 @@ CEILING_MEANINGS: dict[str, str] = {
         "(metaclass, setattr, __getattr__, type(), __init_subclass__) are not included"
     ),
     "literal_subclassing": (
-        "project classes whose class statement names this class as a base; classes "
-        "built with type(), class factories or __init_subclass__ registration are "
-        "not included"
+        "project classes whose class statement names this class as a base, resolved "
+        "as superclasses resolves it: a class whose base is ambiguous (imported by a "
+        "try/except shim, or rebound by an if/else) is not listed under any of its "
+        "candidates (#1057). "
+        "Classes built with type(), class factories or __init_subclass__ registration "
+        "are not included"
     ),
     "declared_bases": (
         "the bases written in the class statement; bases added at runtime are not "
-        "included, and bases that don't resolve are listed in unresolved_superclasses"
+        "included, and bases that don't resolve to exactly one class are listed in "
+        "unresolved_superclasses, an ambiguous base (imported by a try/except shim, or "
+        "rebound by an if/else) among them (#1057)"
     ),
     "static_imports": (
         "import statements written in source; importlib / __import__ with a computed "
@@ -472,9 +478,9 @@ DETERMINISM_MEANINGS: dict[str, str] = {
         "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same "
         "in every process; an external (stdlib or installed) target behind a try/except "
         "import shim may differ between processes (#419), so don't compare external "
-        "adjacents across sessions. Known gap: a subclasses result whose base is named "
-        "through a try/except import shim may differ between processes even in project "
-        "scope (#1057)"
+        "adjacents across sessions. A name bound to more than one target (a base "
+        "imported by a try/except shim, or rebound by an if/else) resolves to none, "
+        "never to a pick (#1057)"
     ),
 }
 
@@ -1351,7 +1357,9 @@ def superclass_bases(
     resolved bases (and lists the rest in ``unresolved_superclasses``); the
     field shows every base, raw text where it didn't resolve.
 
-    Each base is resolved with :func:`pyeye._goto.goto_target` at the
+    Each base is resolved by :func:`pyeye.resolver.base_class_target`, the
+    resolution the class graph behind ``subclasses`` uses too (#1057): the one
+    goto policy, :func:`pyeye._goto.goto_target`, at the
     rightmost identifier of its expression (``pkg.sub.Base`` → ``Base``, so
     goto lands on the class, not the package), preferring a class among
     several targets.
@@ -1387,23 +1395,10 @@ def superclass_bases(
     bases: list[tuple[str, tuple[Handle, Any] | None]] = []
     for base in class_node.bases:
         text = ast.unparse(base)
-        # A subscripted base names the class it subscripts (``Box[int]``, #921).
-        # Any other expression (a call, a conditional) has no static class: it
-        # is unresolved, never the function or variable it mentions (#922).
-        target = unsubscripted(base)
-        if not isinstance(target, ast.Name | ast.Attribute):
-            bases.append((text, None))
-            continue
-        try:
-            base_line, base_col = attr_target_position(target)
-        except Exception:
-            bases.append((text, None))
-            continue
-        d = goto_target(script, base_line, base_col, prefer="class")
-        if d is not None and getattr(d, "type", None) != "class":
-            d = None  # resolved to a function or variable, not a class (#922)
-        if d is not None and in_restricted_dir(d):
-            d = None  # refused (#999): unresolved, by the class's own spelling of it
+        # The one base resolution, shared with the class graph behind
+        # ``subclasses``, so the two edges agree (#1057). Unresolved bases are
+        # listed by the class's own spelling of them.
+        d = base_class_target(script, base)
         h = _handle_for_name(d, analyzer) if d is not None else None
         bases.append((text, (h, d) if h is not None else None))
     return bases

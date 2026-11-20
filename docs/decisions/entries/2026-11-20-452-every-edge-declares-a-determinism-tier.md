@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "Every edge declares a determinism tier, and one registry-driven test holds it to that tier (#452)"
 issues: [452, 419, 445, 1057, 449]
 anchors: ["pyeye.mcp.operations.edges.EDGE_DETERMINISM", "pyeye.mcp.operations.edges.DETERMINISM_MEANINGS", "tests/test_edge_determinism.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1057-subclasses-and-superclasses-resolve-a-base-one-way.md"]
 superseded_by: []
 ---
 

@@ -60,6 +60,23 @@ class TestPickTarget:
         first = _def("pkg.f")
         assert pick_target([first, _def("pkg.f")]) is first
 
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_one_name_bound_twice_is_picked_by_kind_whatever_the_order(self, reverse: bool) -> None:
+        """``if X: class C`` / ``else: C = other`` gives two results of one name (#1057).
+
+        Jedi returns them in an order that differs between processes, so the
+        representative is chosen by ``prefer`` and then by position, never by
+        order: django's ``postgresql.base.Cursor`` base resolved in one process
+        and not in the next.
+        """
+        from pyeye._goto import pick_target
+
+        cls = SimpleNamespace(full_name="pkg.C", type="class", module_path="/p/m.py", line=10)
+        stmt = SimpleNamespace(full_name="pkg.C", type="statement", module_path="/p/m.py", line=20)
+        defs = [stmt, cls][::-1] if reverse else [stmt, cls]
+        assert pick_target(defs, prefer="class") is cls
+        assert pick_target(defs) is cls  # no prefer: the earliest by position
+
     def test_two_distinct_targets_is_no_answer(self) -> None:
         from pyeye._goto import pick_target
 
@@ -197,3 +214,58 @@ class TestOnePicker:
         tree = ast.parse((_SRC / "mcp/operations/typeref.py").read_text(encoding="utf-8"))
         defs = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
         assert "_attribute_target_position" not in defs
+
+
+class TestBaseClassTarget:
+    """``resolver.base_class_target``: the one resolution of a declared base (#1057)."""
+
+    @staticmethod
+    def _script(*defs: SimpleNamespace) -> SimpleNamespace:
+        return SimpleNamespace(goto=lambda *_a, **_k: list(defs))
+
+    @staticmethod
+    def _cls(path: str, line: int, type_: str = "class") -> SimpleNamespace:
+        return SimpleNamespace(
+            full_name="pkg.Cursor", type=type_, module_path=Path(path), line=line, column=4
+        )
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_an_if_else_rebinding_in_one_file_is_unresolved(self, reverse: bool) -> None:
+        """``if X: class Cursor`` / ``else: Cursor = other``: two runtime values."""
+        from pyeye.resolver import base_class_target
+
+        defs = [self._cls("/p/pkg.py", 10), self._cls("/p/pkg.py", 20, "statement")]
+        script = self._script(*(defs[::-1] if reverse else defs))
+        assert base_class_target(script, ast.parse("Cursor", mode="eval").body) is None
+
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_a_stub_and_its_source_are_one_class(self, reverse: bool) -> None:
+        """A ``.pyi`` and its ``.py`` under one full_name are not a rebinding."""
+        from pyeye.resolver import base_class_target
+
+        defs = [self._cls("/p/pkg.pyi", 3), self._cls("/p/pkg.py", 10)]
+        script = self._script(*(defs[::-1] if reverse else defs))
+        target = base_class_target(script, ast.parse("Cursor", mode="eval").body)
+        assert target is not None
+        assert target.full_name == "pkg.Cursor"
+
+    def test_one_definition_resolves(self) -> None:
+        from pyeye.resolver import base_class_target
+
+        only = self._cls("/p/pkg.py", 10)
+        assert base_class_target(self._script(only), ast.parse("Cursor", mode="eval").body) is only
+
+    def test_a_goto_error_is_no_answer(self) -> None:
+        from pyeye.resolver import base_class_target
+
+        def boom(*_a: object, **_k: object) -> list[object]:
+            raise RuntimeError("jedi")
+
+        script = SimpleNamespace(goto=boom)
+        assert base_class_target(script, ast.parse("Cursor", mode="eval").body) is None
+
+    def test_a_call_base_names_no_class(self) -> None:
+        from pyeye.resolver import base_class_target
+
+        script = self._script(self._cls("/p/pkg.py", 10))
+        assert base_class_target(script, ast.parse("make()", mode="eval").body) is None

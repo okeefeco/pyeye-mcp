@@ -34,7 +34,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pyeye import file_artifact_cache
-from pyeye._goto import goto_target
+from pyeye._ast_targets import attr_target_position, unsubscripted
+from pyeye._goto import goto_target, pick_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
@@ -157,6 +158,67 @@ def in_restricted_dir(name: Any) -> bool:
     """
     module_path = getattr(name, "module_path", None)
     return module_path is not None and restricted_path(module_path)
+
+
+def base_class_target(script: Any, base: ast.expr) -> Any | None:
+    """The class a ``class C(<base>)`` base names, or ``None`` when it names no one class.
+
+    The ONE resolution of a declared base, shared by the ``superclasses`` edge
+    (:func:`pyeye.mcp.operations.edges.superclass_bases`) and the class graph
+    that answers ``subclasses`` (``JediAnalyzer._resolve_base_to_key``), so the
+    two edges agree by construction (#1057):
+
+    - a subscripted base names the class it subscripts (``Box[int]``, #921);
+      any other expression that isn't a name or attribute names none (#922);
+    - the one goto policy (:func:`pyeye._goto.pick_target`, #624) runs at the
+      rightmost identifier, preferring a class among several targets. A name
+      bound to two classes, such as a try/except import shim, is no answer:
+      picking one would differ between processes (#419);
+    - a name bound at two places in one file (an if/else rebinding) is no
+      answer either: it has two possible runtime values (#1057);
+    - the target must be a class, not a function or variable (#922);
+    - a target in a restricted directory is refused (#999).
+
+    Args:
+        script: The ``jedi.Script`` of the file the class statement is in.
+        base: One expression of the ``ClassDef``'s ``bases``.
+
+    Returns:
+        The target's Jedi ``Name``, or ``None``.
+    """
+    target = unsubscripted(base)
+    if not isinstance(target, ast.Name | ast.Attribute):
+        return None
+    line, col = attr_target_position(target)
+    try:
+        defs = list(script.goto(line, col, follow_imports=True))
+    except Exception:
+        return None  # as goto_target: any Jedi error is no answer
+    d = pick_target(defs, prefer="class")
+    if d is None or getattr(d, "type", None) != "class" or in_restricted_dir(d):
+        return None
+    if _rebound(defs, d.full_name):
+        return None
+    return d
+
+
+def _rebound(defs: list[Any], full_name: str) -> bool:
+    """Whether *full_name* is bound at more than one place in one file (#1057).
+
+    ``if X: class C`` / ``else: C = other`` gives two definitions of one name in
+    one module: two possible runtime values, as ambiguous as a try/except shim,
+    so a base naming it is unresolved rather than the branch Jedi lists first.
+    Definitions in different files (a ``.pyi`` stub and its ``.py`` source) are
+    one class, not a rebinding.
+    """
+    sites: dict[str, set[tuple[int, int]]] = {}
+    for d in defs:
+        module_path = getattr(d, "module_path", None)
+        if getattr(d, "full_name", None) != full_name or module_path is None:
+            continue
+        position = (getattr(d, "line", None) or 0, getattr(d, "column", None) or 0)
+        sites.setdefault(Path(module_path).as_posix(), set()).add(position)
+    return any(len(positions) > 1 for positions in sites.values())
 
 
 #: Windows' error for a symlink chain it can't resolve, a loop included

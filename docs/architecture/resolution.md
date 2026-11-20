@@ -58,13 +58,16 @@ project-scope ones for `goto`:
 | `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
 | `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
 | `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
-| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. A name bound to more than one target (a base imported by a try/except shim, or rebound by an if/else) resolves to none, never to a pick (#1057) |
 <!-- fact:end -->
 
 The cross-process check runs on `tests/fixtures/determinism_traps`, which holds
-the known traps: a project try/except import shim and a project class that
-subclasses `threading.local` (a stdlib shim). `subclasses` fails both today
-(#1057), so they are a strict expected failure until it is fixed.
+the known traps: a project try/except import shim, a project class that
+subclasses `threading.local` (a stdlib shim), and a name rebound by an if/else.
+They used to flip `subclasses` between processes (#1057). Now `superclasses`
+and the class graph behind `subclasses` resolve a base the same way, through
+`pyeye.resolver.base_class_target`. An ambiguous base resolves to none of its
+candidates, so the two edges agree and give the same answer in every process.
 
 ## One canonical handle resolver
 

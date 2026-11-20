@@ -1,10 +1,10 @@
 {
   "facts": {
     "ceiling.declared_bases": {
-      "meaning": "the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve are listed in unresolved_superclasses"
+      "meaning": "the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve to exactly one class are listed in unresolved_superclasses, an ambiguous base (imported by a try/except shim, or rebound by an if/else) among them (#1057)"
     },
     "ceiling.literal_subclassing": {
-      "meaning": "project classes whose class statement names this class as a base; classes built with type(), class factories or __init_subclass__ registration are not included"
+      "meaning": "project classes whose class statement names this class as a base, resolved as superclasses resolves it: a class whose base is ambiguous (imported by a try/except shim, or rebound by an if/else) is not listed under any of its candidates (#1057). Classes built with type(), class factories or __init_subclass__ registration are not included"
     },
     "ceiling.on_disk_modules": {
       "meaning": "modules and subpackages present on disk under the package; entries added to __path__ at runtime are not included"
@@ -84,7 +84,7 @@
         "superclasses",
         "imports"
       ],
-      "meaning": "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057)"
+      "meaning": "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. A name bound to more than one target (a base imported by a try/except shim, or rebound by an if/else) resolves to none, never to a pick (#1057)"
     },
     "determinism.jedi_local": {
       "edges": [
