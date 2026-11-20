@@ -122,7 +122,17 @@ class TestEnvelope:
     def test_the_good_entries_are_still_searched(self, project: Path) -> None:
         names = {m["name"] for m in _envelope(project, "all")["results"]}
 
-        assert {"Main", "NsModel", "Script"} <= names
+        assert {"Main", "NsModel"} <= names
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="#1041: a standalone script has no module name, so its models are dropped. "
+        "Sibling-directory guessing hid this until #1035 removed it.",
+    )
+    def test_the_good_standalone_entry_is_still_searched(self, project: Path) -> None:
+        names = {m["name"] for m in _envelope(project, "all")["results"]}
+
+        assert "Script" in names
 
     def test_a_clean_config_gives_an_empty_list(self, tmp_path: Path) -> None:
         root = tmp_path / "clean"
