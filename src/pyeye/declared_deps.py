@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .path_utils import normalize_path, relative_within
+from .path_utils import absolute_path, normalize_path, relative_within
 from .project_layout import detect_src_layout
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,8 @@ _PLACEHOLDER = re.compile(r"\$\{[^}]*\}|\{[^}]*\}")
 def declared_path_dependencies(project_root: Path) -> list[tuple[str, str]]:
     """Every directory *project_root*'s ``pyproject.toml`` declares, as ``(import root, reason)``.
 
-    The import root is resolved and POSIX; the list is in declaration order,
-    deduplicated. ``[]`` with no ``pyproject.toml``, or one that can't be read
+    The import root is absolute and POSIX, in the declared spelling (see
+    :func:`_import_root`); the list is in declaration order, deduplicated. ``[]`` with no ``pyproject.toml``, or one that can't be read
     (the config loader reports that one when it is the config file).
     """
     data = _pyproject(project_root)
@@ -92,9 +92,15 @@ def _pyproject(project_root: Path) -> dict[str, Any]:
 
 
 def _import_root(directory: Path) -> str:
-    """*directory*'s import root: its ``src/`` for a src layout, else itself."""
+    """*directory*'s import root, its ``src/`` for a src layout, in the declared spelling.
+
+    Absolute, with ``..`` collapsed lexically but no symlink resolved (#717),
+    so ``rejected_paths`` reports a refused declaration as it was written
+    (``/etc``, not macOS's ``/private/etc``). Path checks and ``discovered``
+    resolve it themselves.
+    """
     src = detect_src_layout(directory)
-    return normalize_path(src if src is not None else directory).as_posix()
+    return absolute_path(src if src is not None else directory).as_posix()
 
 
 def _anchored(root: Path, entry: str) -> Path:
