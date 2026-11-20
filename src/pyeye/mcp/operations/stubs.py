@@ -14,6 +14,8 @@ Spec §4.1 Stub shape
                                        # method|module|attribute|property|
                                        # variable|enum_member
       "scope":      "project"|"external",
+      "stub":       true,              # PRESENT only when the definition is
+                                       # declared in a .pyi (#933); absent = source
       "signature":  str,               # PRESENT whenever Jedi yields a real
                                        # signature (always for class/function/
                                        # method; also for any other name whose
@@ -78,6 +80,7 @@ from pyeye._jedi_location import get_end_line
 from pyeye._stdlib_static import relocate_platform
 from pyeye.kinds import normalise_kind_from_name
 from pyeye.mcp.operations.inspect import _build_signature
+from pyeye.project_layout import mark_stub
 from pyeye.resolver import scope_for
 
 if TYPE_CHECKING:
@@ -135,6 +138,9 @@ def build_stub(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> dict[str,
         "line_start": line_start,
         "line_end": line_end,
     }
+
+    # ``stub: true`` when the definition is declared in a ``.pyi`` (#933).
+    mark_stub(stub, getattr(jedi_name, "module_path", None))
 
     sig = _build_signature(jedi_name)
     if sig is not None:

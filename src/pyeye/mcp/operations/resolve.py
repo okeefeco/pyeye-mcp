@@ -57,7 +57,7 @@ import re
 import sys
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Required, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Required, TypedDict, TypeVar, cast
 
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
@@ -74,11 +74,13 @@ from pyeye.mcp.operations.completeness import (
 )
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
+from pyeye.project_layout import mark_stub
 from pyeye.resolver import (
     Ambiguous,
     NotFound,
     Resolved,
     is_restricted_detail,
+    local_member_full_name,
     resolve_handle,
     resolve_name,
 )
@@ -107,6 +109,7 @@ class _Candidate(TypedDict):
     handle: str
     kind: str
     scope: Literal["project", "external"]
+    stub: NotRequired[Literal[True]]  # #933: declared in a .pyi; absent = source
     location: _Location
 
 
@@ -115,6 +118,7 @@ class _SuccessResult(TypedDict):
     handle: str
     kind: str
     scope: Literal["project", "external"]
+    stub: NotRequired[Literal[True]]  # #933: declared in a .pyi; absent = source
     location: _Location
 
 
@@ -265,15 +269,18 @@ def _stub_only(file_path: Path) -> bool:
 
 
 def _stub_only_miss(file_path: Path) -> _Miss:
-    """The honest miss for a stub-only file (#885).
+    """The honest miss for a stub-only file the mapper can't name (#885, #933).
 
-    pyeye analyses ``.py`` sources, so a stub with none beside it has no handle
-    of its own: no other tool would accept one (#602).
+    A project stub-only module resolves at its stub (#933). One that doesn't
+    is outside the project's module roots (typeshed, an installed package), in
+    a ``foo-stubs`` package, or a package's ``__init__.pyi``: no other tool
+    would accept a handle for it either (#602).
     """
     return _miss(
         "unresolved",
-        f"{file_path.as_posix()} is a stub with no .py source beside it. pyeye "
-        "resolves a file through its .py source, so this stub has no handle of "
+        f"{file_path.as_posix()} is a stub with no .py source beside it, and it "
+        "isn't a module of this project (it is outside the project's roots, in "
+        "a -stubs package, or a package's __init__.pyi), so it has no handle of "
         "its own; if the module's source lives elsewhere, resolve it by its "
         "dotted name.",
     )
@@ -339,7 +346,8 @@ async def _resolve_at_position(
         return _miss("no_symbol_at_position")
 
     name = definitions[0]
-    full_name = name.full_name
+    # A member of a function-local class has no Jedi full_name (#1025).
+    full_name = local_member_full_name(name)
     if not full_name:
         return _miss("no_symbol_at_position")
     # ``goto`` on the ``x`` of ``self.x = …`` lands on the target itself, whose
@@ -570,16 +578,16 @@ def _success_from_resolved(resolved: Resolved) -> _SuccessResult:
 async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _HelperResult:
     """Resolve a bare file path to its module handle.
 
-    A ``.pyi`` stub resolves as the ``.py`` source beside it: the same handle
-    and location its ``file:line`` form already lands on. A stub with no source
-    beside it has no handle (#885). The file↔module mapper stays ``.py``-only
-    (#625).
+    A ``.pyi`` stub beside its ``.py`` resolves as that source: the same handle
+    and location its ``file:line`` form already lands on (#885). A project
+    stub-only module resolves at its stub (#933): the one file↔module mapper
+    names it (:func:`pyeye.project_layout.module_name_for_file`). A stub the
+    mapper can't name (typeshed, a ``foo-stubs`` package, a stub-only
+    ``__init__.pyi``) stays an honest miss that says why.
     """
     if not file_path.exists():
         return _miss("file_not_found")
-    if file_path.suffix == ".pyi":
-        if _stub_only(file_path):
-            return _stub_only_miss(file_path)
+    if file_path.suffix == ".pyi" and not _stub_only(file_path):
         file_path = file_path.with_suffix(".py")
 
     # _get_import_path_for_file matches via relative_to() against absolute
@@ -590,7 +598,7 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
 
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:
-        return _miss("unresolved")
+        return _stub_only_miss(file_path) if _stub_only(file_path) else _miss("unresolved")
 
     try:
         handle = Handle(module_path)
@@ -659,6 +667,17 @@ async def resolve(
                 if note:
                     response["detail"] = f"{response['detail']} {note}"
         return response
+    return _mark_stubs(result)
+
+
+_R = TypeVar("_R")
+
+
+def _mark_stubs(result: _R) -> _R:
+    """*result* with ``stub: true`` on it, or on each candidate, declared in a ``.pyi`` (#933)."""
+    found = cast(dict[str, Any], result)
+    for node in found.get("candidates") or [found]:
+        mark_stub(node, (node.get("location") or {}).get("file"))
     return result
 
 
@@ -728,4 +747,4 @@ async def resolve_at(
         # The helper's own detail (e.g. "is a directory", #775) wins over the
         # reason's default, as in resolve().
         return not_found_for("resolve_at", echo, result["reason"], result.get("detail"))
-    return result
+    return _mark_stubs(result)

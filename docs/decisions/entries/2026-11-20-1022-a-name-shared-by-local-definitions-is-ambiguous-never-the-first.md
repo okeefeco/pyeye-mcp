@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "A dotted name shared by several local definitions is ambiguous, never the first one (#1022)"
 issues: [1022, 1011, 857, 623, 1025, 1026]
 anchors: ["pyeye.resolver.resolve_handle", "pyeye.resolver.NotFound", "pyeye.resolver._shared_local_definitions", "pyeye.mcp.operations.resolve.resolve_at", "tests/unit/mcp/operations/test_same_name_locals.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1025-members-of-a-local-class-are-named-after-it.md"]
 superseded_by: []
 ---
 

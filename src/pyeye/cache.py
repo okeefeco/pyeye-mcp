@@ -16,6 +16,11 @@ from .settings import settings
 logger = logging.getLogger(__name__)
 
 
+#: The file suffixes whose changes can change the project's modules: sources,
+#: and stubs, from which a stub-only module is analysed (#933).
+WATCHED_SUFFIXES: tuple[str, ...] = (".py", ".pyi")
+
+
 class CodebaseWatcher(FileSystemEventHandler):
     """Watches for file changes and invalidates cache."""
 
@@ -79,13 +84,14 @@ class CodebaseWatcher(FileSystemEventHandler):
     def _record(self, path: Any, is_directory: bool) -> bool:
         """Queue *path* if it can change the project's modules; return whether it did.
 
-        A ``.py`` file counts. A directory counts too, because creating, deleting
-        or moving one adds or removes whole modules. Paths under ignored
+        A ``.py`` or ``.pyi`` file counts: a stub-only module is analysed from its
+        stub (#933). A directory counts too, because creating, deleting or
+        moving one adds or removes whole modules. Paths under ignored
         directories never count.
         """
         if not isinstance(path, str) or not path:
             return False
-        if not is_directory and not path.endswith(".py"):
+        if not is_directory and not path.endswith(WATCHED_SUFFIXES):
             return False
         if self._is_ignored(path):
             return False

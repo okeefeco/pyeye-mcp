@@ -19,7 +19,7 @@
       "meaning": "definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, __getattr__, type(), __init_subclass__) are not included"
     },
     "ceiling.static_imports": {
-      "meaning": "import statements written in source; importlib / __import__ with a computed name is not included"
+      "meaning": "import statements written in source; importlib / __import__ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported_by doesn't count them, while imports on a stub module lists them (#933)"
     },
     "ci.coverage_threshold": 85,
     "ci.python_versions": [

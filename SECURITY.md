@@ -134,7 +134,9 @@ they can't drift from it.
   Results are checked the same way. Jedi follows symlinks when it looks up an
   import, so a symlink inside the project, or inside the project's virtualenv
   `site-packages`, can point a lookup into one of these directories. A
-  definition whose file resolves into one is refused: it is reported as not
+  definition whose file is in one, either as spelled or once its symlinks are
+  resolved (the same forms and the same rule as for a tool argument, #1019),
+  is refused: it is reported as not
   found, with a detail saying it is in a restricted directory, and an edge
   that would point at it lists it among the edge's unresolved targets, by the
   source's own spelling, instead. Nothing is drawn from it through a project
@@ -153,7 +155,26 @@ they can't drift from it.
   is covered too. The server's own home is read once, when the process starts,
   and is matched both as `$HOME` spells it and as it resolves, so a symlinked
   home (an NFS or autofs `/home/u` that points at `/data/u`) is covered under
-  either name. Homes anywhere other than directly in `/home`, `/Users` or
+  either name. A credential store below the server's home that is itself a
+  symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
+  matched where it points, so a file reached through the target is refused
+  and a walk skips it. A store linked, removed or repointed while the server
+  runs (a profile switcher relinking `~/.aws`) is matched at its new target
+  at once: the change is noticed through the times of `~` and `~/.config`,
+  which also catch an mtime set back with `touch -d` on Linux and macOS,
+  since the inode change time can't be set back. A walk looks at the stores
+  once, so a relink during a walk applies from the next one. Two limits
+  (#1019):
+  - a store that links to a second link outside `~` and `~/.config`, where
+    that second link is repointed, keeps its old target until `~` or
+    `~/.config` next changes, or the server restarts; paths spelled through
+    the store itself are still refused;
+  - on Windows, where a directory's change time isn't available, a relink
+    whose directory's modification time is then set back to exactly its
+    old value isn't noticed;
+  - a home on a filesystem whose clock runs well behind the server's (NFS
+    clock skew) can hide a relink made within the same timestamp tick as
+    an earlier one. Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
   `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
   user; other users' homes there are not (#909).

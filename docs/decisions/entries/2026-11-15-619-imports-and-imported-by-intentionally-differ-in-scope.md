@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "`imports` and `imported_by` intentionally differ in scope (#619)"
 issues: [619, 360, 625]
 anchors: ["JediAnalyzer.find_importers", "ast.walk", "pyeye._module_scope.iter_module_scope_imports", "expand", "pyeye.mcp.server"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-933-a-stub-only-module-has-handles-at-its-stub.md"]
 superseded_by: []
 ---
 

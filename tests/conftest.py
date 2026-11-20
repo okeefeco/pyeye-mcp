@@ -114,6 +114,42 @@ def _reset_jedi_worker() -> Generator[None, None, None]:
     shutdown()
 
 
+def cancel_catchup_sweeps(timeout: float = 10.0) -> None:
+    """Cancel every ProjectManager's pending catch-up sweeps; wait for a running one (#1019).
+
+    Any ``ProjectManager``, the global one or a test's own: the sweeps are
+    found as the live ``threading.Timer`` threads whose function is
+    ``ProjectManager._catch_up``.
+    """
+    import threading
+
+    from pyeye.project_manager import ProjectManager
+
+    sweeps = [
+        t
+        for t in threading.enumerate()
+        if isinstance(t, threading.Timer)
+        and getattr(t.function, "__func__", None) is ProjectManager._catch_up
+    ]
+    for timer in sweeps:
+        timer.cancel()
+    for timer in sweeps:
+        timer.join(timeout=timeout)
+
+
+@pytest.fixture(autouse=True)
+def _no_catchup_sweeps_across_tests() -> Generator[None, None, None]:
+    """No start-up catch-up sweep outlives its test (#738, #1019).
+
+    A watched project schedules sweeps on daemon timers seconds later. One left
+    over from an earlier test ran ``filtered_rglob`` (and so the restricted-dir
+    prune) on a background thread during a later test, which raced that test's
+    patched home and made a security test flaky (#1019 review).
+    """
+    yield
+    cancel_catchup_sweeps()
+
+
 @pytest.fixture
 def temp_project_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for test projects."""
