@@ -166,16 +166,23 @@ class TestAHandshakeClientIsNotified:
         assert recorder.changed == 1  # the first call only
 
     @pytest.mark.asyncio
-    async def test_a_failing_call_sends_none(self, isolated: MCPServer) -> None:
-        """A refused project path raises inside the chain: the error propagates, nothing is sent."""
+    async def test_a_failing_call_sends_none(self, isolated: MCPServer, tmp_path: Path) -> None:
+        """A refused project path raises inside the chain: the error propagates, nothing is sent.
+
+        A NUL byte is refused by its spelling on every OS. ``/etc`` was refused
+        only by the POSIX deny-list, and on Windows the call succeeded (#1062 CI).
+        """
         recorder = _Recorder()
         async with Client(isolated, mode="legacy", message_handler=recorder) as client:
             result = await client.call_tool(
-                "configure_packages", {"packages": ["x"], "project_path": "/etc"}
+                "configure_packages",
+                {"packages": ["x"], "project_path": f"{tmp_path.as_posix()}/bad\x00name"},
             )
             await anyio.sleep(0.05)
 
+        # The call must really fail, or "none sent" would hold vacuously.
         assert result.is_error is True
+        assert "null bytes" in result.content[0].text
         assert recorder.changed == 0
 
     @pytest.mark.asyncio
