@@ -88,8 +88,11 @@ from pyeye.project_layout import (
     package_kind,
 )
 from pyeye.resolver import (
+    BASE_AMBIGUOUS,
+    BASE_NO_HANDLE,
+    BaseLookup,
     Resolved,
-    base_class_target,
+    base_class_lookup,
     handle_for_anchor,
     in_restricted_dir,
     is_function_local,
@@ -138,6 +141,13 @@ class EdgeResult:
             expressions (``ast.unparse`` text, declaration order) whose ``goto``
             named no single class — listed, never silently dropped.  ``None``
             for every other edge.
+        unresolved_superclass_details: For ``superclasses`` (#1065), one entry
+            per ``unresolved_superclasses`` item, same order: ``{base, reason}``
+            with ``reason`` one of ``not_a_name``, ``unresolvable``,
+            ``ambiguous``, ``not_a_class``, ``restricted``, ``no_handle``; an
+            ``ambiguous`` one adds ``candidates`` (handles, sorted) and
+            ``candidate_count`` (every distinct target).  ``None`` for every
+            other edge.
         unresolved_importers: For ``imported_by`` (#668), the POSIX paths of
             files that import the target but have no module name, so no handle
             (``my-script.py``, ``tools-dir/x.py``).  Listed, never dropped.
@@ -159,6 +169,7 @@ class EdgeResult:
     unresolved_call_sites: int | None = None
     unresolved_imports: list[str] | None = None
     unresolved_superclasses: list[str] | None = None
+    unresolved_superclass_details: list[dict[str, Any]] | None = None
     unresolved_importers: list[str] | None = None
     unparseable_files: list[str] | None = None
     handleless_subclasses: list[dict[str, Any]] | None = None
@@ -1333,23 +1344,31 @@ def resolve_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
     """
     bases = superclass_bases(jedi_name, analyzer)
     if bases is None:
-        return EdgeResult(adjacents=[], unresolved_superclasses=[])
+        return EdgeResult(
+            adjacents=[], unresolved_superclasses=[], unresolved_superclass_details=[]
+        )
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
     unresolved: list[str] = []
-    for text, pair in bases:
+    details: list[dict[str, Any]] = []
+    for text, pair, detail in bases:
         if pair is None:
             unresolved.append(text)
+            details.append(detail or {"base": text, "reason": "unresolvable"})
         elif str(pair[0]) not in seen:
             seen.add(str(pair[0]))
             adjacents.append(pair)
-    return EdgeResult(adjacents=adjacents, unresolved_superclasses=unresolved)
+    return EdgeResult(
+        adjacents=adjacents,
+        unresolved_superclasses=unresolved,
+        unresolved_superclass_details=details,
+    )
 
 
 def superclass_bases(
     jedi_name: Any, analyzer: JediAnalyzer
-) -> list[tuple[str, tuple[Handle, Any] | None]] | None:
+) -> list[tuple[str, tuple[Handle, Any] | None, dict[str, Any] | None]] | None:
     """Each declared base of a class, in declaration order, with its resolution.
 
     The ONE walk behind both the ``superclasses`` edge and ``inspect``'s
@@ -1357,8 +1376,9 @@ def superclass_bases(
     resolved bases (and lists the rest in ``unresolved_superclasses``); the
     field shows every base, raw text where it didn't resolve.
 
-    Each base is resolved by :func:`pyeye.resolver.base_class_target`, the
-    resolution the class graph behind ``subclasses`` uses too (#1057): the one
+    Each base is resolved by :func:`pyeye.resolver.base_class_lookup`, the
+    resolution the class graph behind ``subclasses`` uses too (#1057), which
+    also says why a base names no one class (#1065): the one
     goto policy, :func:`pyeye._goto.goto_target`, at the
     rightmost identifier of its expression (``pkg.sub.Base`` → ``Base``, so
     goto lands on the class, not the package), preferring a class among
@@ -1369,8 +1389,9 @@ def superclass_bases(
         analyzer: Active analyzer (for the Jedi project used by ``get_script``).
 
     Returns:
-        ``[(ast.unparse text, (Handle, Name) or None), ...]`` in declaration
-        order; ``[]`` for a class with no explicit bases; ``None`` when the
+        ``[(ast.unparse text, (Handle, Name) or None, detail or None), ...]``
+        in declaration order, where *detail* is the base's
+        ``unresolved_superclass_details`` entry when it didn't resolve (#1065); ``[]`` for a class with no explicit bases; ``None`` when the
         target is not a class or its source can't be read.
     """
     # The helper's own input contract (inspect calls it too), read from the one
@@ -1392,16 +1413,45 @@ def superclass_bases(
     if class_node is None:
         return None
 
-    bases: list[tuple[str, tuple[Handle, Any] | None]] = []
+    bases: list[tuple[str, tuple[Handle, Any] | None, dict[str, Any] | None]] = []
     for base in class_node.bases:
         text = ast.unparse(base)
         # The one base resolution, shared with the class graph behind
         # ``subclasses``, so the two edges agree (#1057). Unresolved bases are
         # listed by the class's own spelling of them.
-        d = base_class_target(script, base)
+        lookup = base_class_lookup(script, base)
+        d = lookup.target
         h = _handle_for_name(d, analyzer) if d is not None else None
-        bases.append((text, (h, d) if h is not None else None))
+        if h is not None:
+            bases.append((text, (h, d), None))
+        elif d is not None:
+            bases.append((text, None, {"base": text, "reason": BASE_NO_HANDLE}))
+        else:
+            bases.append((text, None, _base_detail(text, lookup, analyzer)))
     return bases
+
+
+def _base_detail(text: str, lookup: BaseLookup, analyzer: JediAnalyzer) -> dict[str, Any]:
+    """One ``unresolved_superclass_details`` entry for a base the lookup didn't resolve (#1065).
+
+    An ``ambiguous`` entry lists the candidates that are classes with a
+    handle, sorted, and counts every distinct target: ``candidate_count >
+    len(candidates)`` says some can't be shown (restricted, handleless, or not
+    a class).
+    """
+    if lookup.reason != BASE_AMBIGUOUS:
+        return {"base": text, "reason": lookup.reason}
+    handles = {
+        str(h)
+        for c in lookup.candidates
+        if getattr(c, "type", None) == "class" and (h := _handle_for_name(c, analyzer))
+    }
+    return {
+        "base": text,
+        "reason": BASE_AMBIGUOUS,
+        "candidates": sorted(handles),
+        "candidate_count": lookup.candidate_count,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -1009,8 +1009,8 @@ class TestResolveSuperclassesMeasuredEmpty:
         result = _superclasses_for(_BASE_HANDLE, superclasses_analyzer)
         assert result is not None
         assert result == EdgeResult(
-            adjacents=[], unresolved_superclasses=[]
-        )  # #624: measured, none unresolved
+            adjacents=[], unresolved_superclasses=[], unresolved_superclass_details=[]
+        )  # #624: measured, none unresolved; #1065: the details come with it
 
 
 class TestResolveSuperclassesNonClass:
@@ -1039,8 +1039,8 @@ class TestResolveSuperclassesNonClass:
         result = _superclasses_for(_FUNCTION_HANDLE, superclasses_analyzer)
         assert result is not None
         assert result == EdgeResult(
-            adjacents=[], unresolved_superclasses=[]
-        )  # #624: measured, none unresolved
+            adjacents=[], unresolved_superclasses=[], unresolved_superclass_details=[]
+        )  # #624: measured, none unresolved; #1065: the details come with it
 
 
 class TestResolveSuperclassesNeverReverseSearch:

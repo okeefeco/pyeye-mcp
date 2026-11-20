@@ -164,46 +164,116 @@ def in_restricted_dir(name: Any) -> bool:
     return module_path is not None and restricted_path(module_path)
 
 
+#: Why a declared base names no one class (#1065), in the order they're checked.
+BASE_NOT_A_NAME = "not_a_name"
+BASE_UNRESOLVABLE = "unresolvable"
+BASE_AMBIGUOUS = "ambiguous"
+BASE_NOT_A_CLASS = "not_a_class"
+BASE_RESTRICTED = "restricted"
+#: A definition goto found but no handle can name: Jedi gives it no dotted name
+#: here, or the edge can't build one.
+BASE_NO_HANDLE = "no_handle"
+
+
+@dataclass(frozen=True)
+class BaseLookup:
+    """What one declared base resolves to, or why it names no one class (#1057, #1065).
+
+    *target* is the class's Jedi ``Name``, or ``None`` with a *reason*. For
+    ``ambiguous``, *candidate_count* is how many distinct targets there are,
+    and *candidates* their ``Name``s minus any in a restricted directory, which
+    is counted but never named (#999, #1065).
+    """
+
+    target: Any | None
+    reason: str | None = None
+    candidates: tuple[Any, ...] = ()
+    candidate_count: int = 0
+
+
 def base_class_target(script: Any, base: ast.expr) -> Any | None:
-    """The class a ``class C(<base>)`` base names, or ``None`` when it names no one class.
+    """The class a ``class C(<base>)`` base names, or ``None``: :func:`base_class_lookup`'s target."""
+    return base_class_lookup(script, base).target
+
+
+def base_class_lookup(script: Any, base: ast.expr) -> BaseLookup:
+    """Resolve a ``class C(<base>)`` base to its class, or say why it names no one class.
 
     The ONE resolution of a declared base, shared by the ``superclasses`` edge
     (:func:`pyeye.mcp.operations.edges.superclass_bases`) and the class graph
-    that answers ``subclasses`` (``JediAnalyzer._resolve_base_to_key``), so the
-    two edges agree by construction (#1057):
+    that answers ``subclasses`` (``JediAnalyzer._resolve_base_to_key``, through
+    :func:`base_class_target`), so the two edges agree by construction (#1057),
+    and the reason an edge reports is the one that decided (#1065):
 
     - a subscripted base names the class it subscripts (``Box[int]``, #921);
-      any other expression that isn't a name or attribute names none (#922);
+      any other expression that isn't a name or attribute names none
+      (``not_a_name``, #922);
     - the one goto policy (:func:`pyeye._goto.pick_target`, #624) runs at the
-      rightmost identifier, preferring a class among several targets. A name
-      bound to two classes, such as a try/except import shim, is no answer:
-      picking one would differ between processes (#419);
-    - a name bound at two places in one file (an if/else rebinding) is no
-      answer either: it has two possible runtime values (#1057);
-    - the target must be a class, not a function or variable (#922);
-    - a target in a restricted directory is refused (#999).
+      rightmost identifier, preferring a class among several targets. No
+      target, or a Jedi error, is ``unresolvable``; a target with no dotted
+      name is ``no_handle``. A name bound to two
+      classes, such as a try/except import shim, is ``ambiguous``: picking one
+      would differ between processes (#419);
+    - a name bound at two places in one file (an if/else rebinding) is
+      ``ambiguous`` too: it has two possible runtime values (#1057);
+    - the target must be a class, not a function or variable (``not_a_class``,
+      #922);
+    - a target in a restricted directory is refused (``restricted``, #999).
 
     Args:
         script: The ``jedi.Script`` of the file the class statement is in.
         base: One expression of the ``ClassDef``'s ``bases``.
-
-    Returns:
-        The target's Jedi ``Name``, or ``None``.
     """
     target = unsubscripted(base)
     if not isinstance(target, ast.Name | ast.Attribute):
-        return None
-    line, col = attr_target_position(target)
+        return BaseLookup(None, BASE_NOT_A_NAME)
+    line, col = attr_target_position(target)  # an internal failure propagates (#704)
     try:
         defs = list(script.goto(line, col, follow_imports=True))
     except Exception:
-        return None  # as goto_target: any Jedi error is no answer
+        return BaseLookup(None, BASE_UNRESOLVABLE)  # as goto_target: any Jedi error is no answer
     d = pick_target(defs, prefer="class")
-    if d is None or getattr(d, "type", None) != "class" or in_restricted_dir(d):
-        return None
+    if d is None:
+        distinct = _distinct_targets(defs)
+        if len(distinct) > 1:
+            return BaseLookup(None, BASE_AMBIGUOUS, _listable(distinct), len(distinct))
+        # Found, but with no dotted name (a class in a local class, #1025).
+        return BaseLookup(None, BASE_NO_HANDLE if defs else BASE_UNRESOLVABLE)
+    if getattr(d, "type", None) != "class":
+        return BaseLookup(None, BASE_NOT_A_CLASS)
+    if in_restricted_dir(d):
+        return BaseLookup(None, BASE_RESTRICTED)
     if _rebound(defs, d.full_name):
-        return None
-    return d
+        bindings = [x for x in defs if getattr(x, "full_name", None) == d.full_name]
+        return BaseLookup(None, BASE_AMBIGUOUS, _listable(bindings), len(_sites(bindings)))
+    return BaseLookup(d)
+
+
+def _listable(candidates: list[Any]) -> tuple[Any, ...]:
+    """*candidates* minus any in a restricted directory: counted, never named (#999)."""
+    return tuple(c for c in candidates if not in_restricted_dir(c))
+
+
+def _distinct_targets(defs: list[Any]) -> list[Any]:
+    """One ``Name`` per distinct ``full_name`` among *defs*, as :func:`pick_target` counts them."""
+    by_name: dict[str, Any] = {}
+    for d in defs:
+        full_name = getattr(d, "full_name", None)
+        if full_name and full_name not in by_name:
+            by_name[full_name] = d
+    return list(by_name.values())
+
+
+def _sites(defs: list[Any]) -> set[tuple[str, int, int]]:
+    """The distinct ``(file, line, column)`` places *defs* are bound at."""
+    return {
+        (
+            Path(getattr(d, "module_path", "") or "").as_posix(),
+            getattr(d, "line", None) or 0,
+            getattr(d, "column", None) or 0,
+        )
+        for d in defs
+    }
 
 
 def _rebound(defs: list[Any], full_name: str) -> bool:
