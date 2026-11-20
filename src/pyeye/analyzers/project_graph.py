@@ -83,7 +83,8 @@ _epoch = 0
 #: Why a class has no handle (#1006): ``ClassFact.unnamed_reason``, and the
 #: ``reason`` of a ``handleless_subclasses`` entry. Checked in this order.
 UNNAMED_NO_MODULE_PATH = "no_module_path"  # its file isn't an importable module
-UNNAMED_FUNCTION_LOCAL = "function_local"  # defined in a function or method
+UNNAMED_NESTED_LOCAL = "nested_local"  # two or more function levels deep (#1024)
+UNNAMED_AMBIGUOUS_LOCAL = "ambiguous_local"  # its local dotted name names several (#1024)
 UNNAMED_NOT_A_HANDLE = "not_a_handle"  # the handle grammar rejects the name
 
 
@@ -93,7 +94,8 @@ class ClassFact:
 
     ``full_name`` is the class's dotted name (``module.Outer.Inner`` for a class
     nested in a class), or ``None`` when it has no handle; ``unnamed_reason``
-    then says why: ``function_local``, ``no_module_path`` or ``not_a_handle``
+    then says why: ``no_module_path``, ``nested_local``, ``ambiguous_local`` or
+    ``not_a_handle``
     (#1006). An unnamed class is still a real definition: it is counted, never
     given a dotted name it doesn't have.
     """

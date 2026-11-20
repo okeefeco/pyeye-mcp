@@ -4,6 +4,7 @@ import ast
 import asyncio
 import logging
 import os
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -117,7 +118,8 @@ def _dotted_prefixes(dotted: str) -> list[str]:
 
 
 UNNAMED_NO_MODULE_PATH = project_graph.UNNAMED_NO_MODULE_PATH
-UNNAMED_FUNCTION_LOCAL = project_graph.UNNAMED_FUNCTION_LOCAL
+UNNAMED_NESTED_LOCAL = project_graph.UNNAMED_NESTED_LOCAL
+UNNAMED_AMBIGUOUS_LOCAL = project_graph.UNNAMED_AMBIGUOUS_LOCAL
 UNNAMED_NOT_A_HANDLE = project_graph.UNNAMED_NOT_A_HANDLE
 
 
@@ -138,34 +140,57 @@ def _site_key(py_file: Path, node: ast.ClassDef) -> str:
 def _named_classes(
     tree: ast.Module, module_path: str | None
 ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
-    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006).
+    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006, #1024).
 
-    A class in a class is ``module.Outer.Inner``. A class in a function has no
-    handle (handles are importable dotted names), nor does one in a file with no
-    module path, nor one whose dotted name the ASCII-only handle grammar rejects.
+    Names follow pyeye's existing notation, which ``resolve`` / ``resolve_at``
+    already use: ``module.Outer.Inner`` for a class in a class,
+    ``module.func.Name`` / ``module.Cls.meth.Name`` for a class in a function
+    or method. A class has no handle when (in this order):
+
+    - its file has no module path (``no_module_path``);
+    - it is two or more function levels deep (``nested_local``);
+    - it is one function level deep and its dotted name is defined more than
+      once in the file (``if``/``else`` branches, a redefinition), or an
+      enclosing local class's is (``ambiguous_local``);
+    - the handle grammar rejects the name (``not_a_handle``).
     """
+    # (node, candidate dotted name, function depth, index of the enclosing class)
+    found: list[tuple[ast.ClassDef, str | None, int, int | None]] = []
 
-    def visit(
-        owner: ast.AST, prefix: str | None, in_function: bool
-    ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
+    def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
         for child in ast.iter_child_nodes(owner):
             if isinstance(child, ast.ClassDef):
                 dotted = f"{prefix}.{child.name}" if prefix is not None else None
-                if dotted is None:
-                    yield child, None, UNNAMED_NO_MODULE_PATH
-                elif in_function:
-                    yield child, None, UNNAMED_FUNCTION_LOCAL
-                elif not parse_compound_symbol(dotted)[1]:
-                    yield child, None, UNNAMED_NOT_A_HANDLE
-                else:
-                    yield child, dotted, None
-                yield from visit(child, dotted, in_function)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                yield from visit(child, prefix, True)
-            else:
-                yield from visit(child, prefix, in_function)
+                found.append((child, dotted, depth, parent))
+                visit(child, dotted, depth, len(found) - 1)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                inner = f"{prefix}.{child.name}" if prefix is not None else None
+                visit(child, inner, depth + 1, parent)
+            elif not isinstance(child, ast.Lambda):
+                visit(child, prefix, depth, parent)
 
-    return visit(tree, module_path, False)
+    visit(tree, module_path, 0, None)
+    local_names = Counter(dotted for _, dotted, depth, _ in found if dotted and depth >= 1)
+    reasons: list[str | None] = []
+    for _node, dotted, depth, parent in found:
+        if dotted is None:
+            reason: str | None = UNNAMED_NO_MODULE_PATH
+        elif depth >= 2:
+            reason = UNNAMED_NESTED_LOCAL
+        elif depth == 1 and (
+            local_names[dotted] > 1
+            or (parent is not None and reasons[parent] == UNNAMED_AMBIGUOUS_LOCAL)
+        ):
+            reason = UNNAMED_AMBIGUOUS_LOCAL
+        elif not parse_compound_symbol(dotted)[1]:
+            reason = UNNAMED_NOT_A_HANDLE
+        else:
+            reason = None
+        reasons.append(reason)
+    return [
+        (node, dotted if reason is None else None, reason)
+        for (node, dotted, _, _), reason in zip(found, reasons, strict=True)
+    ]
 
 
 def _class_fact(
