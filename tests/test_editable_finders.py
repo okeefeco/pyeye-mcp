@@ -76,6 +76,7 @@ def _editables_finder(site: Path, calls: str) -> None:
 @pytest.fixture(autouse=True)
 def _fresh_cache() -> None:
     env_module._pth_paths.cache_clear()
+    env_module._FINDER_CACHE.clear()
 
 
 class TestRecovered:
@@ -129,6 +130,121 @@ class TestRecovered:
         )
 
         assert result.structured_content["found"] is True, result.structured_content
+
+
+class TestBudget:
+    """A finder module is parsed at most once per environment, and charged (#1045 review)."""
+
+    @staticmethod
+    def _counting(monkeypatch: pytest.MonkeyPatch) -> list[Path]:
+        parsed: list[Path] = []
+        real = env_module._parse_finder
+
+        def counting(module: Path, data: bytes) -> tuple[str, ...]:
+            parsed.append(module)
+            return real(module, data)
+
+        monkeypatch.setattr(env_module, "_parse_finder", counting)
+        return parsed
+
+    def test_a_repeated_import_line_parses_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        site, project = _site(tmp_path), _flat_project(tmp_path)
+        _setuptools_finder(site, f"{{'flatpkg': {str((project / 'flatpkg').as_posix())!r}}}")
+        name = "__editable___flatpkg_0_1_finder"
+        (site / "__editable__.flatpkg-0.1.pth").write_text(f"import {name}\n" * 5000, "utf-8")
+        parsed = self._counting(monkeypatch)
+
+        roots = site_paths(tmp_path / ".venv")
+
+        assert len(parsed) == 1
+        assert roots[1:] == [project.resolve().as_posix()]
+
+    def test_many_pth_files_naming_one_finder_parse_it_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        site, project = _site(tmp_path), _flat_project(tmp_path)
+        _setuptools_finder(site, f"{{'flatpkg': {str((project / 'flatpkg').as_posix())!r}}}")
+        for k in range(200):
+            (site / f"z{k:03}.pth").write_text("import __editable___flatpkg_0_1_finder\n", "utf-8")
+        parsed = self._counting(monkeypatch)
+
+        site_paths(tmp_path / ".venv")
+
+        assert len(parsed) == 1
+
+    def test_an_unchanged_finder_is_not_reparsed_across_calls(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        site, project = _site(tmp_path), _flat_project(tmp_path)
+        _setuptools_finder(site, f"{{'flatpkg': {str((project / 'flatpkg').as_posix())!r}}}")
+        parsed = self._counting(monkeypatch)
+
+        site_paths(tmp_path / ".venv")
+        env_module._pth_paths.cache_clear()
+        site_paths(tmp_path / ".venv")
+
+        assert len(parsed) == 1
+
+    def test_a_finder_that_changes_on_its_own_is_reread(self, tmp_path: Path) -> None:
+        """Its own stat keys its cache, not the .pth file's (#1045 review)."""
+        site = _site(tmp_path)
+        one, two = _flat_project(tmp_path, "onepkg"), _flat_project(tmp_path, "twopkg")
+        _setuptools_finder(site, f"{{'onepkg': {str((one / 'onepkg').as_posix())!r}}}")
+        assert site_paths(tmp_path / ".venv")[1:] == [one.resolve().as_posix()]
+
+        finder = next(site.glob("__editable___*.py"))
+        text = (
+            finder.read_text(encoding="utf-8")
+            .replace((one / "onepkg").as_posix(), (two / "twopkg").as_posix())
+            .replace("'onepkg'", "'twopkg'")
+        )
+        finder.write_text(text + "# changed\n", encoding="utf-8")
+
+        assert site_paths(tmp_path / ".venv")[1:] == [two.resolve().as_posix()]
+
+    def test_at_most_max_finder_modules_are_read_per_environment(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        site = _site(tmp_path)
+        for k in range(env_module.MAX_FINDER_MODULES + 10):
+            name = f"_editable_impl_p{k}"
+            (site / f"{name}.pth").write_text(f"import {name}", "utf-8")
+            (site / f"{name}.py").write_text(
+                f"F.map_module('p{k}', '/nowhere{k}/p{k}.py')\n", "utf-8"
+            )
+        parsed = self._counting(monkeypatch)
+
+        site_paths(tmp_path / ".venv")
+
+        assert len(parsed) == env_module.MAX_FINDER_MODULES
+
+    def test_a_large_finder_set_stays_bounded_in_time(self, tmp_path: Path) -> None:
+        """The reviewer's case: one ~64 KiB finder, named by 20 .pth files of 5,000 lines."""
+        import time
+
+        from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
+
+        site = _site(tmp_path)
+        entries, size, i = [], 0, 0
+        while size < env_module.MAX_FINDER_BYTES - 200:
+            entry = f"'a{i}': '/b{i}.py', "
+            entries.append(entry)
+            size += len(entry)
+            i += 1
+        (site / "M.py").write_text("MAPPING = {" + "".join(entries) + "}\n", "utf-8")
+        for k in range(20):
+            (site / f"z{k:02}.pth").write_text("import M\n" * 5000, "utf-8")
+
+        start = time.perf_counter()
+        site_paths(tmp_path / ".venv")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        threshold = PerformanceThresholds(
+            base=2000.0, linux_ci=3000.0, macos_ci=6000.0, windows_ci=6000.0
+        )
+        assert_performance_threshold(elapsed_ms, threshold, "a large finder set")
 
 
 class TestNeverRun:
@@ -199,9 +315,13 @@ class TestHostile:
     ) -> None:
         site, project = _site(tmp_path), _flat_project(tmp_path)
         _setuptools_finder(site, f"{{'flatpkg': {str((project / 'flatpkg').as_posix())!r}}}")
-        monkeypatch.setattr(env_module, "MAX_PTH_BYTES", 64)
+        monkeypatch.setattr(env_module, "MAX_FINDER_BYTES", 64)
 
         assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
+
+    def test_the_finder_cap_is_far_below_the_pth_cap(self) -> None:
+        """Real finders are a few KB (#1045 review): 64 KiB, not the .pth's 1 MiB."""
+        assert env_module.MAX_FINDER_BYTES == 64 << 10 < env_module.MAX_PTH_BYTES
 
     def test_a_deeply_nested_finder_is_not_a_crash(self, tmp_path: Path) -> None:
         site = _site(tmp_path)
@@ -276,7 +396,8 @@ class TestHostile:
     ) -> None:
         site = _site(tmp_path)
         monkeypatch.setattr(env_module, "MAX_PTH_LINES", 3)
-        mapping = ", ".join(f"'p{i}': '/nowhere/p{i}'" for i in range(50))
+        # Distinct parents, so dedup can't hide the bound (#1045 review).
+        mapping = ", ".join(f"'p{i}': '/nowhere{i}/p{i}'" for i in range(50))
         _setuptools_finder(site, "{" + mapping + "}")
         looked_up: list[Path] = []
         real_is_dir = Path.is_dir
@@ -288,7 +409,8 @@ class TestHostile:
         monkeypatch.setattr(Path, "is_dir", counting)
         site_paths(tmp_path / ".venv")
 
-        assert sum("nowhere" in p.as_posix() for p in looked_up) <= 3
+        nowhere = {p.as_posix() for p in looked_up if "nowhere" in p.as_posix()}
+        assert 0 < len(nowhere) <= 3
 
     def test_a_mapped_name_that_does_not_match_its_directory_is_skipped(
         self, tmp_path: Path
