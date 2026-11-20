@@ -47,7 +47,21 @@ def _project(root: Path, files: dict[str, str]) -> JediAnalyzer:
 
 
 def _local(name: str, fn: str) -> str:
+    """One function level deep and unique: named ``app.m.<fn>.<name>`` since #1024."""
     return f"def {fn}():\n    class {name}(Base):\n        pass\n"
+
+
+def _nested(name: str, fn: str, base: str = "Base") -> str:
+    """Two function levels deep: handleless, ``nested_local`` (#1024)."""
+    return f"def {fn}():\n    def inner():\n        class {name}({base}):\n            pass\n"
+
+
+def _twins(name: str, fn: str) -> str:
+    """Defined twice in one function: both handleless, ``ambiguous_local`` (#1024)."""
+    return (
+        f"def {fn}(flag):\n    if flag:\n        class {name}(Base):\n            pass\n"
+        f"    else:\n        class {name}(Base):\n            pass\n"
+    )
 
 
 def _rel(entries: list[dict[str, Any]], root: Path) -> list[tuple[str, str, int, str]]:
@@ -58,7 +72,11 @@ def _rel(entries: list[dict[str, Any]], root: Path) -> list[tuple[str, str, int,
 
 
 MIXED = {
-    "app/m.py": IMPORT + "\nclass Named(Base):\n    pass\n\n" + _local("Local", "f"),
+    "app/m.py": IMPORT
+    + "\nclass Named(Base):\n    pass\n\n"
+    + _local("Local", "f")  # line 7: named app.m.f.Local
+    + _nested("Deep", "g")  # line 11: nested_local
+    + _twins("Twin", "h"),  # lines 15, 18: ambiguous_local
     "app/u.py": IMPORT + "\nclass Héllo(Base):\n    pass\n",
     "app/migrations/__init__.py": "",
     "app/migrations/0001_initial.py": IMPORT + "\nclass Migration(Base):\n    pass\n",
@@ -72,12 +90,17 @@ class TestExpandReportsHandlelessSubclasses:
     ) -> None:
         result = await expand(BASE, "subclasses", _project(tmp_path, MIXED), max_stubs=None)
 
-        assert [s["handle"] for s in result["stubs"]] == ["app.m.Named"]
-        assert result["handleless_subclass_count"] == 3
+        assert [s["handle"] for s in result["stubs"]] == [
+            "app.m.Named",
+            "app.m.f.Local",
+            "app.u.Héllo",
+        ]
+        assert result["handleless_subclass_count"] == 4
         assert _rel(result["handleless_subclasses"], tmp_path) == [
-            ("Local", "app/m.py", 7, "function_local"),
+            ("Deep", "app/m.py", 11, "nested_local"),
+            ("Twin", "app/m.py", 15, "ambiguous_local"),
+            ("Twin", "app/m.py", 18, "ambiguous_local"),
             ("Migration", "app/migrations/0001_initial.py", 3, "no_module_path"),
-            ("Héllo", "app/u.py", 3, "not_a_handle"),
         ]
 
     @pytest.mark.asyncio
@@ -103,7 +126,7 @@ class TestExpandReportsHandlelessSubclasses:
         """Three handleless, cap 2: the count stays complete, the stubs aren't truncated."""
         analyzer = _project(
             tmp_path,
-            {"app/m.py": IMPORT + "\n" + _local("A", "f") + _local("B", "g") + _local("C", "h")},
+            {"app/m.py": IMPORT + "\n" + _nested("A", "f") + _nested("B", "g") + _nested("C", "h")},
         )
 
         result = await expand(BASE, "subclasses", analyzer, max_stubs=2)
@@ -116,7 +139,7 @@ class TestExpandReportsHandlelessSubclasses:
     async def test_no_cap_lists_every_one(self, tmp_path: Path) -> None:
         analyzer = _project(
             tmp_path,
-            {"app/m.py": IMPORT + "\n" + "".join(_local(f"L{i}", f"f{i}") for i in range(5))},
+            {"app/m.py": IMPORT + "\n" + "".join(_nested(f"L{i}", f"f{i}") for i in range(5))},
         )
 
         result = await expand(BASE, "subclasses", analyzer, max_stubs=None)
@@ -132,9 +155,9 @@ class TestTraceCarriesPerNodeCounts:
             {
                 "app/m.py": IMPORT
                 + "\nclass Named(Base):\n    pass\n\n"
-                + _local("L1", "f")
-                + _local("L2", "g")
-                + "\ndef h():\n    class Deep(Named):\n        pass\n",
+                + _nested("N1", "f")
+                + _nested("N2", "g")
+                + _nested("Deep", "h", base="Named"),
             },
         )
 

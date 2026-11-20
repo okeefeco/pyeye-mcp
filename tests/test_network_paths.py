@@ -470,3 +470,46 @@ def test_a_local_inline_sys_path_entry_still_counts(tmp_path: Path) -> None:
     names = jedi.Script(path=str(tmp_path / "app/m.py")).goto(3, 8, follow_imports=True)
 
     assert [n.module_name for n in names] == ["vendored"]
+
+
+@pytest.mark.usefixtures("windows_rules")
+class TestEditableFinderTargets:
+    """An editable install's finder module names its targets (#1045): none is looked up.
+
+    A target's root is found lexically (``_root_for``; ``package_kind`` reads a
+    ``.py`` path's name only), and every root then goes through
+    ``_checked_dirs``, the one lookup of ``.pth`` and finder paths alike, which
+    checks it as written first.
+    """
+
+    @pytest.mark.parametrize(
+        ("pth", "module"),
+        [
+            (
+                "import __editable___evil_0_1_finder; __editable___evil_0_1_finder.install()",
+                f"MAPPING: dict[str, str] = {{'evil': '//{HOST}/share/evil/__init__.py'}}\n"
+                f"NAMESPACES: dict[str, list[str]] = {{'ns': ['//{HOST}/share/ns']}}\n",
+            ),
+            (
+                "import _editable_impl_evil",
+                "from editables.redirector import RedirectingFinder as F\nF.install()\n"
+                f"F.map_module('evil', '//{HOST}/share/evil.py')\n",
+            ),
+        ],
+        ids=["setuptools", "editables"],
+    )
+    def test_a_network_target_is_never_looked_up(
+        self, tmp_path: Path, touched: list[str], pth: str, module: str
+    ) -> None:
+        from pyeye.environment import site_paths
+
+        site = tmp_path / ".venv/Lib/site-packages"
+        site.mkdir(parents=True)
+        finder = pth.split(";")[0].split()[1]
+        (site / "evil.pth").write_text(pth, encoding="utf-8")
+        (site / f"{finder}.py").write_text(module, encoding="utf-8")
+
+        paths = site_paths(tmp_path / ".venv")
+
+        assert touched == []
+        assert not any(HOST in p for p in paths)

@@ -4,6 +4,7 @@ import ast
 import asyncio
 import logging
 import os
+from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -118,7 +119,8 @@ def _dotted_prefixes(dotted: str) -> list[str]:
 
 
 UNNAMED_NO_MODULE_PATH = project_graph.UNNAMED_NO_MODULE_PATH
-UNNAMED_FUNCTION_LOCAL = project_graph.UNNAMED_FUNCTION_LOCAL
+UNNAMED_NESTED_LOCAL = project_graph.UNNAMED_NESTED_LOCAL
+UNNAMED_AMBIGUOUS_LOCAL = project_graph.UNNAMED_AMBIGUOUS_LOCAL
 UNNAMED_NOT_A_HANDLE = project_graph.UNNAMED_NOT_A_HANDLE
 
 
@@ -136,37 +138,96 @@ def _site_key(py_file: Path, node: ast.ClassDef) -> str:
     return f"{py_file.as_posix()}:{node.lineno}:{node.col_offset}"
 
 
+#: Nodes whose bound names belong to their own scope, not the enclosing one.
+_OWN_SCOPES = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _bound_names(node: ast.AST) -> list[str]:
+    """The names *node* itself binds or deletes, as Jedi lists them as definitions.
+
+    An assignment, ``for`` / ``with`` / walrus target, ``except … as`` or
+    ``del``. Not a parameter or an import: Jedi doesn't list either under the
+    function's scope, so neither makes ``resolve`` ambiguous (#1024). Whether
+    that rule is right is #1049; change this with it.
+    """
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return [node.id]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    return []
+
+
 def _named_classes(
     tree: ast.Module, module_path: str | None
 ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
-    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006).
+    """Every class in *tree*, with its dotted name, or ``None`` and the reason (#1006, #1024).
 
-    A class in a class is ``module.Outer.Inner``. A class in a function has no
-    handle (handles are importable dotted names), nor does one in a file with no
-    module path, nor one whose dotted name the ASCII-only handle grammar rejects.
+    Names follow pyeye's existing notation, which ``resolve`` / ``resolve_at``
+    already use: ``module.Outer.Inner`` for a class in a class,
+    ``module.func.Name`` / ``module.Cls.meth.Name`` for a class in a function
+    or method. A class has no handle when (in this order):
+
+    - its file has no module path (``no_module_path``);
+    - it is two or more function levels deep (``nested_local``);
+    - it is one function level deep and its dotted name is bound more than
+      once in its scope (``if``/``else`` branches, a ``def``, an assignment,
+      ``del``: the bindings ``resolve`` counts), or an enclosing local class's
+      is (``ambiguous_local``);
+    - the handle grammar rejects the name (``not_a_handle``).
     """
+    # (node, candidate dotted name, function depth, index of the enclosing class)
+    found: list[tuple[ast.ClassDef, str | None, int, int | None]] = []
+    # Every dotted name bound in a local scope: classes, and the other bindings
+    # ``resolve`` counts there, so a name the graph gives resolves (#1022).
+    local_names: Counter[str] = Counter()
 
-    def visit(
-        owner: ast.AST, prefix: str | None, in_function: bool
-    ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
+    def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
+        def bind(name: str) -> str | None:
+            dotted = f"{prefix}.{name}" if prefix is not None else None
+            if dotted is not None and depth >= 1:
+                local_names[dotted] += 1
+            return dotted
+
         for child in ast.iter_child_nodes(owner):
             if isinstance(child, ast.ClassDef):
-                dotted = f"{prefix}.{child.name}" if prefix is not None else None
-                if dotted is None:
-                    yield child, None, UNNAMED_NO_MODULE_PATH
-                elif in_function:
-                    yield child, None, UNNAMED_FUNCTION_LOCAL
-                elif not parse_compound_symbol(dotted)[1]:
-                    yield child, None, UNNAMED_NOT_A_HANDLE
-                else:
-                    yield child, dotted, None
-                yield from visit(child, dotted, in_function)
-            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
-                yield from visit(child, prefix, True)
-            else:
-                yield from visit(child, prefix, in_function)
+                found.append((child, bind(child.name), depth, parent))
+                visit(child, found[-1][1], depth, len(found) - 1)
+            elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # A def rebinds a same-named class; its body is one level deeper.
+                visit(child, bind(child.name), depth + 1, parent)
+            elif not isinstance(child, _OWN_SCOPES):  # a lambda's names are its own
+                for name in _bound_names(child):
+                    bind(name)
+                visit(child, prefix, depth, parent)
 
-    return visit(tree, module_path, False)
+    visit(tree, module_path, 0, None)
+    reasons: list[str | None] = []
+    for _node, dotted, depth, parent in found:
+        under_ambiguous = parent is not None and reasons[parent] == UNNAMED_AMBIGUOUS_LOCAL
+        reasons.append(_unnamed_reason(dotted, depth, local_names, under_ambiguous))
+    return [
+        (node, dotted if reason is None else None, reason)
+        for (node, dotted, _, _), reason in zip(found, reasons, strict=True)
+    ]
+
+
+#: The function depth from which a class has no handle (#1011, #1024).
+_NESTED_LOCAL_DEPTH = 2
+
+
+def _unnamed_reason(
+    dotted: str | None, depth: int, local_names: Counter[str], under_ambiguous: bool
+) -> str | None:
+    """Why the class at *dotted* has no handle, or ``None`` if it has one."""
+    if dotted is None:
+        return UNNAMED_NO_MODULE_PATH
+    if depth >= _NESTED_LOCAL_DEPTH:
+        return UNNAMED_NESTED_LOCAL
+    if depth == 1 and (local_names[dotted] > 1 or under_ambiguous):
+        return UNNAMED_AMBIGUOUS_LOCAL
+    if not parse_compound_symbol(dotted)[1]:
+        return UNNAMED_NOT_A_HANDLE
+    return None
 
 
 def _class_fact(

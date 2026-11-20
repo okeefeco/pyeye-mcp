@@ -99,12 +99,25 @@ class TestSingleSubjectFailuresPropagate:
             await resolve_name("NoSuchName", analyzer)
 
     @pytest.mark.asyncio
-    async def test_goto_at_position(
-        self, project: Path, analyzer: JediAnalyzer, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("line", "column", "method"),
+        [
+            (2, 4, "goto"),  # ``pass``: any position but a definition's name
+            (1, 6, "get_names"),  # ``class Thing``'s own name (#1024)
+        ],
+    )
+    async def test_jedi_at_position(
+        self,
+        project: Path,
+        analyzer: JediAnalyzer,
+        monkeypatch: pytest.MonkeyPatch,
+        line: int,
+        column: int,
+        method: str,
     ) -> None:
-        monkeypatch.setattr(jedi.Script, "goto", _boom)
+        monkeypatch.setattr(jedi.Script, method, _boom)
         with pytest.raises(Boom):
-            await resolve_at((project / "pkg" / "mod.py").as_posix(), 1, 6, analyzer)
+            await resolve_at((project / "pkg" / "mod.py").as_posix(), line, column, analyzer)
 
 
 class TestPerItemFailuresDontSinkTheCall:

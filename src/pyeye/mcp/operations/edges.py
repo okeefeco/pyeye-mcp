@@ -146,7 +146,8 @@ class EdgeResult:
             ``[]`` when every file parsed; ``None`` for every other edge.
         handleless_subclasses: For ``subclasses`` (#1006), the direct subclasses
             no handle can name — ``{name, file, line, reason}``, ``reason``
-            one of ``function_local`` / ``no_module_path`` / ``not_a_handle`` —
+            one of ``nested_local`` / ``ambiguous_local`` / ``no_module_path`` /
+            ``not_a_handle`` —
             sorted by file then line, complete (``expand`` caps the list it
             returns). Found and resolved as subclasses, so not ``unresolved_*``.
             ``[]`` when every subclass has a handle; ``None`` for every other edge.
