@@ -27,6 +27,7 @@ deviation, recorded in the decision entry):
 
 from __future__ import annotations
 
+import ast
 import functools
 import logging
 import os
@@ -53,6 +54,9 @@ SOURCE_PROJECT = "project"
 SOURCE_NONE = "none"
 
 _PTH_IMPORT = re.compile(r"^import[ \t]")
+#: The one import-line shape whose module is read: ``import M`` (then
+#: anything after a ``;``), with M a plain module name (#1035).
+_PTH_FINDER_IMPORT = re.compile(r"import[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*")
 
 #: Bounds on what one environment's ``.pth`` files may cost (#993 review): the
 #: environment can come from the repository. Each is far above a real
@@ -303,14 +307,23 @@ def _pth_paths(pth: Path, limit: int, _mtime_ns: int, _size: int) -> tuple[tuple
     lines: dict[str, None] = {}
     for raw in data.decode("utf-8", errors="replace").splitlines():
         line = raw.rstrip()
-        if not line or line.startswith("#") or _PTH_IMPORT.match(line):
+        if not line or line.startswith("#"):
             continue
-        if line in lines:
+        # A code line is never run. An editable install's finder is READ for
+        # its target directories instead (#1035); any other code line adds none.
+        candidates = _finder_roots(pth, line) if _PTH_IMPORT.match(line) else [line]
+        for candidate in candidates:
+            if candidate in lines:
+                continue
+            if len(lines) >= limit:
+                logger.warning(
+                    f"{pth.as_posix()}: path limit ({limit}) reached; reading no further"
+                )
+                break
+            lines[candidate] = None
+        else:
             continue
-        if len(lines) >= limit:
-            logger.warning(f"{pth.as_posix()}: path limit ({limit}) reached; reading no further")
-            break
-        lines[line] = None
+        break
     out: dict[str, None] = {}
     for line in lines:
         entry = Path(line) if Path(line).is_absolute() else pth.parent / line
@@ -319,6 +332,107 @@ def _pth_paths(pth: Path, limit: int, _mtime_ns: int, _size: int) -> tuple[tuple
             if _allowed(resolved, pth, what=".pth path"):
                 out[resolved.as_posix()] = None
     return tuple(out), len(lines)
+
+
+def _finder_roots(pth: Path, line: str) -> list[str]:
+    """The import roots an editable install's finder module names, read statically (#1035).
+
+    *line* is a ``.pth`` code line. Only ``import M[; ...]`` is followed, and
+    only to ``M.py`` in *pth*'s own directory: not a symlink, at most
+    :data:`MAX_PTH_BYTES`, parsed with :mod:`ast` and never imported. Two
+    shapes, measured per build backend, are read, and nothing else:
+
+    - setuptools' finder: module-level ``MAPPING = {name: dir}`` and
+      ``NAMESPACES = {name: [dir, ...]}``, plain string literals only;
+    - an ``editables`` redirector (hatchling ``dev-mode-exact``, pdm-backend):
+      ``F.map_module(name, path)`` calls with exactly two string literals.
+
+    A target becomes the directory above it, and only when the mapped name is
+    that target's own name, so the root imports it under the same name. The
+    caller path-checks and bounds the roots like any ``.pth`` path.
+    """
+    match = _PTH_FINDER_IMPORT.fullmatch(line.split(";", 1)[0])
+    if match is None:
+        return []
+    module = pth.parent / f"{match.group(1)}.py"
+    try:
+        if module.is_symlink() or not module.is_file():
+            return []
+        if module.stat().st_size > MAX_PTH_BYTES:
+            logger.warning(f"Not reading {module.as_posix()}: over {MAX_PTH_BYTES} bytes")
+            return []
+        source = module.read_bytes()[: MAX_PTH_BYTES + 1].decode("utf-8", errors="replace")
+        tree = ast.parse(source, filename=module.as_posix())
+    except (OSError, SyntaxError, ValueError, RecursionError, MemoryError) as error:
+        logger.debug(f"Not reading {module.as_posix()}: {error}")
+        return []
+    roots: list[str] = []
+    for statement in tree.body:
+        for name, target in _finder_targets(statement):
+            root = _root_for(name, target)
+            if root is not None:
+                roots.append(root)
+    return roots
+
+
+def _str(node: ast.AST | None) -> str | None:
+    """*node*'s value when it is a plain string literal, else ``None``."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _finder_targets(statement: ast.stmt) -> list[tuple[str, str]]:
+    """``(mapped name, target path)`` pairs from one top-level *statement*."""
+    if isinstance(statement, ast.AnnAssign | ast.Assign):
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        names = [t.id for t in targets if isinstance(t, ast.Name)]
+        value = statement.value
+        if len(names) != 1 or not isinstance(value, ast.Dict) or None in value.keys:
+            return []
+        pairs: list[tuple[str, str]] = []
+        for key_node, value_node in zip(value.keys, value.values, strict=True):
+            key = _str(key_node)
+            if key is None:
+                return []
+            if names[0] == "MAPPING" and (path := _str(value_node)) is not None:
+                pairs.append((key, path))
+            elif names[0] == "NAMESPACES" and isinstance(value_node, ast.List):
+                paths = [_str(item) for item in value_node.elts]
+                if None in paths:
+                    return []
+                pairs.extend((key, p) for p in paths if p is not None)
+            else:
+                return []
+        return pairs if names[0] in ("MAPPING", "NAMESPACES") else []
+    if isinstance(statement, ast.Expr) and isinstance(statement.value, ast.Call):
+        call = statement.value
+        if (
+            isinstance(call.func, ast.Attribute)
+            and call.func.attr == "map_module"
+            and len(call.args) == 2
+            and not call.keywords
+        ):
+            name, path = _str(call.args[0]), _str(call.args[1])
+            if name is not None and path is not None:
+                return [(name, path)]
+    return []
+
+
+def _root_for(name: str, target: str) -> str | None:
+    """The sys.path root that imports *target* as *name*, or ``None``.
+
+    *target* is a package directory, a package's ``__init__.py`` or a module
+    file, given absolute. The root is the directory above it, and only when
+    *name* (a plain, undotted name) is the target's own name.
+    """
+    path = Path(target)
+    if not name.isidentifier() or not path.is_absolute():
+        return None
+    if path.name == "__init__.py":
+        path = path.parent
+    own = path.stem if path.suffix == ".py" else path.name
+    return path.parent.as_posix() if own == name else None
 
 
 def _allowed(resolved: Path, source: Path, *, what: str) -> bool:
