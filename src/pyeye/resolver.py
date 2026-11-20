@@ -655,13 +655,10 @@ def _place_in_namespace_stubs(
     The portions are tried in sys.path order, so a name two portions declare is
     the first portion's, as Jedi resolves it.
     """
-    rest = path[len(module_dotted) + 1 :]
     for init in namespace_stub_inits(module_dotted, analyzer):
         names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, rest, analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             anchor = _anchor_on_bindings(matches, init, path)

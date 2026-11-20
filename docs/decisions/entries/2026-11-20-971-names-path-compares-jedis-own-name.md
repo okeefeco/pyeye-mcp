@@ -2,7 +2,7 @@
 date: "2026-11-20"
 title: "`_names_path` compares Jedi's own name; #814's respelling is retired (#971)"
 issues: [971, 814, 857, 858, 714]
-anchors: ["pyeye.resolver._names_path", "pyeye.resolver._place_definition", "tests/test_names_path_no_respelling.py"]
+anchors: ["pyeye.resolver._names_path", "pyeye.resolver._place_definition", "pyeye.resolver._place_in_namespace_stubs", "tests/test_names_path_no_respelling.py"]
 status: "active"
 amends: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md"]
 supersedes: []
@@ -28,7 +28,7 @@ superseded_by: []
 
 **Applies-to:**
 
-- `pyeye.resolver._names_path` and its caller `pyeye.resolver._place_definition`.
+- `pyeye.resolver._names_path` and its callers `pyeye.resolver._place_definition` and `pyeye.resolver._place_in_namespace_stubs` (#1004's stub namespace members, which merged after this began: 12 calls in its tests, 0 respelling matches).
 
 **Verify:** gold — `uv run pytest tests/test_names_path_no_respelling.py tests/test_configured_packages_on_jedi_path.py tests/test_resolve_nonidentifier_package_dirs.py tests/integration/test_multirepo_namespace_scenario.py` passes. It checks:
 
