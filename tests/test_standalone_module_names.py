@@ -1,0 +1,143 @@
+"""A standalone script outside the project has a module name, and its handles round-trip (#1041).
+
+Standalone directories were searched (``RootsBoundary.SCOPE``, #690) but were
+not naming roots (``MODULE_LOOKUP``), so ``module_name_for_file`` gave ``None``
+for a script outside the project and plugins dropped its symbols. Jedi, with
+the directory on no ``sys.path`` root, names such a file ``__main__``.
+
+Now a standalone directory is the LAST naming root: a script's module is its
+path relative to that directory (``tool``, ``sub.deep``), as Python imports it
+with the directory on ``sys.path``. A file another root already names keeps
+that name, and a file shadowed by an earlier root gets no name rather than a
+handle that resolves to the other file. The maintainer's ruling widened
+that: a script is named only if NO earlier root, standard-library module or
+module in the project's environment owns its name, and an unnamed script's
+honest miss says what shadows it.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+from pyeye.mcp.operations.inspect import inspect
+from pyeye.mcp.operations.resolve import resolve, resolve_at
+from pyeye.project_layout import module_name_for_file
+from pyeye.project_manager import ProjectManager
+
+TOOL = "class Tool:\n    pass\n\n\ndef helper():\n    return Tool()\n"  # Tool @1:6, helper @5:4
+
+
+@pytest.fixture
+def layout(tmp_path: Path) -> dict[str, Path]:
+    root = tmp_path / "proj"
+    (root / "app").mkdir(parents=True)
+    (root / "app" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "app" / "m.py").write_text("class Main:\n    pass\n", encoding="utf-8")
+    (root / "bin").mkdir()
+    (root / "bin" / "run.py").write_text("class Run:\n    pass\n", encoding="utf-8")
+
+    scripts = tmp_path / "scripts"  # outside the project
+    (scripts / "sub").mkdir(parents=True)
+    (scripts / "tool.py").write_text(TOOL, encoding="utf-8")
+    (scripts / "sub" / "deep.py").write_text("class Deep:\n    pass\n", encoding="utf-8")
+    (scripts / "app.py").write_text("class Shadowed:\n    pass\n", encoding="utf-8")
+    (scripts / "json.py").write_text("class NotStdlib:\n    pass\n", encoding="utf-8")
+    (scripts / "envpkg.py").write_text("class NotInstalled:\n    pass\n", encoding="utf-8")
+    # the project's environment provides ``envpkg`` (read statically, #993)
+    major, minor = sys.version_info[:2]
+    site = root / ".venv" / "lib" / f"python{major}.{minor}" / "site-packages"
+    (site / "envpkg").mkdir(parents=True)
+    (site / "envpkg" / "__init__.py").write_text("", encoding="utf-8")
+    (root / ".venv" / "pyvenv.cfg").write_text(f"version = {major}.{minor}.0\n", encoding="utf-8")
+    more = tmp_path / "more"  # a second standalone dir, also with tool.py
+    more.mkdir()
+    (more / "tool.py").write_text("class Other:\n    pass\n", encoding="utf-8")
+
+    (root / ".pyeye.json").write_text(
+        json.dumps({"standalone": {"dirs": [scripts.as_posix(), more.as_posix(), "bin"]}}),
+        encoding="utf-8",
+    )
+    return {"root": root, "scripts": scripts, "more": more}
+
+
+@pytest.fixture
+def analyzer(layout: dict[str, Path]):  # type: ignore[no-untyped-def]
+    manager = ProjectManager(max_projects=4)
+    yield manager.get_analyzer(layout["root"].as_posix())
+    manager.cleanup_all()
+
+
+def test_a_standalone_script_is_named_from_its_directory(layout, analyzer) -> None:  # type: ignore[no-untyped-def]
+    assert module_name_for_file(analyzer, layout["scripts"] / "tool.py") == "tool"
+    assert module_name_for_file(analyzer, layout["scripts"] / "sub" / "deep.py") == "sub.deep"
+
+
+@pytest.mark.asyncio
+async def test_its_handles_round_trip(layout, analyzer) -> None:  # type: ignore[no-untyped-def]
+    tool = (layout["scripts"] / "tool.py").as_posix()
+
+    by_name = await resolve("tool.Tool", analyzer)
+    assert by_name["found"] is True
+    assert Path(by_name["location"]["file"]).name == "tool.py"
+    by_position = await resolve_at(tool, 1, 6, analyzer)  # Jedi says __main__.Tool
+    assert by_position["found"] is True and by_position["handle"] == "tool.Tool"
+    by_line = await resolve(f"{tool}:5", analyzer)
+    assert by_line["found"] is True and by_line["handle"] == "tool.helper"
+    node = await inspect("tool.Tool", analyzer)
+    assert node["kind"] == "class" and node["scope"] == "project"
+
+
+@pytest.mark.asyncio
+async def test_a_standalone_dir_inside_the_project_keeps_its_name(layout, analyzer) -> None:  # type: ignore[no-untyped-def]
+    run = layout["root"] / "bin" / "run.py"
+    assert module_name_for_file(analyzer, run) == "bin.run"  # the project root wins
+    result = await resolve_at(run.as_posix(), 1, 6, analyzer)
+    assert result["found"] is True and result["handle"] == "bin.run.Run"
+
+
+@pytest.mark.asyncio
+async def test_a_shadowed_script_gets_no_name(layout, analyzer) -> None:  # type: ignore[no-untyped-def]
+    """``tool`` is scripts/tool.py; more/tool.py must never answer as it."""
+    other = layout["more"] / "tool.py"
+    assert module_name_for_file(analyzer, other) is None
+    result = await resolve_at(other.as_posix(), 1, 6, analyzer)
+    assert result["found"] is False and result["reason"] == "unresolved"
+    assert "shadowed" in result["detail"]
+    assert (layout["scripts"] / "tool.py").as_posix() in result["detail"]  # the earlier file
+
+
+@pytest.mark.asyncio
+async def test_a_script_named_like_a_project_package_is_shadowed(layout, analyzer) -> None:  # type: ignore[no-untyped-def]
+    shadowed = layout["scripts"] / "app.py"
+    assert module_name_for_file(analyzer, shadowed) is None
+    assert (await resolve("app.m.Main", analyzer))["found"] is True  # the package still wins
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("script", "shadow"),
+    [
+        ("json.py", "the standard library module json"),
+        ("envpkg.py", "the module envpkg in the project's environment"),
+    ],
+)
+async def test_a_script_named_like_the_stdlib_or_the_environment_is_shadowed(
+    layout, analyzer, script: str, shadow: str  # type: ignore[no-untyped-def]
+) -> None:
+    path = layout["scripts"] / script
+    assert module_name_for_file(analyzer, path) is None
+    result = await resolve_at(path.as_posix(), 1, 6, analyzer)
+    assert result["found"] is False and result["reason"] == "unresolved"
+    assert shadow in result["detail"]
+
+
+@pytest.mark.asyncio
+async def test_the_shadowing_module_keeps_its_name(analyzer) -> None:  # type: ignore[no-untyped-def]
+    """``json`` is still the stdlib's: the script never answers as it."""
+    result = await resolve("json.dumps", analyzer)
+    assert result["found"] is True
+    assert "scripts" not in result["location"]["file"]
