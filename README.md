@@ -183,7 +183,7 @@ Configuration is loaded in the following order (later sources override earlier o
 1. **Global Config**: the first of <!-- fact:begin config.files.global -->`~/.config/pyeye/config.json`, `~/.pyeye.json`<!-- fact:end --> that exists - User defaults
 2. **Project Config**: the first of <!-- fact:begin config.files.project -->`.pyeye.json`, `.pyeye.yaml`, `.pyeye.yml`, `pyproject.toml`, `.claude/pyeye.json`<!-- fact:end --> in the project root (in `pyproject.toml`, the `[tool.pyeye]` section)
 3. **Override File**: <!-- fact:begin config.files.override -->`.pyeye.override.json`<!-- fact:end --> - Local development overrides (keep it out of git)
-4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages are added. (The project's virtualenv isn't a package: pyeye reads it as the project's environment, above.)
+4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages are added. (The project's virtualenv isn't a package: pyeye reads it as the project's environment, above.) `configure_packages` lists what was discovered under `discovered`, and a save never writes it to `.pyeye.json`.
 5. **This session's unsaved additions**: packages, namespaces and standalone directories added with `configure_packages(save=false)`. They're applied last and don't stop auto-discovery
 
 The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`, `environment`<!-- fact:end -->.
