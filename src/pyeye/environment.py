@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .path_utils import absolute_path, normalize_path, paths_equal
+from .path_utils import absolute_path, normalize_path, paths_equal, repo_path_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -347,9 +347,16 @@ def _pth_paths(
 
 
 def _checked_dirs(entries: Iterable[str], source: Path) -> list[str]:
-    """The existing directories among *entries* that pass the path check, resolved, POSIX."""
+    """The existing directories among *entries* that pass the path check, resolved, POSIX.
+
+    Each entry is checked as written, before any lookup: on Windows looking up
+    a UNC path connects to its host over SMB (#1048).
+    """
     out: dict[str, None] = {}
     for line in entries:
+        if (why := repo_path_refusal(line)) is not None:
+            logger.warning(f"Skipping {line!r} (from {source.as_posix()}): {why}")
+            continue
         entry = Path(line) if Path(line).is_absolute() else source.parent / line
         if entry.is_dir():
             resolved = normalize_path(entry)

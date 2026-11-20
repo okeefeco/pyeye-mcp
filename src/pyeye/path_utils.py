@@ -31,8 +31,9 @@ Common Pitfalls to Avoid:
 """
 
 import os
+import sys
 from collections.abc import Iterable
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PureWindowsPath
 from typing import Any, TypeVar
 
 
@@ -251,6 +252,61 @@ def anchor(path: str | Path, root: str | Path) -> Path:
     if candidate.is_absolute():
         return candidate
     return absolute_path(Path(root) / candidate)
+
+
+#: Whether :func:`network_path` applies Windows rules by default (patched in tests).
+_ON_WINDOWS = sys.platform == "win32"
+
+
+def network_path(path: str | PurePath, *, windows: bool | None = None) -> str | None:
+    r"""Why *path* must not reach the filesystem, or ``None`` (#1048).
+
+    A pure string test: it never touches the filesystem, because on Windows
+    touching ``\\host\share`` (``is_dir()``, ``resolve()``) is itself an
+    SMB connection to that host, which can leak the user's NTLM credentials.
+    Call it on a path a repository supplies BEFORE any other check. Refused on
+    Windows:
+
+    - UNC (``\\host\share``, ``//host/share``) and device or extended paths
+      (``\\?\…``, ``\\?\UNC\…``, ``\\.\…``);
+    - drive-relative (``C:pkg``), relative to that drive's current directory;
+    - root-relative (``\pkg``), on the current drive, which is a share when the
+      server's cwd is on one.
+
+    On POSIX nothing is: ``//x`` is local and ``\`` is a filename character.
+    Not detectable here: a mapped network drive (``Z:\``), and a symlink or
+    junction that points at a share.
+
+    Args:
+        path: The path as the repository wrote it.
+        windows: Test with Windows rules; ``None`` means this platform's.
+    """
+    if not (_ON_WINDOWS if windows is None else windows):
+        return None
+    pure = PureWindowsPath(path)
+    if pure.drive.startswith("\\\\"):
+        return "a network (UNC) or device path; pyeye never opens one it was not asked to"
+    if pure.drive and not pure.root:
+        return "relative to a drive's current directory, which the server doesn't control"
+    if pure.root and not pure.drive:
+        return "relative to the current drive's root, which the server doesn't control"
+    return None
+
+
+def repo_path_refusal(entry: str | PurePath) -> str | None:
+    """Why a path a repository supplies must not be looked up, or ``None`` (#1048).
+
+    :func:`network_path` on *entry* as written and, for a ``~`` form, on its
+    expansion too: ``~`` is expanded before the lookup, and a roaming profile
+    puts the home directory on a share (#1053 review). Expanding reads only the
+    environment (and, for ``~user`` on POSIX, the local user database).
+    """
+    if (why := network_path(entry)) is not None:
+        return why
+    text = os.fspath(entry)
+    if text.startswith("~"):
+        return network_path(os.path.expanduser(text))
+    return None
 
 
 def drive_relative(path: _P, root: PurePath) -> _P:
