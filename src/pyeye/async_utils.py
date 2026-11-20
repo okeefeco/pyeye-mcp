@@ -9,7 +9,7 @@ from pathlib import Path, PurePosixPath
 
 import aiofiles
 
-from .path_utils import normalize_path, path_to_key, relative_within
+from .path_utils import normalize_path, path_to_key, relative_within, repo_path_refusal
 from .validation import credential_stores, restricted_dir
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,12 @@ def _gitdir_pointer(directory: Path) -> Path | None:
         return None
     if not pointer.startswith(_GITDIR_PREFIX):
         return None
-    target = Path(pointer[len(_GITDIR_PREFIX) :].strip())
+    raw = pointer[len(_GITDIR_PREFIX) :].strip()
+    # A tarball or sdist "repository" can carry this file: a network gitdir
+    # is never looked up (#1053 review).
+    if repo_path_refusal(raw) is not None:
+        return None
+    target = Path(raw)
     if not target.name:
         return None
     return target if target.is_absolute() else directory / target
@@ -78,6 +83,10 @@ def _declared_submodules(directory: Path) -> set[str]:
             value = match.group(1)
             if len(value) >= 2 and value[0] == value[-1] == '"':
                 value = value[1:-1]
+            # Checked as written, before the join resolves it (#1053 review).
+            if repo_path_refusal(value) is not None:
+                logger.warning(f"Ignoring .gitmodules path {value!r}: not a local path")
+                continue
             declared.add(path_to_key(directory / value))
     return declared
 

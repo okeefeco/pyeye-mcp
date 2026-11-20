@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .path_utils import absolute_path, network_path, normalize_path, relative_within
+from .path_utils import absolute_path, normalize_path, relative_within, repo_path_refusal
 from .project_layout import detect_src_layout
 
 logger = logging.getLogger(__name__)
@@ -113,7 +113,7 @@ def _anchored(root: Path, entry: str) -> Path | None:
 
 def _network(entry: str) -> bool:
     """Whether declared *entry* is a network path (#1048): warned about, never looked up."""
-    if (why := network_path(entry)) is None:
+    if (why := repo_path_refusal(entry)) is None:
         return False
     logger.warning(f"Skipping declared dependency {entry!r}: {why}")
     return True

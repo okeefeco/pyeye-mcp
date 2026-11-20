@@ -293,6 +293,22 @@ def network_path(path: str | PurePath, *, windows: bool | None = None) -> str | 
     return None
 
 
+def repo_path_refusal(entry: str | PurePath) -> str | None:
+    """Why a path a repository supplies must not be looked up, or ``None`` (#1048).
+
+    :func:`network_path` on *entry* as written and, for a ``~`` form, on its
+    expansion too: ``~`` is expanded before the lookup, and a roaming profile
+    puts the home directory on a share (#1053 review). Expanding reads only the
+    environment (and, for ``~user`` on POSIX, the local user database).
+    """
+    if (why := network_path(entry)) is not None:
+        return why
+    text = os.fspath(entry)
+    if text.startswith("~"):
+        return network_path(os.path.expanduser(text))
+    return None
+
+
 def drive_relative(path: _P, root: PurePath) -> _P:
     """*path* without a drive-relative prefix (``C:foo`` -> ``foo``) that matches *root*'s drive.
 

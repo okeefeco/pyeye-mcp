@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
-from .path_utils import network_path, normalize_path, path_to_key
+from .path_utils import normalize_path, path_to_key, repo_path_refusal
 from .project_layout import detect_src_layout
 from .validation import PathValidator, ValidationError
 
@@ -111,7 +111,7 @@ def _local_paths(entries: list[Any], what: str) -> list[str]:
     """
     out = []
     for entry in entries:
-        why = network_path(entry) if isinstance(entry, str) else "not a path"
+        why = repo_path_refusal(entry) if isinstance(entry, str) else "not a path"
         if why is None:
             out.append(entry)
         else:
@@ -350,7 +350,7 @@ class ProjectConfig:
                 return entries
             keep = []
             for entry in entries:
-                why = network_path(entry) if isinstance(entry, str) else None
+                why = repo_path_refusal(entry) if isinstance(entry, str) else None
                 if why is None:
                     keep.append(entry)
                     continue
@@ -374,7 +374,7 @@ class ProjectConfig:
                 "dirs": kept("standalone", out["standalone"]["dirs"]),
             }
         environment = out.get("environment")
-        if isinstance(environment, str) and (why := network_path(environment)) is not None:
+        if isinstance(environment, str) and (why := repo_path_refusal(environment)) is not None:
             logger.warning(
                 f"Skipping config environment {environment!r} ({source.as_posix()}): {why}"
             )

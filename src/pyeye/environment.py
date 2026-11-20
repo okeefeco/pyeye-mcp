@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .path_utils import absolute_path, network_path, normalize_path, paths_equal
+from .path_utils import absolute_path, normalize_path, paths_equal, repo_path_refusal
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +323,7 @@ def _pth_dirs(lines: Iterable[str], pth: Path) -> tuple[str, ...]:
     """
     out: dict[str, None] = {}
     for line in lines:
-        if (why := network_path(line)) is not None:
+        if (why := repo_path_refusal(line)) is not None:
             logger.warning(f"Skipping .pth path {line!r} (from {pth.as_posix()}): {why}")
             continue
         entry = Path(line) if Path(line).is_absolute() else pth.parent / line

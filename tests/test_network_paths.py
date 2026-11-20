@@ -286,3 +286,187 @@ class TestProjectConfigFiles:
         config = ProjectConfig(project.as_posix())
 
         assert UNC in config.config.get("packages", [])
+
+
+#: POSIX reads ``//host/...`` as absolute, so a lookup on it really happens on Linux.
+SLASHED = f"//{HOST}/share/wt"
+
+
+@pytest.mark.usefixtures("windows_rules")
+class TestGitPointers:
+    """A repository's ``.gitmodules`` and ``.git`` file are read on every walk (#1053 review)."""
+
+    @pytest.mark.parametrize("value", [SLASHED, f'"{UNC}"', UNC])
+    def test_a_gitmodules_path_is_skipped_before_any_lookup(
+        self, tmp_path: Path, touched: list[str], value: str
+    ) -> None:
+        from pyeye.async_utils import _declared_submodules
+
+        _write(tmp_path, {".gitmodules": f'[submodule "x"]\n\tpath = {value}\n\tpath = lib\n'})
+
+        declared = _declared_submodules(tmp_path)
+
+        assert touched == []
+        assert not any(HOST in d for d in declared)
+        assert any(d.endswith("/lib") for d in declared)  # a local one still counts
+
+    def test_a_gitdir_pointer_is_not_followed(self, tmp_path: Path, touched: list[str]) -> None:
+        from pyeye.async_utils import _is_linked_worktree
+
+        _write(tmp_path, {".git": f"gitdir: {SLASHED}\n"})
+
+        assert _is_linked_worktree(tmp_path) is False
+        assert touched == []
+
+
+@pytest.mark.usefixtures("windows_rules")
+class TestHomeExpansion:
+    """``~`` is expanded before the lookup, so it is checked expanded too (#1053 review, L1)."""
+
+    @pytest.fixture
+    def roaming_home(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("HOME", f"//{HOST}/home")
+        monkeypatch.setenv("USERPROFILE", rf"\\{HOST}\home")
+
+    @pytest.mark.usefixtures("roaming_home")
+    def test_the_predicate_refuses_an_expansion_onto_a_share(self) -> None:
+        from pyeye.path_utils import repo_path_refusal
+
+        assert repo_path_refusal("~/lib") is not None
+        assert repo_path_refusal("lib") is None
+
+    def test_a_local_home_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from pyeye.path_utils import repo_path_refusal
+
+        monkeypatch.setenv("HOME", "C:/Users/me")
+        monkeypatch.setenv("USERPROFILE", r"C:\Users\me")
+
+        assert repo_path_refusal("~/lib") is None
+
+    @pytest.mark.usefixtures("roaming_home")
+    def test_a_declared_dependency_under_home(self, tmp_path: Path, touched: list[str]) -> None:
+        from pyeye.declared_deps import declared_path_dependencies
+
+        _write(tmp_path, {"pyproject.toml": "[tool.uv.sources]\nlib = { path = '~/lib' }\n"})
+
+        assert declared_path_dependencies(tmp_path) == []
+        assert touched == []
+
+    @pytest.mark.usefixtures("roaming_home")
+    def test_a_config_package_under_home(
+        self, tmp_path: Path, touched: list[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The user's own global config lives in their home: that lookup is theirs, not the repo's."""
+        from pyeye.config import ProjectConfig
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "local-home")
+        _write(tmp_path, {".pyeye.json": json_dumps({"packages": ["~/lib"]})})
+
+        config = ProjectConfig(tmp_path.as_posix())
+        config.get_package_paths()
+
+        assert touched == []
+        assert [r["path"] for r in config.rejected_paths() or []] == ["~/lib"]
+
+
+@pytest.fixture
+def searched(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every import search path naming the host that Jedi hands to its inference subprocess.
+
+    pyeye's Jedi (``SameEnvironment``) looks modules up in a subprocess, out of
+    an in-process spy's reach. ``Importer.follow`` passes the whole search path
+    through ``import_module_by_names``, so that is where it is seen.
+    """
+    import jedi.inference.imports as jedi_imports
+
+    calls: list[str] = []
+    real = jedi_imports.import_module_by_names
+
+    def spy(
+        inference_state: Any, import_names: Any, sys_path: Any = None, *a: Any, **kw: Any
+    ) -> Any:
+        calls.extend(str(p) for p in sys_path or () if HOST in str(p))
+        return real(inference_state, import_names, sys_path, *a, **kw)
+
+    monkeypatch.setattr(jedi_imports, "import_module_by_names", spy)
+    return calls
+
+
+@pytest.mark.usefixtures("windows_rules")
+class TestJediSysPathModifications:
+    """Jedi adds a repo file's own ``sys.path`` changes to its import search (#1053 review, H2).
+
+    pyeye filters them through :func:`~pyeye.path_utils.repo_path_refusal`, in
+    a wrapper of ``jedi.inference.sys_path.check_sys_path_modifications``
+    installed with the other Jedi patches (``pyeye._parso_cache``). Verified
+    against Jedi 0.20.1.
+    """
+
+    def test_the_jedi_internal_still_exists_and_is_wrapped(self) -> None:
+        import jedi.inference.sys_path as jedi_sys_path
+
+        from pyeye import _parso_cache
+
+        assert _parso_cache._is_marked(jedi_sys_path.check_sys_path_modifications)
+
+    @pytest.mark.asyncio
+    async def test_an_inline_sys_path_entry_is_never_searched(
+        self, tmp_path: Path, searched: list[str]
+    ) -> None:
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        _write(
+            tmp_path,
+            {
+                "app/__init__.py": "",
+                "app/m.py": f"import sys\nsys.path.insert(0, '//{HOST}/share')\nimport evilmod\n",
+            },
+        )
+
+        await resolve_at(
+            (tmp_path / "app/m.py").as_posix(), 3, 8, JediAnalyzer(tmp_path.as_posix())
+        )
+
+        assert searched == []
+
+    @pytest.mark.asyncio
+    async def test_a_buildout_scripts_sys_path_is_never_searched(
+        self, tmp_path: Path, searched: list[str]
+    ) -> None:
+        """``buildout.cfg`` plus ``bin/*`` scripts: Jedi reads their ``sys.path`` lines too."""
+        from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+        from pyeye.mcp.operations.resolve import resolve_at
+
+        _write(
+            tmp_path,
+            {
+                "buildout.cfg": "[buildout]\n",
+                "bin/app": f"#!/usr/bin/python\nimport sys\nsys.path[0:0] = ['//{HOST}/share']\n",
+                "app/__init__.py": "",
+                "app/m.py": "import evilmod\n",
+            },
+        )
+
+        await resolve_at(
+            (tmp_path / "app/m.py").as_posix(), 1, 8, JediAnalyzer(tmp_path.as_posix())
+        )
+
+        assert searched == []
+
+
+def test_a_local_inline_sys_path_entry_still_counts(tmp_path: Path) -> None:
+    """Only network paths are dropped: a repo's local ``sys.path`` change is Jedi's normal behaviour."""
+    import jedi
+
+    _write(
+        tmp_path,
+        {
+            "vendor/vendored.py": "VALUE = 1\n",
+            "app/m.py": "import sys\nsys.path.insert(0, '../vendor')\nimport vendored\n",
+        },
+    )
+
+    names = jedi.Script(path=str(tmp_path / "app/m.py")).goto(3, 8, follow_imports=True)
+
+    assert [n.module_name for n in names] == ["vendored"]
