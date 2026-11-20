@@ -759,6 +759,10 @@ def configure_packages(
             session's earlier unsaved calls added. False keeps this call's
             entries for the session only: unsaved calls accumulate until the
             server restarts or a save writes them; ``unsaved`` lists them (#953).
+            A save writes the project's own config plus those entries only:
+            never a package pyeye discovered on its own (the result's
+            ``discovered`` lists those, each with why), the global config or
+            the override file (#1038).
         project_path: Project root to configure (default: current directory)
 
     The call errors (an MCP tool error, not a response) only when it can't run:
@@ -791,22 +795,9 @@ def configure_packages(
     if save:
         # The loaded config already carries the session's unsaved entries
         # (#953): add this call's, and persist both, then forget the overlay.
-        if packages:
-            existing = config.config.setdefault("packages", [])
-            have = {Path(p).as_posix() for p in existing}
-            existing.extend(Path(p).as_posix() for p in packages if Path(p).as_posix() not in have)
-        if namespaces:
-            config.config.setdefault("namespaces", {}).update(
-                {ns: [Path(p).as_posix() for p in paths] for ns, paths in namespaces.items()}
-            )
-        if standalone_dirs:
-            if not isinstance(config.config.get("standalone"), dict):
-                config.config["standalone"] = {}
-            dirs = config.config["standalone"].setdefault("dirs", [])
-            have = {Path(d).as_posix() for d in dirs}
-            dirs.extend(
-                Path(d).as_posix() for d in standalone_dirs if Path(d).as_posix() not in have
-            )
+        # Only explicit config is saved: never a derived package, the global
+        # config or the override file (#1038).
+        config.add_explicit(packages, namespaces, standalone_dirs)
         if packages or namespaces or standalone_dirs or has_unsaved(root):
             config.save_config()
             clear_unsaved(root)
@@ -857,6 +848,9 @@ def configure_packages(
         "standalone": config.get_standalone_config(),
         # Where third-party imports are read from (#993): always present.
         "environment": discover_environment(root, config.get_environment_setting()).as_response(),
+        # Packages pyeye added on its own, each with why; analysed, never
+        # saved. Always present, [] when none (#1038).
+        "discovered": config.discovered(),
     }
     # Entries the path check refused, skipped above; [] when none. Absent when
     # the check couldn't complete (a config that failed to load), never a []

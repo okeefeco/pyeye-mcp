@@ -1,5 +1,6 @@
 """Configuration management for PyEye."""
 
+import copy
 import json
 import logging
 import os
@@ -124,6 +125,13 @@ class ProjectConfig:
         #: Config sources that failed to load, as ``"<path>: <error>"`` (#898):
         #: their entries are unknown, so :meth:`rejected_paths` can't vouch for them.
         self.load_errors: list[str] = []
+        #: The project config file's OWN content (its pyeye section), plus the
+        #: explicit additions made since: what a save writes (#1038). Never the
+        #: global config, the override file or a derived package.
+        self._project_layer: dict[str, Any] = {}
+        #: Packages pyeye added on its own, as ``(entry, reason)`` in the
+        #: config's own spelling; see :meth:`discovered` (#1038).
+        self._derived: list[tuple[str, str]] = []
         self.load_config()
 
     def load_config(self) -> None:
@@ -145,7 +153,7 @@ class ProjectConfig:
         for config_file in self.CONFIG_FILES:
             config_path = self.project_path / config_file
             if config_path.exists():
-                self._load_from_file(config_path)
+                self._load_from_file(config_path, project_file=True)
                 self.has_explicit_config = True
                 break
 
@@ -168,22 +176,58 @@ class ProjectConfig:
             logger.warning(self.ignored_top_level_keys_message(ignored))
 
     def _apply_unsaved(self) -> None:
-        """Merge this project's unsaved entries over the loaded config (#953)."""
+        """Merge this project's unsaved entries over the loaded config (#953).
+
+        Into the project layer too: a save persists them (#953, #1038).
+        """
         overlay = _UNSAVED.get(_unsaved_key(self.project_path))
         if not overlay:
             return
-        if overlay["packages"]:
-            packages = self.config.setdefault("packages", [])
-            have = {_posix_entry(p) for p in packages}
-            packages.extend(p for p in overlay["packages"] if p not in have)
-        if overlay["namespaces"]:
-            self.config.setdefault("namespaces", {}).update(overlay["namespaces"])
-        if overlay["standalone_dirs"]:
-            if not isinstance(self.config.get("standalone"), dict):
-                self.config["standalone"] = {}
-            dirs = self.config["standalone"].setdefault("dirs", [])
-            have = {_posix_entry(d) for d in dirs}
-            dirs.extend(d for d in overlay["standalone_dirs"] if d not in have)
+        self.add_explicit(overlay["packages"], overlay["namespaces"], overlay["standalone_dirs"])
+
+    def add_explicit(
+        self,
+        packages: list[str] | None = None,
+        namespaces: dict[str, list[str]] | None = None,
+        standalone_dirs: list[str] | None = None,
+    ) -> None:
+        """Add explicit entries (a ``configure_packages`` call's, the session's unsaved).
+
+        They go into the merged config AND the project layer, so a save
+        writes them (#1038). Packages and standalone dirs extend, deduped by
+        POSIX spelling; a namespace replaces its list (#953).
+        """
+        for target in (self.config, self._project_layer):
+            if packages:
+                existing = target.setdefault("packages", [])
+                have = {_posix_entry(p) for p in existing}
+                existing.extend(_posix_entry(p) for p in packages if _posix_entry(p) not in have)
+            if namespaces:
+                target.setdefault("namespaces", {}).update(
+                    {ns: [_posix_entry(p) for p in paths] for ns, paths in namespaces.items()}
+                )
+            if standalone_dirs:
+                if not isinstance(target.get("standalone"), dict):
+                    target["standalone"] = {}
+                dirs = target["standalone"].setdefault("dirs", [])
+                have = {_posix_entry(d) for d in dirs}
+                dirs.extend(_posix_entry(d) for d in standalone_dirs if _posix_entry(d) not in have)
+
+    def discovered(self) -> list[dict[str, str]]:
+        """The packages pyeye added on its own, each with why (#1038).
+
+        ``reason`` is ``sibling``, ``src_layout``, ``pyright_extra_paths`` or
+        ``build_backend_layout``. ``path`` is resolved and POSIX, the form
+        ``packages`` reports. ``[]`` when none were added, e.g. once
+        ``packages`` are configured. They are analysed, but never saved.
+        """
+        out = []
+        for entry, reason in self._derived:
+            path = Path(entry).expanduser()
+            if not path.is_absolute():
+                path = self.project_path / path
+            out.append({"path": normalize_path(path).as_posix(), "reason": reason})
+        return out
 
     def get_ignored_top_level_keys(self) -> list[str]:
         """Return the (sorted) top-level keys in the config that pyeye ignores (#581)."""
@@ -199,28 +243,32 @@ class ProjectConfig:
             "this warning."
         )
 
-    def _load_from_file(self, config_path: Path) -> None:
-        """Load configuration from a file."""
+    def _load_from_file(self, config_path: Path, *, project_file: bool = False) -> None:
+        """Load configuration from a file.
+
+        With *project_file*, its pyeye section is also kept as the project
+        layer, the base of what a save writes (#1038).
+        """
         logger.info(f"Loading config from {config_path.as_posix()}")
 
         try:
             if config_path.suffix == ".json":
                 with open(config_path) as f:
                     data = json.load(f)
-                    if PROJECT_NAME in data:
-                        self.config.update(data[PROJECT_NAME])
-                    else:
-                        self.config.update(data)
+                    section = data.get(PROJECT_NAME, data)
+                    self.config.update(section)
+                    if project_file:
+                        self._project_layer = copy.deepcopy(section)
 
             elif config_path.suffix in [".yaml", ".yml"]:
                 with open(config_path) as f:
                     import yaml
 
                     data = yaml.safe_load(f)
-                    if PROJECT_NAME in data:
-                        self.config.update(data[PROJECT_NAME])
-                    else:
-                        self.config.update(data)
+                    section = data.get(PROJECT_NAME, data)
+                    self.config.update(section)
+                    if project_file:
+                        self._project_layer = copy.deepcopy(section)
 
             elif config_path.name == "pyproject.toml":
                 import tomllib
@@ -231,6 +279,8 @@ class ProjectConfig:
                     # Read PyEye-specific config first
                     if "tool" in data and PROJECT_NAME in data["tool"]:
                         self.config.update(data["tool"][PROJECT_NAME])
+                        if project_file:
+                            self._project_layer = copy.deepcopy(data["tool"][PROJECT_NAME])
 
                     # Read [tool.pyright] extraPaths — projects already declare
                     # their dependencies here, no need for duplicate .pyeye.json
@@ -364,6 +414,7 @@ class ProjectConfig:
 
         if valid_paths:
             self.config.setdefault("packages", []).extend(valid_paths)
+            self._derived.extend((p, "build_backend_layout") for p in valid_paths)
             logger.info(f"Auto-detected source layout from pyproject.toml: {valid_paths}")
 
     def _read_pyright_extra_paths(self, pyproject_data: dict[str, Any]) -> None:
@@ -415,6 +466,7 @@ class ProjectConfig:
 
         if resolved:
             self.config.setdefault("packages", []).extend(resolved)
+            self._derived.extend((p, "pyright_extra_paths") for p in resolved)
             self.has_explicit_config = True
             logger.info(f"Read {len(resolved)} extra paths from [tool.pyright]: {resolved}")
 
@@ -452,6 +504,7 @@ class ProjectConfig:
         """
         if detect_src_layout(self.project_path) is not None:
             self.config.setdefault("packages", []).append("src")
+            self._derived.append(("src", "src_layout"))
             logger.info("Auto-detected source layout: src/")
             return True
         return False
@@ -467,7 +520,9 @@ class ProjectConfig:
 
         if parent != self.project_path:
             try:
-                for sibling in parent.iterdir():
+                # Sorted: iterdir order varies by filesystem, and the packages'
+                # order is Jedi's root order (#1038).
+                for sibling in sorted(parent.iterdir()):
                     try:
                         if (
                             sibling.is_dir()
@@ -497,6 +552,7 @@ class ProjectConfig:
         if potential_packages:
             logger.info(f"Auto-discovered packages: {potential_packages}")
             self.config.setdefault("packages", []).extend(potential_packages)
+            self._derived.extend((p, "sibling") for p in potential_packages)
 
     def _process_package_path(self, package: str) -> list[str]:
         """Process a single package path, handling globs and validation.
@@ -838,8 +894,10 @@ class ProjectConfig:
             config_path = self.project_path / CONFIG_FILE
 
         try:
+            # The project's own config and its explicit additions only (#1038):
+            # never a derived package, the global config or the override file.
             with open(config_path, "w") as f:
-                json.dump(self.config, f, indent=2)
+                json.dump(self._project_layer, f, indent=2)
             logger.info(f"Saved config to {config_path.as_posix()}")
         except Exception as e:
             logger.error(f"Error saving config: {e}")

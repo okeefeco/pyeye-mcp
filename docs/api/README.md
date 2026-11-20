@@ -119,7 +119,10 @@ Calls are **additive**: `packages` and `standalone_dirs` are appended to what is
 already configured, and `namespaces` are merged by name (a namespace you name
 again replaces its repositories). With `save=True`, the file is written when at
 least one of `packages`, `namespaces`, or `standalone_dirs` is given, or when
-the session holds unsaved entries, which are then written too.
+the session holds unsaved entries, which are then written too. It holds the
+project's own config file content plus those entries, and nothing else: not a
+package pyeye discovered, not your global config, and not
+`.pyeye.override.json` (#1038).
 
 Changes take effect immediately, with no restart: the next `resolve`, `inspect`
 or other call on the project sees the added packages, and the project's active
@@ -150,6 +153,7 @@ project's starting point: the project itself is the first package.
 ```json pyeye-output
 {"packages": ["<omitted>"], "namespaces": {}, "standalone": {"dirs": []},
  "environment": {"path": "<project>/.venv", "source": "project"},
+ "discovered": [],
  "unsaved": {"packages": [], "namespaces": {}, "standalone": {"dirs": []}},
  "rejected_paths": [], "config_file": "<omitted>"}
 ```
@@ -158,6 +162,13 @@ project's starting point: the project itself is the first package.
 virtualenv's `path` (or `null`), and its `source`: `config` (the `environment`
 setting), `project` (a `.venv`, `venv` or `env` in the project), `VIRTUAL_ENV` or
 `CONDA_PREFIX` (an activated environment), or `none` (#993).
+
+`discovered` lists the packages pyeye added on its own, because none are
+configured: each as `{"path", "reason"}`, with `reason` one of `sibling` (a
+directory beside the project), `src_layout`, `pyright_extra_paths` (from
+`[tool.pyright]`) or `build_backend_layout` (from `pyproject.toml`'s build
+backend). They are analysed, so they are in `packages` too, but a save never
+writes them. It is `[]` when none were added (#1038).
 
 `unsaved` lists the entries that live only in this session, not in a config
 file, in the same shape as `packages`, `namespaces` and `standalone`, so each
