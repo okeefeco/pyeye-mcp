@@ -659,9 +659,7 @@ def _place_in_namespace_stubs(
     """
     rest = path[len(module_dotted) + 1 :]
     for init in namespace_stub_inits(module_dotted, analyzer):
-        names = file_artifact_cache.get_script(init, analyzer.project).get_names(
-            all_scopes=True, definitions=True, references=False
-        )
+        names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
         matches = [
             name
             for name in names
