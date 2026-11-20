@@ -289,26 +289,40 @@ def _build_plugin_context(plugin_class: type[AnalyzerPlugin], project_path: str)
     return _PluginContext(plugin, SmartScopeResolver(config))
 
 
+def _keep_nothing() -> None:
+    """The commit for a context that is already cached, or is the registered one."""
+
+
 def _plugin_context_for(
     plugin: AnalyzerPlugin, resolver: SmartScopeResolver | None, project_path: str | None
-) -> _PluginContext:
-    """The plugin and resolver to answer a call about *project_path* (#665).
+) -> tuple[_PluginContext, Callable[[], None]]:
+    """The plugin and resolver to answer a call about *project_path*, and a commit (#665).
 
     No ``project_path``, or the registered plugin's own project, keeps the
     registered instance (and its resolver), so the default call is unchanged.
     Any other project gets its own, cached in ``ProjectManager`` beside its
     analyzer.  A registration without a resolver (tests) stays without one.
+
+    A context not cached yet is built here but cached only by the returned
+    commit, which the caller runs once the call SUCCEEDED (#1061): a refused
+    call (``project_path="/"`` with ``scope="main"``, #856) leaves no entry.
     """
     if project_path is None or paths_equal(project_path, plugin.project_path):
-        return _PluginContext(plugin, resolver)
-    context: _PluginContext = get_project_manager().get_plugin_context(
-        project_path,
-        type(plugin),
-        lambda path: _build_plugin_context(type(plugin), path),
-    )
+        return _PluginContext(plugin, resolver), _keep_nothing
+    manager = get_project_manager()
+    plugin_class = type(plugin)
+    context: _PluginContext | None = manager.peek_plugin_context(project_path, plugin_class)
+    commit: Callable[[], None] = _keep_nothing
+    if context is None:
+        fresh = _build_plugin_context(plugin_class, project_path)
+        context = fresh
+
+        def commit() -> None:
+            manager.store_plugin_context(project_path, plugin_class, fresh)
+
     if resolver is None:
-        return _PluginContext(context.plugin, None)
-    return context
+        return _PluginContext(context.plugin, None), commit
+    return context, commit
 
 
 def reapply_plugin_paths(project_path: str | Path, config: ProjectConfig) -> None:
@@ -365,7 +379,7 @@ def _plugin_tool(
         # (ProjectNotFoundError), never a scan of nothing reported as [].
         if project_path is not None:
             get_analyzer(project_path)
-        target, target_resolver = _plugin_context_for(plugin, resolver, project_path)
+        (target, target_resolver), commit = _plugin_context_for(plugin, resolver, project_path)
         target_func = func if target is plugin else target.register_tools()[tool_name]
         bound = signature.bind_partial(*args, **kwargs)
         if target_resolver is not None:
@@ -397,6 +411,7 @@ def _plugin_tool(
         # Before the envelope, so the bare list and `results` carry the same.
         result = respell_paths(result, [absolute_path(project_path or target.project_path)])
         if not envelope:
+            commit()  # the call succeeded: keep its context (#1061)
             return result
         searched, unsearched = target.describe_scope(bound.arguments["scope"])
         wrapped: dict[str, Any] = {
@@ -413,6 +428,7 @@ def _plugin_tool(
         # A plugin's own keys follow (#921: find_pydantic_models' unplaced_classes).
         extras = await target.envelope_extras(tool_name, dict(bound.arguments))
         wrapped.update(respell_paths(extras, [absolute_path(project_path or target.project_path)]))
+        commit()  # the call succeeded: keep its context (#1061)
         return wrapped
 
     # Keep the tool's own return type, so the SDK builds the same structured
