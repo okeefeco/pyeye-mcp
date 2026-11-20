@@ -1219,6 +1219,7 @@ async def expand(
           "unresolved_call_sites": int,  # callees ONLY; absent otherwise
           "unresolved_imports": [target, ...],  # imports ONLY (#494); [] when all resolved
           "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624); [] when all resolved
+          "unresolved_superclass_details": [{base, reason, ...}, ...],  # superclasses ONLY (#1065)
           "unresolved_importers": [file, ...],  # imported_by ONLY (#668); [] when all named
           "unparseable_files": [file, ...],  # <<fact:edges.unparseable>> ONLY (#729); [] when all parsed
           "handleless_subclass_count": int,  # subclasses ONLY (#1006); complete, 0 when all named
@@ -1257,7 +1258,14 @@ async def expand(
     A call, import or base whose definition Jedi can't pin to exactly one
     target is reported as unresolved (``unresolved_call_sites`` /
     ``unresolved_imports`` / ``unresolved_superclasses``), never guessed (#624).
-    ``superclasses`` stubs are in declaration order.
+    ``superclasses`` stubs are in declaration order. Beside
+    ``unresolved_superclasses``, in the same order, ``unresolved_superclass_details``
+    says why each base didn't resolve (#1065): ``{base, reason}``, ``reason`` one of
+    ``not_a_name`` (a call or other expression), ``unresolvable`` (no definition
+    found), ``ambiguous`` (bound to several classes, e.g. a try/except import shim),
+    ``not_a_class``, ``restricted`` or ``no_handle``. An ``ambiguous`` one adds
+    ``candidates`` (handles, sorted) and ``candidate_count``; a count above
+    ``len(candidates)`` means some can't be shown.
 
     ``callees`` is the only supported way to ask what a function calls; the
     reverse question (what calls it) is not answerable here — see the

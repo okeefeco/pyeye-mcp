@@ -27,6 +27,8 @@ is then supported or unsupported, distinguished by the presence of
       "unresolved_call_sites": int, # callees ONLY — ABSENT otherwise
       "unresolved_imports": [target, ...],   # imports ONLY (#494) — ABSENT otherwise
       "unresolved_superclasses": [text, ...],  # superclasses ONLY (#624) — ABSENT otherwise
+      "unresolved_superclass_details": [{base, reason, candidates?, candidate_count?}, ...],
+                                    # superclasses ONLY (#1065), parallel to the list above
       "unresolved_importers": [file, ...],   # imported_by ONLY (#668) — ABSENT otherwise
       "unparseable_files": [file, ...],      # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
       "handleless_subclass_count": int,      # subclasses ONLY (#1006) — ABSENT otherwise
@@ -358,6 +360,9 @@ async def expand_resolved(
     # whose goto named no single class, by source text ([] when all resolved).
     if edge_result.unresolved_superclasses is not None:
         result["unresolved_superclasses"] = edge_result.unresolved_superclasses
+    # unresolved_superclass_details (#1065): superclasses ONLY, parallel to the list above.
+    if edge_result.unresolved_superclass_details is not None:
+        result["unresolved_superclass_details"] = edge_result.unresolved_superclass_details
     # unresolved_importers (#668): the same mechanic for imported_by — an
     # importing file with no module name has no handle, so it is listed here
     # ([] when every importer has one) instead of silently missing.

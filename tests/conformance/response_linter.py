@@ -74,6 +74,13 @@ E.9 ``handleless_subclass_count`` / ``handleless_subclasses`` (#1006) — only o
     ``{name, file, line, reason}`` entries (``reason`` in
     :data:`_HANDLELESS_REASONS`), sorted by ``(file, line)``, and is no longer
     than the count (``max_stubs`` may cut it).
+E.10 ``unresolved_superclass_details`` (#1065) — only on the supported branch
+    when ``edge == "superclasses"``, and always together with
+    ``unresolved_superclasses``: one entry per base, in the same order
+    (``details[i]["base"] == unresolved_superclasses[i]``). Each entry is
+    ``{base, reason}`` with ``reason`` in :data:`_SUPERCLASS_REASONS`; only an
+    ``ambiguous`` one adds ``candidates`` (sorted unique non-empty strs) and
+    ``candidate_count`` (an int >= 2 and >= ``len(candidates)``).
 
 Check S — Stub structural floors (operation == "stub", or via E.4)
 ------------------------------------------------------------------
@@ -1084,6 +1091,14 @@ def _check_expand_structural_floor(
                 "when edge == 'callees'."
             )
 
+        # E.10 (#1065) — nor the unresolved-superclass details
+        if _SUPERCLASS_DETAILS_KEY in response:
+            violations.append(
+                f"[E.10 {_SUPERCLASS_DETAILS_KEY} placement] '{_SUPERCLASS_DETAILS_KEY}' is "
+                "present on the unsupported branch. It must only appear on the supported "
+                "branch when edge == 'superclasses'."
+            )
+
         # E.9 (#1006) — nor may the handleless-subclass fields
         for key in _HANDLELESS_KEYS:
             if key in response:
@@ -1148,6 +1163,9 @@ def _check_expand_structural_floor(
         # E.9 (#1006) — the subclasses that no handle can name.
         _check_handleless_subclasses(response, edge_val, violations)
 
+        # E.10 (#1065) — why each unresolved base didn't resolve.
+        _check_superclass_details(response, edge_val, violations)
+
 
 #: Per-edge "couldn't name / couldn't resolve / couldn't read" lists on an
 #: ExpandResult: (rule, key, the edges it may appear on).
@@ -1170,6 +1188,69 @@ _HANDLELESS_REASONS = frozenset(
     {"nested_local", "ambiguous_local", "no_module_path", "not_a_handle"}
 )  # #1024
 _HANDLELESS_TRACE_KEY = "handleless_subclass_counts"
+#: E.10 (#1065): why each declared base in ``unresolved_superclasses`` names no one class.
+_SUPERCLASS_DETAILS_KEY = "unresolved_superclass_details"
+_SUPERCLASS_REASONS = frozenset(
+    {"not_a_name", "unresolvable", "ambiguous", "not_a_class", "restricted", "no_handle"}
+)
+
+
+def _check_superclass_details(
+    response: dict[str, Any], edge_val: Any, violations: list[str]
+) -> None:
+    """E.10 (#1065) — superclasses-only, together with and parallel to the bases list."""
+    key, bases_key = _SUPERCLASS_DETAILS_KEY, "unresolved_superclasses"
+    if key in response and edge_val != "superclasses":
+        violations.append(
+            f"[E.10 {key} placement] '{key}' is present but edge={edge_val!r} "
+            "(only allowed when edge == 'superclasses')."
+        )
+        return
+    if edge_val != "superclasses":
+        return
+    if (key in response) != (bases_key in response):
+        present = key if key in response else bases_key
+        violations.append(
+            f"[E.10 {key} pair] '{bases_key}' and '{key}' come together; only {present} is present."
+        )
+        return
+    if key not in response:
+        return
+    details, bases = response[key], response[bases_key]
+    if not isinstance(details, list) or not isinstance(bases, list):
+        violations.append(f"[E.10 {key} type] must be a list; got {type(details).__name__!r}.")
+        return
+    if [d.get("base") if isinstance(d, dict) else None for d in details] != bases:
+        violations.append(
+            f"[E.10 {key} parallel] must hold one entry per '{bases_key}' item, in the same "
+            f"order, with matching 'base'; got {_truncate(details)} for {_truncate(bases)}."
+        )
+    for idx, entry in enumerate(details):
+        problem = _superclass_detail_problem(entry)
+        if problem is not None:
+            violations.append(
+                f"[E.10 {key} entry] {key}[{idx}]: {problem}; got {_truncate(entry)}."
+            )
+
+
+def _superclass_detail_problem(entry: Any) -> str | None:
+    """Why one E.10 entry is malformed, or ``None``."""
+    if not isinstance(entry, dict) or entry.get("reason") not in _SUPERCLASS_REASONS:
+        return f"must be {{base, reason}} with reason one of {sorted(_SUPERCLASS_REASONS)}"
+    if entry["reason"] != "ambiguous":
+        return None if set(entry) == {"base", "reason"} else "only an ambiguous entry has more keys"
+    if set(entry) != {"base", "reason", "candidates", "candidate_count"}:
+        return "an ambiguous entry is {base, reason, candidates, candidate_count}"
+    candidates, count = entry["candidates"], entry["candidate_count"]
+    if not (
+        isinstance(candidates, list)
+        and all(isinstance(c, str) and c for c in candidates)
+        and candidates == sorted(set(candidates))
+    ):
+        return "candidates must be sorted, unique, non-empty handle strings"
+    if not _is_plain_int(count) or count < max(2, len(candidates)):
+        return "candidate_count must be an int >= 2 and >= len(candidates)"
+    return None
 
 
 def _is_plain_int(value: Any) -> bool:

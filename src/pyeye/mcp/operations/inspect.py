@@ -464,7 +464,7 @@ def _get_superclasses(jedi_name: Any, analyzer: JediAnalyzer) -> list[str] | Non
         # #703: the class's file doesn't parse, so its bases are unknown. The
         # field is omitted (not measured), never a measured ``[]``.
         return None
-    return [str(pair[0]) if pair is not None else text for text, pair in bases]
+    return [str(pair[0]) if pair is not None else text for text, pair, _ in bases]
 
 
 # ---------------------------------------------------------------------------

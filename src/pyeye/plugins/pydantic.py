@@ -728,7 +728,7 @@ class PydanticPlugin(AnalyzerPlugin):
             if declared is None:
                 return None
             names: list[str] = []
-            for _text, pair in declared:
+            for _text, pair, _detail in declared:
                 if pair is None or getattr(pair[1], "type", None) != "class":
                     return None  # unresolved, or resolved to a non-class (a factory call)
                 base = str(pair[0])

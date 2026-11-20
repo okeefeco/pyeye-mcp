@@ -723,6 +723,7 @@ class TestExpandUnresolvedSuperclassesRule:
         good = _clone(_VALID_EXPAND_MEMBERS)
         good["edge"] = "superclasses"
         good["unresolved_superclasses"] = []
+        good["unresolved_superclass_details"] = []  # always together since #1065 (E.10)
         return good
 
     def test_empty_list_passes(self) -> None:
@@ -731,6 +732,10 @@ class TestExpandUnresolvedSuperclassesRule:
     def test_listed_base_text_passes(self) -> None:
         good = self._superclasses()
         good["unresolved_superclasses"] = ["_dynamic.Missing", "Generic[T]"]
+        good["unresolved_superclass_details"] = [
+            {"base": "_dynamic.Missing", "reason": "unresolvable"},
+            {"base": "Generic[T]", "reason": "no_handle"},
+        ]
         lint_response(good, "expand")
 
     def test_on_non_superclasses_edge_rejected(self) -> None:
@@ -1117,4 +1122,114 @@ class TestE9HandlelessSubclasses:
         bad["handleless_subclasses"] = [later, dict(_HANDLELESS_ENTRY)]
         bad["handleless_subclass_count"] = 2
         with pytest.raises(ConformanceViolation, match="E.9 handleless_subclasses order"):
+            lint_response(bad, "expand")
+
+
+# ---------------------------------------------------------------------------
+# E.10 — unresolved_superclass_details (#1065)
+# ---------------------------------------------------------------------------
+
+_VALID_EXPAND_SUPERCLASSES_DETAILED: dict = {
+    "found": True,
+    "source": "pkg.kids.Mixed",
+    "edge": "superclasses",
+    "stubs": [],
+    "unresolved_superclasses": ["Local", "make()"],
+    "unresolved_superclass_details": [
+        {
+            "base": "Local",
+            "reason": "ambiguous",
+            "candidates": ["pkg._fast.Local", "pkg._slow.Local"],
+            "candidate_count": 2,
+        },
+        {"base": "make()", "reason": "not_a_name"},
+    ],
+}
+
+
+class TestE10UnresolvedSuperclassDetails:
+    """E.10 (#1065) — superclasses-only, parallel to unresolved_superclasses, closed reasons."""
+
+    def test_on_superclasses_passes(self) -> None:
+        lint_response(_clone(_VALID_EXPAND_SUPERCLASSES_DETAILED), "expand")
+
+    def test_measured_empty_passes(self) -> None:
+        good = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        good["unresolved_superclasses"] = []
+        good["unresolved_superclass_details"] = []
+        lint_response(good, "expand")
+
+    def test_a_hidden_candidate_passes(self) -> None:
+        """candidate_count > len(candidates): a restricted or handleless target isn't listed."""
+        good = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        good["unresolved_superclass_details"][0]["candidates"] = ["pkg._slow.Local"]
+        lint_response(good, "expand")
+
+    def test_on_other_edge_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_IMPORTS)
+        bad["unresolved_superclass_details"] = []
+        with pytest.raises(ConformanceViolation, match="E.10 .*placement"):
+            lint_response(bad, "expand")
+
+    def test_on_unsupported_branch_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_UNSUPPORTED_DEFERRED)
+        bad["unresolved_superclass_details"] = []
+        with pytest.raises(ConformanceViolation, match="E.10 .*placement"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize("key", ["unresolved_superclasses", "unresolved_superclass_details"])
+    def test_the_two_keys_come_together(self, key: str) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        del bad[key]
+        with pytest.raises(ConformanceViolation, match="E.10 .*pair"):
+            lint_response(bad, "expand")
+
+    def test_must_be_parallel(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        bad["unresolved_superclass_details"].reverse()
+        with pytest.raises(ConformanceViolation, match="E.10 .*parallel"):
+            lint_response(bad, "expand")
+
+    def test_must_have_one_entry_per_base(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        bad["unresolved_superclass_details"].pop()
+        with pytest.raises(ConformanceViolation, match="E.10 .*parallel"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"base": "make()", "reason": "dynamic"},  # unknown reason
+            {"base": "make()"},  # no reason
+            {"base": "make()", "reason": "not_a_name", "candidates": []},  # only ambiguous lists
+            {"base": "make()", "reason": "not_a_name", "extra": 1},
+        ],
+    )
+    def test_a_bad_entry_rejected(self, entry: dict) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        bad["unresolved_superclass_details"][1] = entry
+        with pytest.raises(ConformanceViolation, match="E.10 .*entry"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("candidates", ["pkg._slow.Local", "pkg._fast.Local"]),  # unsorted
+            ("candidates", ["pkg._fast.Local", "pkg._fast.Local"]),  # duplicate
+            ("candidates", ["pkg._fast.Local", ""]),  # empty handle
+            ("candidate_count", 1),  # ambiguous means two or more
+            ("candidate_count", True),
+            ("candidate_count", "2"),
+        ],
+    )
+    def test_a_bad_ambiguous_entry_rejected(self, field: str, value: object) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        bad["unresolved_superclass_details"][0][field] = value
+        with pytest.raises(ConformanceViolation, match="E.10 .*entry"):
+            lint_response(bad, "expand")
+
+    def test_fewer_counted_than_listed_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
+        bad["unresolved_superclass_details"][0]["candidates"].append("pkg._z.Local")
+        with pytest.raises(ConformanceViolation, match="E.10 .*entry"):
             lint_response(bad, "expand")
