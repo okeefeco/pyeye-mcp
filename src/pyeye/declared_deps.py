@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .path_utils import absolute_path, normalize_path, relative_within
+from .path_utils import absolute_path, normalize_path, relative_within, repo_path_refusal
 from .project_layout import detect_src_layout
 
 logger = logging.getLogger(__name__)
@@ -103,9 +103,20 @@ def _import_root(directory: Path) -> str:
     return absolute_path(src if src is not None else directory).as_posix()
 
 
-def _anchored(root: Path, entry: str) -> Path:
+def _anchored(root: Path, entry: str) -> Path | None:
+    """*entry* on *root*, or ``None`` for a network path, refused before any lookup (#1048)."""
+    if _network(entry):
+        return None
     path = Path(entry).expanduser()
     return path if path.is_absolute() else root / path
+
+
+def _network(entry: str) -> bool:
+    """Whether declared *entry* is a network path (#1048): warned about, never looked up."""
+    if (why := repo_path_refusal(entry)) is None:
+        return False
+    logger.warning(f"Skipping declared dependency {entry!r}: {why}")
+    return True
 
 
 def _table(data: Any, *keys: str) -> dict[str, Any]:
@@ -120,7 +131,8 @@ def _uv_sources(data: dict[str, Any], root: Path) -> list[tuple[Path, str]]:
     for spec in _table(data, "tool", "uv", "sources").values():
         for entry in spec if isinstance(spec, list) else [spec]:
             if isinstance(entry, dict) and isinstance(entry.get("path"), str):
-                out.append((_anchored(root, entry["path"]), REASON_UV_SOURCE))
+                if (path := _anchored(root, entry["path"])) is not None:
+                    out.append((path, REASON_UV_SOURCE))
     return out
 
 
@@ -141,8 +153,11 @@ def _members(root: Path, patterns: Any) -> list[Path]:
         if not isinstance(pattern, str):
             continue
         if not _GLOB_CHARS.search(pattern):
-            out.append(_anchored(root, pattern))  # a literal path is a declaration
+            if (path := _anchored(root, pattern)) is not None:
+                out.append(path)  # a literal path is a declaration
             continue
+        if _network(pattern):
+            continue  # a glob is expanded on the filesystem: refused first (#1048)
         if ".." in Path(pattern).parts:
             continue  # a glob that climbs out of the workspace matches nothing
         try:
@@ -164,7 +179,8 @@ def _poetry_paths(data: dict[str, Any], root: Path) -> list[tuple[Path, str]]:
         for spec in table.values():
             for entry in spec if isinstance(spec, list) else [spec]:
                 if isinstance(entry, dict) and isinstance(entry.get("path"), str):
-                    out.append((_anchored(root, entry["path"]), REASON_POETRY_PATH))
+                    if (path := _anchored(root, entry["path"])) is not None:
+                        out.append((path, REASON_POETRY_PATH))
     return out
 
 
@@ -196,7 +212,7 @@ def _file_url_path(requirement: str, root: Path) -> Path | None:
         logger.debug(f"Skipping {requirement!r}: an unsupported placeholder")
         return None
     raw = _file_url_to_path(url)
-    if raw is None:
+    if raw is None or _network(raw):
         return None
     path = Path(raw)
     return path if path.is_absolute() else root / path
