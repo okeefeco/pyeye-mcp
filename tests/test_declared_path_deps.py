@@ -283,6 +283,36 @@ class TestFileUrls:
         assert not imported & {"urllib", "http", "socket", "requests"}
 
 
+class TestIgnoredInputs:
+    """Malformed or non-local declarations add nothing and never fail a call."""
+
+    def test_a_malformed_pyproject(self, parent: Path) -> None:
+        _pyproject(parent / "proj", "[tool.uv.sources\nmylib = {\n")
+
+        assert _configure(parent / "proj")["discovered"] == []
+
+    def test_unusable_workspace_members(self, parent: Path) -> None:
+        _lib(parent / "proj" / "packages", "ok")
+        _pyproject(
+            parent / "proj",
+            '[tool.uv.workspace]\nmembers = [1, "/abs/*", "packages/*"]\n',
+        )
+
+        assert [r for _, r in _declared(_configure(parent / "proj"))] == ["uv_workspace"]
+
+    def test_requirements_that_are_not_local_directories(self, parent: Path) -> None:
+        _pyproject(
+            parent / "proj",
+            '[project]\nname = "proj"\ndependencies = [\n'
+            '  "requests>=2",\n'
+            '  "lib @ git+https://example.invalid/lib.git",\n'
+            '  "lib2 @ file://fileserver/share/lib2",\n'
+            "]\n",
+        )
+
+        assert _configure(parent / "proj")["discovered"] == []
+
+
 class TestAlwaysDeclared:
     def test_read_beside_an_explicit_pyeye_config(self, parent: Path, tmp_path: Path) -> None:
         """Declared dependencies are the project's own facts: config doesn't hide them."""
@@ -325,6 +355,24 @@ class TestPathChecks:
         assert "/etc" not in response["packages"]
         assert response["discovered"] == []
         assert [r["path"] for r in response["rejected_paths"]] == ["/etc"]
+
+    def test_a_refused_path_is_reported_as_declared(self, parent: Path) -> None:
+        """rejected_paths shows the entry as written, not its resolved form (#717).
+
+        On macOS /etc itself is a symlink to /private/etc; a symlink into /etc
+        reproduces that on every POSIX platform.
+        """
+        import sys
+
+        if sys.platform == "win32":
+            pytest.skip("the deny-list names POSIX system directories")
+        (parent / "etc-link").symlink_to("/etc", target_is_directory=True)
+        _pyproject(parent / "proj", '[tool.uv.sources]\nevil = { path = "../etc-link" }\n')
+
+        response = _configure(parent / "proj")
+
+        assert [r["path"] for r in response["rejected_paths"]] == [(parent / "etc-link").as_posix()]
+        assert response["discovered"] == []
 
 
 class TestNotFoundHint:
