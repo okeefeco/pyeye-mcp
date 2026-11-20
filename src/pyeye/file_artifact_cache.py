@@ -57,6 +57,7 @@ import ast
 import logging
 import os
 import threading
+import weakref
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -161,6 +162,12 @@ class FileArtifactCache:
 
         # Script store: _ScriptKey -> jedi.Script (LRU, shared count cap)
         self._script_store: OrderedDict[_ScriptKey, jedi.Script] = OrderedDict()
+        #: Each cached Script's ``get_names(all_scopes=True, ...)``, read once
+        #: (#1044). Weak keys: a Script evicted or invalidated takes its names
+        #: with it, with no bookkeeping in the eviction paths.
+        self._names_by_script: weakref.WeakKeyDictionary[jedi.Script, tuple[Any, ...]] = (
+            weakref.WeakKeyDictionary()
+        )
 
         # Stats counters
         self._hits: int = 0
@@ -267,6 +274,33 @@ class FileArtifactCache:
             self._enforce_ast_cap()
 
             return script
+
+    def get_all_scope_names(self, path: Path | str, project: jedi.Project) -> tuple[Any, ...]:
+        """Every definition name in *path*, in all scopes, read once per cached Script (#1044).
+
+        ``Script.get_names(all_scopes=True, definitions=True, references=False)``,
+        as a tuple: it is shared by every caller of this Script, so it can't be
+        mutated. Jedi rebuilds the values of nested scopes on each such call
+        and memoises them on contexts that are never seen again (a class
+        defined in a method, with an assignment in its body, adds one entry per
+        call), so calling it per request grew a long-lived Script's inference
+        state without bound: past 3 GB over django's tests. Reading it once per
+        Script stops that, and makes later ``goto``/``infer`` on the same names
+        hits. A new file version gets a new Script, and so new names.
+
+        Like every Jedi call, it runs on the Jedi worker thread.
+        """
+        return self.all_scope_names(self.get_script(path, project))
+
+    def all_scope_names(self, script: jedi.Script) -> tuple[Any, ...]:
+        """:meth:`get_all_scope_names` for a Script already in hand, read once per Script."""
+        with self._lock:
+            names = self._names_by_script.get(script)
+        if names is None:
+            names = tuple(script.get_names(all_scopes=True, definitions=True, references=False))
+            with self._lock:
+                names = self._names_by_script.setdefault(script, names)
+        return names
 
     def invalidate(self, path: Path | str) -> None:
         """Evict all cached entries for *path*.
@@ -406,6 +440,20 @@ def get_ast(path: Path | str) -> ast.Module:
 def get_script(path: Path | str, project: jedi.Project) -> jedi.Script:
     """Return cached jedi.Script for *path* under *project* using the default cache."""
     return _default_cache.get_script(path, project)
+
+
+def get_all_scope_names(path: Path | str, project: jedi.Project) -> tuple[Any, ...]:
+    """Every definition name in *path*, all scopes, read once per cached Script (#1044).
+
+    Through the module's :func:`get_script`, the one seam for loading a file's
+    Script, so a failure there propagates here too (#704).
+    """
+    return _default_cache.all_scope_names(get_script(path, project))
+
+
+def all_scope_names(script: jedi.Script) -> tuple[Any, ...]:
+    """:func:`get_all_scope_names` for a Script already loaded with :func:`get_script` (#1044)."""
+    return _default_cache.all_scope_names(script)
 
 
 def invalidate(path: Path | str) -> None:

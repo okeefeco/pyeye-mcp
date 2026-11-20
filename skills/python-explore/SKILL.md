@@ -206,6 +206,20 @@ of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The 
 
 `enclosing_scope` has none: lexical nesting is exact.
 
+**Determinism.** Each edge also has a determinism tier (#452): which engine picks its
+adjacents, and so what repeats across sessions. `goto` edges can return a different
+external (stdlib or installed) target from one session to the next, so compare their
+project-scope stubs across sessions, never their external ones:
+
+<!-- fact:begin determinism.table -->
+| Determinism | Edges | Guarantee |
+|---|---|---|
+| `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
+| `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
+| `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |
+<!-- fact:end -->
+
 ## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
 This is the most important rule in this skill.

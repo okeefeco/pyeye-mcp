@@ -43,9 +43,28 @@ answered them confidently and wrongly were removed in 2.0 (#505).
 > A static structural edge is **deterministic** and is built from
 > **AST-derived facts**. It never re-derives each adjacent through Jedi.
 
-This holds in practice for `imported_by` and `subclasses`, and each edge has its
-own regression test. #452 tracks making it a registry-level check, so that a new
-edge can't reintroduce the #445 pattern without a test failing.
+Every edge declares how deterministic it is, as a tier in
+`edges.EDGE_DETERMINISM` (#452), and `tests/test_edge_determinism.py` holds
+each edge to its tier. A new edge without a tier fails the registry check. Each
+edge must give the same result after a cache rebuild. The `filesystem` and `ast`
+tiers must also give it with every Jedi call refused, which is what catches
+the #445 pattern. And every edge must give it in two fresh processes with different
+hash seeds, comparing all adjacents for the first three tiers and the
+project-scope ones for `goto`:
+
+<!-- fact:begin determinism.table -->
+| Determinism | Edges | Guarantee |
+|---|---|---|
+| `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
+| `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
+| `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |
+<!-- fact:end -->
+
+The cross-process check runs on `tests/fixtures/determinism_traps`, which holds
+the known traps: a project try/except import shim and a project class that
+subclasses `threading.local` (a stdlib shim). `subclasses` fails both today
+(#1057), so they are a strict expected failure until it is fixed.
 
 ## One canonical handle resolver
 

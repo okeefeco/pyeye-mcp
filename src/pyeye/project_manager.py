@@ -4,7 +4,6 @@ import contextlib
 import logging
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -180,23 +179,24 @@ class ProjectManager:
             logger.info(f"Evicting LRU project: {lru_path.as_posix()}")
             self._cleanup_project(lru_path)
 
-    def get_plugin_context(
-        self, project_path: str, plugin_class: type, build: Callable[[str], Any]
-    ) -> Any:
-        """The plugin state for *plugin_class* in *project_path*, built on first use (#665).
+    def peek_plugin_context(self, project_path: str, plugin_class: type) -> Any:
+        """The cached plugin state for *plugin_class* in *project_path*, or ``None`` (#665, #1061).
 
-        *build* makes it from the caller's ``project_path`` (the server builds the
-        plugin with that project's own package, namespace and standalone paths).
-        Cached per project and class, and dropped whenever the project's
-        analyzer is (``invalidate_analyzer``, LRU eviction), so a reconfigured or
-        evicted project gets fresh plugin state and no project ever sees another's.
+        Cached per project and class by :meth:`store_plugin_context`, and dropped
+        whenever the project's analyzer is (``invalidate_analyzer``, LRU
+        eviction), so a reconfigured or evicted project gets fresh plugin state
+        and no project ever sees another's.
         """
-        key = (path_to_key(project_path), plugin_class)
-        context = self._plugin_contexts.get(key)
-        if context is None:
-            context = build(project_path)
-            self._plugin_contexts[key] = context
-        return context
+        return self._plugin_contexts.get((path_to_key(project_path), plugin_class))
+
+    def store_plugin_context(self, project_path: str, plugin_class: type, context: Any) -> Any:
+        """Cache *context* unless one is already there; return the one cached (#1061).
+
+        For a context built before it was known whether the call it served
+        would succeed: the caller stores it only once that call returned, so
+        a refused call (``project_path="/"``, #856) leaves no entry behind.
+        """
+        return self._plugin_contexts.setdefault((path_to_key(project_path), plugin_class), context)
 
     def _drop_plugin_contexts(self, project_path: str | Path) -> None:
         """Forget every cached plugin context of *project_path* (#665)."""

@@ -27,7 +27,7 @@ import ast
 import errno
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +52,7 @@ from pyeye.project_layout import (
     file_for_module,
     find_namespace_package_dirs,
     module_name_for_file,
+    namespace_stub_inits,
     project_roots,
 )
 from pyeye.scope import classify_scope
@@ -613,12 +614,15 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         module_dotted = ".".join(parts[:split_at])
         mod_file = file_for_module(analyzer, module_dotted)
         if mod_file is None:
+            # A namespace package's members are declared in its portions'
+            # __init__.pyi, the first portion first, as Jedi merges them (#1004).
+            in_stubs = _place_in_namespace_stubs(path, module_dotted, analyzer)
+            if in_stubs is not None:
+                return in_stubs
             continue
         rest = parts[split_at:]
         # The module file exists, so a failure reading its names is internal (#704).
-        names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
-            all_scopes=True, definitions=True, references=False
-        )
+        names = file_artifact_cache.get_all_scope_names(mod_file, analyzer.project)
         # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
         # nothing in this scope (#567).
         matches = [
@@ -640,6 +644,29 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
             module_dotted, mod_file, rest, analyzer, hops
         )
+    return None
+
+
+def _place_in_namespace_stubs(
+    path: str, module_dotted: str, analyzer: JediAnalyzer
+) -> tuple[str, Any] | None:
+    """*path* declared in one of namespace *module_dotted*'s ``__init__.pyi`` (#1004).
+
+    The portions are tried in sys.path order, so a name two portions declare is
+    the first portion's, as Jedi resolves it.
+    """
+    rest = path[len(module_dotted) + 1 :]
+    for init in namespace_stub_inits(module_dotted, analyzer):
+        names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
+        matches = [
+            name
+            for name in names
+            if _names_path(name, path, rest, analyzer) and not is_attribute_target(name)
+        ]
+        if matches:
+            anchor = _anchor_on_bindings(matches, init, path)
+            placed = _canonical_of(anchor, path, analyzer)
+            return (placed, anchor) if placed is not None else None
     return None
 
 
@@ -691,7 +718,7 @@ def local_member_full_name(name: Any) -> str | None:
 
 
 def _local_class_member(
-    path: str, names: list[Any], analyzer: JediAnalyzer, hops: int
+    path: str, names: Sequence[Any], analyzer: JediAnalyzer, hops: int
 ) -> tuple[str, Any] | None:
     """Place *path* as a member of a function-local class it names (#1025).
 
@@ -814,7 +841,7 @@ def _names_path(name: Any, path: str) -> bool:
 def _follow_alias(
     module_dotted: str,
     rest: list[str],
-    names: list[Any],
+    names: Sequence[Any],
     analyzer: JediAnalyzer,
     hops: int,
 ) -> tuple[str, Any] | None:
@@ -999,9 +1026,7 @@ def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer
     ``location`` coming from the same place they do for every other symbol;
     only the handle is the public one.
     """
-    names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
-        all_scopes=True, definitions=True, references=False
-    )
+    names = file_artifact_cache.get_all_scope_names(found.file, analyzer.project)
     for name in names:
         if name.name == found.name and name.line == found.line:
             return name
