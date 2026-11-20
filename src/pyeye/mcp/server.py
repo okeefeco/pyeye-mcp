@@ -1123,8 +1123,8 @@ async def expand(
         a stub: it is counted in ``handleless_subclass_count`` (always complete)
         and listed in ``handleless_subclasses`` as ``{name, file, line,
         reason}``, ``reason`` one of ``nested_local`` (two or more function
-        levels deep), ``ambiguous_local`` (its name is defined more than once in
-        its function), ``no_module_path`` or ``not_a_handle``, sorted by file
+        levels deep), ``ambiguous_local`` (its name is bound more than once in
+        its function: another class, a ``def``, an assignment, ``del``), ``no_module_path`` or ``not_a_handle``, sorted by file
         then line, never dropped (#1006).  ``max_stubs`` caps that list
         separately: a cut list shows as ``count > len(list)``.  Add the count to
         ``len(stubs)`` (and ``total``) for every direct subclass.

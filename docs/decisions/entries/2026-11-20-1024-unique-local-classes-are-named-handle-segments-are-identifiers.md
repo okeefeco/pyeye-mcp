@@ -19,7 +19,7 @@ superseded_by: []
 - **Segments are identifiers.** A handle segment is any `str.isidentifier()` name (PEP 3131), in `validate_symbol_component`, the grammar's one owner. `0001_initial` and `<locals>` are still rejected.
 - **Unique local classes are named** in pyeye's existing notation: `pkg.mod.func.Name`, `pkg.mod.Cls.meth.Name`, and a class nested in one, `pkg.mod.func.Name.Inner`. They're named when one function level deep and their dotted name is unique in the file. Additive: no existing handle changes spelling.
 - **The closed reason set** for `handleless_subclasses` replaces `function_local` with:
-  - `ambiguous_local`: the dotted name is defined more than once, or an enclosing local class's is. That matches #1022, where such a name resolves to ambiguous.
+  - `ambiguous_local`: the dotted name is bound more than once in its scope, or an enclosing local class's is. A binding is what `resolve` counts there (#1022): another class, a `def`, an assignment, a `for` / `with` / walrus / `except … as` target, or a `del`. A parameter or an import is not one, since Jedi doesn't list it under that scope. So every named class resolves, and every `ambiguous_local` one resolves to ambiguous.
   - `nested_local`: two or more function levels deep, which Jedi doesn't name (#1026).
   - `no_module_path` and `not_a_handle` are unchanged.
 - **Not breaking:** `handleless_*` was never released (#1006 merged after v2.2.0). The unreleased `changes/1006.*` fragments were edited in place. The release gate is recorded on #1024.

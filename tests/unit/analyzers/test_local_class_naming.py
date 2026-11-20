@@ -163,3 +163,97 @@ class TestEveryNewlyNamedClassRoundTrips:
         assert by_name["found"] is True and by_name["handle"] == handle, by_name
         assert by_position["found"] is True and by_position["handle"] == handle, by_position
         assert by_name["location"]["line_start"] == by_position["location"]["line_start"] == line
+
+
+#: function name -> (its parameters, its body after ``class X(Base): pass``,
+#: the graph's reason, or None when X is named)
+REBINDINGS: dict[str, tuple[str, str, str | None]] = {
+    # Another binding of X in the function's own scope: X names two things.
+    "assigned": ("", "X = list(X)", "ambiguous_local"),
+    "augmented": ("", "X += 1", "ambiguous_local"),
+    "deleted": ("", "del X", "ambiguous_local"),
+    "looped": ("", "for X in ():\n        pass", "ambiguous_local"),
+    "caught": (
+        "",
+        "try:\n        pass\n    except Exception as X:\n        pass",
+        "ambiguous_local",
+    ),
+    "withed": ("", "with open('f') as X:\n        pass", "ambiguous_local"),
+    "walrused": ("", "if (X := 1):\n        pass", "ambiguous_local"),
+    "redefined": ("", "def X():\n        pass", "ambiguous_local"),
+    # ``resolve`` places by Jedi's definitions, which list neither a parameter
+    # nor an import (it is listed under the module it imports) as a second
+    # ``f.X``: X still resolves, so it is named.
+    "parameter": ("X", "pass", None),
+    "imported": ("", "import os as X", None),
+    # A binding in another scope, or of an attribute, leaves X unique.
+    "comprehended": ("", "_ = [X for X in ()]", None),
+    "lambdaed": ("", "_ = lambda X: X", None),
+    "nested": ("", "def g():\n        X = 1", None),
+    "attributed": ("", "X.attr = 1", None),
+}
+
+#: A class in a local class shares its name with a binding in that class's body.
+MEMBER_SRC = (
+    "\ndef holder():\n    class Form(Base):\n        Meta = 1\n"
+    "        class Meta(Base):\n            pass\n    return Form\n"
+)
+
+
+def _rebinding_module() -> str:
+    parts = ["from app.base import Base\n"]
+    for fn, (params, body, _) in REBINDINGS.items():
+        parts.append(f"\ndef {fn}({params}):\n    class X(Base):\n        pass\n    {body}\n")
+    return "".join(parts) + MEMBER_SRC
+
+
+class TestTheGraphNamesOnlyWhatResolveResolves:
+    """A class is named only if no other binding in its function shares its name.
+
+    ``resolve`` places a local name by every binding Jedi lists in that scope
+    (#1022), so the graph counts the same ones. Found by #1024's django
+    round-trip: ``class sender`` then ``del sender``.
+    """
+
+    @pytest.fixture
+    def rebinding(self, tmp_path: Path) -> JediAnalyzer:
+        files = {
+            "app/__init__.py": "",
+            "app/base.py": "class Base:\n    pass\n",
+            "app/r.py": _rebinding_module(),
+        }
+        for rel, text in files.items():
+            (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+            (tmp_path / rel).write_text(text, encoding="utf-8")
+        return JediAnalyzer(tmp_path.as_posix())
+
+    @pytest.mark.asyncio
+    async def test_each_rebinding_gets_its_reason(self, rebinding: JediAnalyzer) -> None:
+        result: dict[str, Any] = dict(await expand(BASE, "subclasses", rebinding, max_stubs=None))
+
+        named = {s["handle"] for s in result["stubs"]}
+        reasons = {e["reason"] for e in result["handleless_subclasses"]}
+        got = {fn: None if f"app.r.{fn}.X" in named else "ambiguous_local" for fn in REBINDINGS}
+        assert got == {fn: reason for fn, (_, _, reason) in REBINDINGS.items()}
+        assert "app.r.holder.Form" in named and "app.r.holder.Form.Meta" not in named
+        # Every ambiguous X, plus the Meta that shares its name with ``Meta = 1``.
+        assert (
+            len(result["handleless_subclasses"]) == list(got.values()).count("ambiguous_local") + 1
+        )
+        assert reasons <= {"ambiguous_local"}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fn", sorted(REBINDINGS))
+    async def test_resolve_agrees_with_the_graph(self, rebinding: JediAnalyzer, fn: str) -> None:
+        result: dict[str, Any] = dict(await resolve(f"app.r.{fn}.X", rebinding))
+
+        if REBINDINGS[fn][2] is None:
+            assert result["found"] is True and result["handle"] == f"app.r.{fn}.X", result
+        else:
+            assert result.get("handle") is None, result
+
+    @pytest.mark.asyncio
+    async def test_resolve_agrees_on_a_class_body_rebinding(self, rebinding: JediAnalyzer) -> None:
+        result: dict[str, Any] = dict(await resolve("app.r.holder.Form.Meta", rebinding))
+
+        assert result.get("handle") is None, result

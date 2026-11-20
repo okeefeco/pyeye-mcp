@@ -137,6 +137,25 @@ def _site_key(py_file: Path, node: ast.ClassDef) -> str:
     return f"{py_file.as_posix()}:{node.lineno}:{node.col_offset}"
 
 
+#: Nodes whose bound names belong to their own scope, not the enclosing one.
+_OWN_SCOPES = (ast.Lambda, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+
+
+def _bound_names(node: ast.AST) -> list[str]:
+    """The names *node* itself binds or deletes, as Jedi lists them as definitions.
+
+    An assignment, ``for`` / ``with`` / walrus target, ``except … as`` or
+    ``del``. Not a parameter or an import: Jedi doesn't list either under the
+    function's scope, so neither makes ``resolve`` ambiguous (#1024). Whether
+    that rule is right is #1049; change this with it.
+    """
+    if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+        return [node.id]
+    if isinstance(node, ast.ExceptHandler) and node.name:
+        return [node.name]
+    return []
+
+
 def _named_classes(
     tree: ast.Module, module_path: str | None
 ) -> Iterable[tuple[ast.ClassDef, str | None, str | None]]:
@@ -149,28 +168,40 @@ def _named_classes(
 
     - its file has no module path (``no_module_path``);
     - it is two or more function levels deep (``nested_local``);
-    - it is one function level deep and its dotted name is defined more than
-      once in the file (``if``/``else`` branches, a redefinition), or an
-      enclosing local class's is (``ambiguous_local``);
+    - it is one function level deep and its dotted name is bound more than
+      once in its scope (``if``/``else`` branches, a ``def``, an assignment,
+      ``del``: the bindings ``resolve`` counts), or an enclosing local class's
+      is (``ambiguous_local``);
     - the handle grammar rejects the name (``not_a_handle``).
     """
     # (node, candidate dotted name, function depth, index of the enclosing class)
     found: list[tuple[ast.ClassDef, str | None, int, int | None]] = []
+    # Every dotted name bound in a local scope: classes, and the other bindings
+    # ``resolve`` counts there, so a name the graph gives resolves (#1022).
+    local_names: Counter[str] = Counter()
 
     def visit(owner: ast.AST, prefix: str | None, depth: int, parent: int | None) -> None:
         for child in ast.iter_child_nodes(owner):
             if isinstance(child, ast.ClassDef):
                 dotted = f"{prefix}.{child.name}" if prefix is not None else None
                 found.append((child, dotted, depth, parent))
+                if dotted is not None and depth >= 1:
+                    local_names[dotted] += 1
                 visit(child, dotted, depth, len(found) - 1)
             elif isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 inner = f"{prefix}.{child.name}" if prefix is not None else None
+                if inner is not None and depth >= 1:
+                    local_names[inner] += 1  # a def rebinds a same-named class
                 visit(child, inner, depth + 1, parent)
-            elif not isinstance(child, ast.Lambda):
+            elif isinstance(child, _OWN_SCOPES):
+                continue  # a lambda's or comprehension's names are its own
+            else:
+                if prefix is not None and depth >= 1:
+                    for name in _bound_names(child):
+                        local_names[f"{prefix}.{name}"] += 1
                 visit(child, prefix, depth, parent)
 
     visit(tree, module_path, 0, None)
-    local_names = Counter(dotted for _, dotted, depth, _ in found if dotted and depth >= 1)
     reasons: list[str | None] = []
     for _node, dotted, depth, parent in found:
         if dotted is None:
