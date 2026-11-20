@@ -58,6 +58,10 @@ compared against.
 
 from __future__ import annotations
 
+import os
+import threading
+import time
+from collections import OrderedDict
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -202,7 +206,13 @@ def mark_stub(node: dict[str, Any], file: str | Path | None) -> dict[str, Any]:
     *node*, changed in place. A *file* of ``None`` (no definition file, e.g.
     a compiled builtin with no stub) is not a stub.
     """
-    if file is not None and declaration_kind(file) == "stub":
+    # A namespace portion's __init__.pyi declares the package's members, but the
+    # package NODE has no single definition file: it is anchored at its
+    # directory, so it is never a stub node (#1004).
+    is_package_node = (
+        file is not None and node.get("kind") == "module" and is_namespace_stub_init(file)
+    )
+    if file is not None and declaration_kind(file) == "stub" and not is_package_node:
         node[STUB_KEY] = True
     else:
         node.pop(STUB_KEY, None)
@@ -231,8 +241,9 @@ def is_stub_only_module(file: str | Path) -> bool:
 
     Such a module is declared only, and gets a handle located at the stub. A
     stub beside its source is not: the ``.py`` is the module (#885). A package's
-    ``__init__.pyi`` is not either: a stub-only package directory is a
-    namespace package at runtime, and isn't supported (#933).
+    ``__init__.pyi`` is not either: without an ``__init__.py`` its directory is
+    a namespace package, and the stub is one portion's declarations of it
+    (:func:`is_namespace_stub_init`, #1004).
     """
     path = Path(file)
     return (
@@ -242,10 +253,27 @@ def is_stub_only_module(file: str | Path) -> bool:
     )
 
 
-def is_module_file(file: str | Path) -> bool:
-    """Whether *file* is a module's file: a ``.py``, or a stub-only ``.pyi`` (#933)."""
+def is_namespace_stub_init(file: str | Path) -> bool:
+    """Whether *file* is an ``__init__.pyi`` with no ``__init__.py`` beside it (#1004).
+
+    Its directory is a PEP 420 namespace package at runtime, and Jedi treats it
+    as one (``type == "namespace"``), merging the stub's declarations into the
+    namespace. So the stub declares the namespace's members, and names them as
+    the package (``mixed/__init__.pyi`` declares ``mixed.M``), but it is not the
+    package's file: the package is anchored at its directory (#444).
+    """
     path = Path(file)
-    return path.suffix == ".py" or is_stub_only_module(path)
+    return path.name == "__init__.pyi" and not (path.parent / "__init__.py").is_file()
+
+
+def is_module_file(file: str | Path) -> bool:
+    """Whether *file* is a module's file, for naming (#933, #1004).
+
+    A ``.py``, a stub-only ``.pyi``, or a namespace portion's ``__init__.pyi``
+    (named as its package, :func:`is_namespace_stub_init`).
+    """
+    path = Path(file)
+    return path.suffix == ".py" or is_stub_only_module(path) or is_namespace_stub_init(path)
 
 
 def iter_module_files(root: Path) -> list[Path]:
@@ -280,7 +308,7 @@ def _dotted(rel: Path, file: Path) -> str | None:
     reach the file under that name, so the mapper never invents one (#668).
     """
     parts = list(rel.parts[:-1])
-    if file.name != "__init__.py":
+    if file.name not in ("__init__.py", "__init__.pyi"):
         parts.append(file.stem)
     if not parts or not all(part.isidentifier() for part in parts):
         return None
@@ -393,17 +421,115 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
 def _module_file_under(base: Path, rel_parts: list[str]) -> Path | None:
     """``base/<rel>/__init__.py``, else ``base/<rel>.py``, else ``base/<rel>.pyi``, if it exists.
 
-    The stub comes last, so a ``.py`` beside it always wins (#885, #933).
+    The stub comes last, so a ``.py`` beside it always wins (#885, #933). Every
+    part below *base* must match its directory entry in exact case, as Python's
+    import requires: on a case-insensitive filesystem ``pkg/Dyn.py`` "exists"
+    for ``pkg/dyn.py``, and ``pkg.Dyn`` would be taken for a module (#1047).
     """
     pkg_init = base.joinpath(*rel_parts) / "__init__.py"
-    if pkg_init.exists():
+    if pkg_init.exists() and _exact_case(base, [*rel_parts, "__init__.py"]):
         return pkg_init
     if rel_parts:
         for suffix in (".py", STUB_SUFFIX):
             mod_file = base.joinpath(*rel_parts[:-1], rel_parts[-1] + suffix)
-            if mod_file.exists():
+            if mod_file.exists() and _exact_case(base, [*rel_parts[:-1], rel_parts[-1] + suffix]):
                 return mod_file
     return None
+
+
+# --- exact-case matching on case-insensitive filesystems (#1047) -------------
+
+#: A search root -> whether its filesystem is case-sensitive (probed once).
+_case_sensitive: dict[str, bool] = {}
+#: A directory -> ``(mtime_ns, its entry names)``, LRU, for the exact-case check.
+_listings: OrderedDict[str, tuple[int, frozenset[str]]] = OrderedDict()
+_LISTINGS_MAX = 4096
+#: A directory whose mtime is this recent may change again within the same
+#: timestamp tick (FAT has 2 s ticks), so its listing isn't cached.
+_RECENT_NS = 2_000_000_000
+_case_lock = threading.Lock()
+
+
+def clear_case_caches() -> None:
+    """Forget every case probe and directory listing (tests; a root's filesystem changed)."""
+    with _case_lock:
+        _case_sensitive.clear()
+        _listings.clear()
+
+
+def _is_case_sensitive(base: Path) -> bool:
+    """Whether *base*'s filesystem tells names apart by case, probed once per root.
+
+    The deepest part of *base* with a cased letter is respelled with its case
+    swapped: if that spelling names the same directory, the filesystem ignores
+    case. With no cased part there's nothing to swap, so the answer is
+    ``False``: the exact check then runs, which is always correct, just slower.
+    """
+    key = base.as_posix()
+    with _case_lock:
+        if key in _case_sensitive:
+            return _case_sensitive[key]
+    sensitive = False
+    probe = base
+    while probe.name:
+        if probe.name.lower() != probe.name.upper():
+            swapped = probe.with_name(probe.name.swapcase())
+            try:
+                sensitive = not (swapped.exists() and os.path.samefile(probe, swapped))
+            except OSError:
+                sensitive = False
+            break
+        probe = probe.parent
+    with _case_lock:
+        _case_sensitive[key] = sensitive
+    return sensitive
+
+
+def _entries(directory: Path) -> frozenset[str] | None:
+    """The names in *directory*, cached while its mtime holds; ``None`` if unreadable.
+
+    A rename or a new entry changes the directory's mtime, so the cached
+    listing is dropped. A directory changed within :data:`_RECENT_NS` isn't
+    cached: a further change in the same timestamp tick wouldn't move it.
+    """
+    key = directory.as_posix()
+    try:
+        mtime = os.stat(directory).st_mtime_ns
+    except OSError:
+        return None
+    with _case_lock:
+        hit = _listings.get(key)
+        if hit is not None and hit[0] == mtime:
+            _listings.move_to_end(key)
+            return hit[1]
+    try:
+        names = frozenset(os.listdir(directory))
+    except OSError:
+        return None
+    if time.time_ns() - mtime >= _RECENT_NS:
+        with _case_lock:
+            _listings[key] = (mtime, names)
+            _listings.move_to_end(key)
+            while len(_listings) > _LISTINGS_MAX:
+                _listings.popitem(last=False)
+    return names
+
+
+def _exact_case(base: Path, rel: list[str]) -> bool:
+    """Whether each name in *rel*, below *base*, is a directory entry in exact case.
+
+    Free on a case-sensitive filesystem, where ``exists()`` already matched
+    case: there it is ``True`` without listing anything.
+    """
+    if _is_case_sensitive(base):
+        return True
+    directory = base
+    for name in rel:
+        names = _entries(directory)
+        if names is None or name not in names:
+            return False
+        directory = directory / name
+    return True
 
 
 def dir_shallow_qualifies(path: Path) -> bool:
@@ -470,8 +596,11 @@ def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
         name = entry.name
         if name.startswith(".") or name == "__pycache__":
             continue
-        # (a) a direct .py file.
-        if entry.is_file() and entry.suffix == ".py":
+        # (a) a direct .py file, or a stub that declares a module or this
+        # package (a stub-only package is a namespace, #1004).
+        if entry.is_file() and (
+            entry.suffix == ".py" or is_stub_only_module(entry) or is_namespace_stub_init(entry)
+        ):
             return True
         if entry.is_dir():
             # (b) a direct child dir that is a regular package.
@@ -482,6 +611,20 @@ def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
             if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
                 return True
     return False
+
+
+def namespace_stub_inits(module_dotted: str, analyzer: Any) -> list[Path]:
+    """Each portion's ``__init__.pyi`` of the namespace *module_dotted*, in portion order (#1004).
+
+    What declares the namespace's own members, as Jedi merges them: the first
+    portion (sys.path order) that declares a name is the one that counts.
+    """
+    inits = []
+    for portion in find_namespace_package_dirs(module_dotted, analyzer):
+        init = portion / "__init__.pyi"
+        if init.is_file():
+            inits.append(init)
+    return inits
 
 
 def find_namespace_package_dirs(module_dotted: str, analyzer: Any) -> list[Path]:

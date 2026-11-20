@@ -6,7 +6,7 @@ anchors: ["pyeye.project_layout.project_roots", "RootsBoundary", "module_name_fo
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md"]
+amended_by: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md", "2026-11-20-1047-a-module-name-matches-its-file-in-exact-case.md"]
 superseded_by: []
 ---
 

@@ -27,6 +27,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pyeye.config import ProjectConfig
 from pyeye.mcp import server as server_module
 from pyeye.mcp.server import _plugin_tool, get_project_manager, register_plugin_tools
+from pyeye.path_utils import path_to_key
 from pyeye.plugins.pydantic import PydanticPlugin
 from pyeye.scope_utils import SmartScopeResolver
 
@@ -175,10 +176,12 @@ class TestCache:
         manager = get_project_manager()
         await _names(server, project_path=b.as_posix())
         await _names(server, project_path=b.as_posix())
-        keys = [k for k in manager._plugin_contexts if k[1] is PydanticPlugin]
+        # Only b's contexts: another test's project may have its own (#1061).
+        b_key = path_to_key(b)
+        keys = [k for k in manager._plugin_contexts if k[1] is PydanticPlugin and k[0] == b_key]
         assert len(keys) == 1
         manager.invalidate_analyzer(b.as_posix())
-        assert not [k for k in manager._plugin_contexts if k[1] is PydanticPlugin]
+        assert not [k for k in manager._plugin_contexts if k[1] is PydanticPlugin and k[0] == b_key]
 
     @pytest.mark.asyncio
     async def test_a_reconfigured_project_is_rebuilt_from_its_new_config(

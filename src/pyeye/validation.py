@@ -1,6 +1,7 @@
 """Input validation and sanitization for file paths and user inputs."""
 
 import contextlib
+import logging
 import os
 import re
 import threading
@@ -350,10 +351,13 @@ _RECENT_NS = 2_000_000_000
 #: ``os.utime`` can't set back: POSIX. On Windows it is the creation time.
 _CTIME_IS_CHANGE = os.name != "nt"
 
-#: ``(home spelling or None, the times of each _STORE_LINK_DIRS entry)``: cheap.
-_DirKey = tuple[str | None, tuple[tuple[int, int] | None, ...]]
-#: ``(dir key, link target of the home and of each _STORE_LINK_PATHS entry)``.
-_StoreKey = tuple[_DirKey, tuple[str | None, ...]]
+#: ``(each home's spelling, the times of each _STORE_LINK_DIRS entry of each)``: cheap.
+_DirKey = tuple[tuple[str, ...], tuple[tuple[int, int] | None, ...]]
+#: ``(dir key of $HOME, the passwd home, link target of each home and of each
+#: _STORE_LINK_PATHS entry below it)``.
+_StoreKey = tuple[_DirKey, str | None, tuple[str | None, ...]]
+
+logger = logging.getLogger(__name__)
 
 
 def _home_spelling() -> str | None:
@@ -362,6 +366,114 @@ def _home_spelling() -> str | None:
         return Path.home().as_posix()
     except (RuntimeError, KeyError, OSError):
         return None
+
+
+#: The first wait before retrying a failed passwd lookup, and the longest (#1030 review).
+_PASSWD_RETRY_FIRST_S = 5.0
+_PASSWD_RETRY_MAX_S = 300.0
+#: How long a check waits for a lookup another thread is making (#1030 final review).
+_PASSWD_WAIT_S = 2.0
+
+
+class _PasswdHome:
+    """The server user's home from the passwd database (POSIX), or ``None`` (#1030).
+
+    ``$HOME`` can name another directory (a service started with ``HOME=/srv``),
+    and the user's real stores stay under this one. A SUCCESSFUL lookup is kept
+    for the process: the uid doesn't change, and a lookup can be slow (NSS,
+    LDAP). A failed one (LDAP or SSSD down, no entry yet) is retried, after
+    5 s and then twice as long each time up to 5 min, so an outage can't blind
+    the deny-list for the life of the process (#1030 review). An empty or
+    relative ``pw_dir`` is no home: ``Path("")`` would make the working
+    directory one (#1030 review).
+
+    A check that arrives while another thread is looking it up WAITS for that
+    lookup, up to :data:`_PASSWD_WAIT_S`, rather than answering ``None`` at
+    once: answering early let a store below that home through during the
+    lookup (#1030 final review). The answer is ``None`` only during the
+    backoff after a real failure, or when a lookup hangs past the wait.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._value: str | None = None
+        self._known = False
+        self._retry_at = 0.0
+        self._delay = _PASSWD_RETRY_FIRST_S
+
+    def __call__(self) -> str | None:
+        if self._known:
+            return self._value
+        if time.monotonic() < self._retry_at:
+            return None  # backing off after a real failure (documented window)
+        if not self._lock.acquire(timeout=_PASSWD_WAIT_S):
+            return None  # another thread's lookup is hanging (documented)
+        try:
+            if self._known:
+                return self._value
+            if time.monotonic() < self._retry_at:
+                return None  # the lookup we waited for failed
+            return self._look_up()
+        finally:
+            self._lock.release()
+
+    def _look_up(self) -> str | None:
+        if os.name == "nt":
+            self._known = True
+            return None
+        try:
+            import pwd
+
+            pw_dir = pwd.getpwuid(os.getuid()).pw_dir
+        except (KeyError, OSError) as exc:
+            logger.warning(
+                "passwd lookup for uid %s failed (%s); retrying in %.0f s",
+                os.getuid(),
+                exc,
+                self._delay,
+            )
+            self._retry_at = time.monotonic() + self._delay
+            self._delay = min(self._delay * 2, _PASSWD_RETRY_MAX_S)
+            return None
+        self._value = Path(pw_dir).as_posix() if pw_dir and os.path.isabs(pw_dir) else None
+        self._known = True
+        return self._value
+
+    def cache_clear(self) -> None:
+        """Forget the lookup and any pending retry.
+
+        Not locked: it is for tests, which call it with no lookup running.
+        """
+        self._value = None
+        self._known = False
+        self._retry_at = 0.0
+        self._delay = _PASSWD_RETRY_FIRST_S
+
+
+_passwd_home = _PasswdHome()
+
+
+def _env_homes() -> tuple[str, ...]:
+    """``$HOME`` as spelled, if there is one: the home the cheap key watches."""
+    home = _home_spelling()
+    return (home,) if home else ()
+
+
+def _homes() -> tuple[str, ...]:
+    """The server's homes as spelled: ``$HOME`` and the passwd home, deduped (#1030)."""
+    return tuple(dict.fromkeys(h for h in (_home_spelling(), _passwd_home()) if h))
+
+
+def _under(home: str, rel: str) -> str:
+    """*rel* below *home* (``""`` is the home itself), right for a home of ``/`` too.
+
+    ``"/".rstrip("/")`` is empty, so joining by hand made ``HOME=/`` stat ``""``
+    and see nothing (#1028, found in #1030's review).
+    """
+    root = home.rstrip("/") or "/"
+    if not rel:
+        return root
+    return f"{root.rstrip('/')}/{rel}"
 
 
 def _dir_times(path: str) -> tuple[int, int] | None:
@@ -378,17 +490,16 @@ def _dir_times(path: str) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_ctime_ns if _CTIME_IS_CHANGE else 0)
 
 
-def _dir_key(home: str | None) -> _DirKey:
-    """The home's spelling and the times of the directories its stores sit in (two ``stat``).
+def _dir_key(homes: tuple[str, ...]) -> _DirKey:
+    """The homes' spellings and the times of the directories their stores sit in.
 
-    Making, removing or repointing a link in a directory changes its mtime and
-    (POSIX) its ctime, so this changes whenever a store's own link does, except
-    within one tick of an earlier change (see :data:`_RECENT_NS`).
+    Two ``stat`` per home. The cheap check passes ``$HOME`` alone (see
+    :class:`_StoreCache`). Making, removing or repointing a link in a directory
+    changes its mtime and (POSIX) its ctime, so this changes whenever a store's
+    own link does, except within one tick of an earlier change (see
+    :data:`_RECENT_NS`).
     """
-    if home is None:
-        return (None, ())
-    root = home.rstrip("/")
-    return (home, tuple(_dir_times(f"{root}/{d}" if d else root) for d in _STORE_LINK_DIRS))
+    return (homes, tuple(_dir_times(_under(home, d)) for home in homes for d in _STORE_LINK_DIRS))
 
 
 def _link_target(path: str) -> str | None:
@@ -405,25 +516,95 @@ def _store_key() -> _StoreKey:
     The full key: :func:`_dir_key` plus one ``readlink`` of the home and of
     each :data:`_STORE_LINK_PATHS` entry.
     """
-    home = _home_spelling()
-    if home is None:
-        return ((None, ()), ())
-    root = home.rstrip("/")
-    links = (_link_target(root),) + tuple(
-        _link_target(f"{root}/{rel}") for rel in _STORE_LINK_PATHS
+    env = _env_homes()
+    passwd = _passwd_home()
+    homes = tuple(dict.fromkeys(h for h in (*env, passwd) if h))
+    links = tuple(
+        _link_target(_under(home, rel)) for home in homes for rel in ("", *_STORE_LINK_PATHS)
     )
-    return (_dir_key(home), links)
+    return (_dir_key(env), passwd, links)
 
 
-def _build_credential_stores(home_spelling: str | None) -> _CredentialStores:
-    """The stores for the server's home *home_spelling* (see :class:`_StoreCache`)."""
-    homes = list(PathValidator.USER_HOMES)
+def _key_homes(key: _StoreKey) -> tuple[str, ...]:
+    """The homes a build for *key* covers: ``$HOME`` and the passwd home, deduped."""
+    return tuple(dict.fromkeys(h for h in (*key[0][0], key[1]) if h))
+
+
+#: The suffix of a :data:`PathValidator.USER_HOMES` pattern for a directory of
+#: homes (``^/home/[^/]+/``); a pattern without it is one home (``^/root/``).
+_MANY_HOMES = "/[^/]+/"
+#: An unescaped regex metacharacter: a pattern holding one isn't a literal root.
+_REGEX_META = re.compile(r"(?<!\\)[*+?()\[\]{}|^$]")
+
+
+def _home_root(pattern: str) -> tuple[str, bool] | None:
+    """``(root directory, holds many homes)`` for a USER_HOMES *pattern*, or ``None``.
+
+    ``^/home/[^/]+/`` is ``("/home", True)``; ``^/root/`` is ``("/root", False)``.
+    """
+    if not pattern.startswith("^") or not pattern.endswith("/"):
+        return None
+    many = pattern.endswith(_MANY_HOMES)
+    body = pattern[1 : -len(_MANY_HOMES)] if many else pattern[1:-1]
+    if not body.startswith("/") or _REGEX_META.search(body):
+        return None
+    return re.sub(r"\\(.)", r"\1", body), many
+
+
+#: Each home root's resolved form, by its literal: SUCCESSFUL resolves only (#1030 review).
+_resolved_roots: dict[str, str] = {}
+
+
+def _resolved_home_roots() -> list[str]:
+    """Each USER_HOMES root's resolved form, as a pattern, where it differs (#1030).
+
+    A symlinked root (BSD ``/home -> /usr/home``) puts every home at a resolved
+    form no pattern names, and the walkers judge resolved forms.
+
+    Each root is resolved once per process and the result kept, and the caller
+    runs this before taking the store lock: a root on a hard-down NFS mount
+    can block one resolve, but never every check behind the lock (#1030
+    review). A resolve that raises is logged and tried again at the next
+    rebuild; the spelled root still applies meanwhile. A root that resolves to
+    ``/`` adds nothing: ``^/[^/]+/`` would make every top-level directory a home.
+    """
+    patterns = []
+    for pattern in PathValidator.USER_HOMES:
+        if (root := _home_root(pattern)) is None:
+            continue
+        literal, many = root
+        literal = literal.rstrip("/")
+        resolved = _resolved_roots.get(literal)
+        if resolved is None:
+            try:
+                resolved = normalize_path(Path(literal)).as_posix().rstrip("/") or "/"
+            except (RuntimeError, OSError) as exc:
+                logger.warning("can't resolve the home root %s (%s); retrying later", literal, exc)
+                continue
+            _resolved_roots[literal] = resolved
+        if resolved == "/" or resolved.lower() == literal.lower():
+            continue
+        patterns.append("^" + re.escape(resolved) + (_MANY_HOMES if many else "/"))
+    return patterns
+
+
+def _build_credential_stores(
+    home_spellings: tuple[str, ...], resolved_roots: list[str] | None = None
+) -> _CredentialStores:
+    """The stores for the server's homes *home_spellings* (see :class:`_StoreCache`).
+
+    *resolved_roots* is :func:`_resolved_home_roots`, taken by the caller
+    before the store lock; ``None`` takes it here.
+    """
+    if resolved_roots is None:
+        resolved_roots = _resolved_home_roots()
+    homes = [*PathValidator.USER_HOMES, *resolved_roots]
     linked: dict[str, str] = {}
-    # The home both as spelled ($HOME) and resolved: with a symlinked home
-    # (NFS/autofs /home/u -> /data/u) the resolved form, which the walks and
-    # the resolved check see, names neither the spelling nor a fixed root
-    # (#909 review). No resolvable home: the fixed roots still apply.
-    if home_spelling is not None:
+    # Each home both as spelled and resolved: with a symlinked home (NFS/autofs
+    # /home/u -> /data/u) the resolved form, which the walks and the resolved
+    # check see, names neither the spelling nor a fixed root (#909 review). No
+    # resolvable home: the fixed roots still apply.
+    for home_spelling in home_spellings:
         with contextlib.suppress(RuntimeError, OSError):
             home = Path(home_spelling)
             resolved_home = normalize_path(home)
@@ -475,7 +656,12 @@ class _StoreCache:
 
     def __call__(self) -> _CredentialStores:
         built = self._built
-        if built is not None and built[2] and _dir_key(_home_spelling()) == built[0][0]:
+        if (
+            built is not None
+            and built[2]
+            and _dir_key(_env_homes()) == built[0][0]
+            and _passwd_home() == built[0][1]
+        ):
             return built[1]
         read_ns = time.time_ns()  # before the key is read, so it can vouch for it
         key = _store_key()
@@ -486,11 +672,12 @@ class _StoreCache:
                     if self._built is built:
                         self._built = (built[0], built[1], True)
             return built[1]
+        roots = _resolved_home_roots()  # before the lock: it may block (#1030 review)
         with self._lock:
             current = self._built
             if current is not None and current[0] == key:
                 return current[1]
-            stores = _build_credential_stores(key[0][0])
+            stores = _build_credential_stores(_key_homes(key), roots)
             self._built = (key, stores, vouched)
         return stores
 

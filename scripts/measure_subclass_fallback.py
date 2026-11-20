@@ -39,6 +39,7 @@ from pyeye.analyzers.base_resolution import (  # noqa: E402
     resolve_base,
 )
 from pyeye.import_analyzer import resolve_relative_import  # noqa: E402
+from pyeye.star_exports import static_all  # noqa: E402
 
 
 def _module_name(py_file: Path, root: Path) -> str:
@@ -79,6 +80,7 @@ def measure(root: Path) -> Stats:
     import_tables: dict[str, dict[str, str]] = {}
     module_defines: dict[str, dict[str, str]] = {}
     star_sources: dict[str, list[str]] = {}
+    star_alls: dict[str, frozenset[str]] = {}
     trees: dict[str, ast.Module] = {}
 
     for py_file in py_files:
@@ -98,6 +100,9 @@ def measure(root: Path) -> Stats:
         stars = build_star_sources(tree, module, resolve_relative_import, is_package)
         if stars:
             star_sources[module] = stars
+        listed = static_all(tree)  # the shared star rule (#1010)
+        if listed is not None:
+            star_alls[module] = listed
 
     hits = 0
     punts = 0
@@ -110,7 +115,9 @@ def measure(root: Path) -> Stats:
                 dotted = _base_dotted(base)
                 if not dotted or dotted == "object":
                     continue
-                resolved = resolve_base(module, dotted, import_tables, module_defines, star_sources)
+                resolved = resolve_base(
+                    module, dotted, import_tables, module_defines, star_sources, star_alls
+                )
                 if resolved is not None:
                     hits += 1
                 else:

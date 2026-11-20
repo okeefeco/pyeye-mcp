@@ -27,7 +27,14 @@ This module makes eviction harmless, then bounds the cache:
    least-recently-used entries over ``PYEYE_PARSO_CACHE_MAX_ENTRIES``. parso
    already refreshes ``last_used`` on every cache hit.
 
-Both pin Jedi and parso internals. ``tests/unit/test_parso_cache_gc.py`` asserts
+3. **Network paths** (:func:`_install_sys_path_filter`, #1048). Jedi adds the
+   ``sys.path`` changes it reads in a project's own files (``sys.path.insert``,
+   and a ``buildout.cfg`` project's ``bin/`` scripts) to its import search,
+   and on Windows searching a UNC path connects to its host over SMB. The
+   paths ``jedi.inference.sys_path.check_sys_path_modifications`` returns are
+   filtered through :func:`pyeye.path_utils.repo_path_refusal`.
+
+All three pin Jedi and parso internals. ``tests/unit/test_parso_cache_gc.py`` asserts
 each one still exists and is still wrapped, so an upgrade that moves one fails
 CI instead of quietly bringing #684 back.
 """
@@ -36,6 +43,7 @@ from __future__ import annotations
 
 import importlib.abc
 import importlib.util
+import logging
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -44,6 +52,8 @@ from types import ModuleType
 from typing import Any
 
 import parso.cache
+
+logger = logging.getLogger(__name__)
 
 #: Jedi modules that bind ``get_cached_code_lines`` by name.
 _CODE_LINES_MODULES = (
@@ -120,6 +130,10 @@ class _RecoverAfterJediImport(importlib.abc.MetaPathFinder):
 def _install_recovery() -> None:
     import importlib
 
+    # First and on its own (#1056): a later step failing after a Jedi upgrade
+    # must not skip the network-path filter, nor it the recovery shims.
+    _install_sys_path_filter_isolated()
+
     import jedi.parser_utils
 
     original_node = getattr(
@@ -184,6 +198,60 @@ def _install_own_tree_guard(filter_class: Any) -> None:
 
     _mark(init_own_tree, original_init)
     filter_class.__init__ = init_own_tree
+
+
+def _install_sys_path_filter_isolated() -> None:
+    """:func:`_install_sys_path_filter`, whose failure warns instead of stopping the other patches."""
+    try:
+        _install_sys_path_filter()
+    except Exception as error:
+        logger.warning(
+            f"Could not install the sys.path network filter ({error}): network paths in a "
+            "project's own sys.path changes are NOT filtered (#1048)"
+        )
+
+
+def _install_sys_path_filter() -> None:
+    """Drop network paths from the ``sys.path`` changes Jedi reads in project code (#1048).
+
+    One patch point covers both of Jedi's sources: ``imports.Importer`` calls
+    ``sys_path.check_sys_path_modifications`` through the module attribute on
+    every import, and ``discover_buildout_paths`` calls it as that module's
+    global. Verified against Jedi 0.20.1. Local paths pass unchanged: a repo
+    putting its own directories on the path is Jedi's normal behaviour.
+
+    If an upgrade removes the function, there is no other stable point to
+    filter at, so this warns and installs nothing; the behaviour tests in
+    ``tests/test_network_paths.py`` then fail. It does not fail closed.
+    """
+    import jedi.inference.sys_path as jedi_sys_path
+
+    original = getattr(jedi_sys_path, "check_sys_path_modifications", None)
+    if original is None:
+        logger.warning(
+            "jedi.inference.sys_path.check_sys_path_modifications is gone: network "
+            "paths in a project's own sys.path changes are NOT filtered (#1048)"
+        )
+        return
+    if _is_marked(original):
+        return
+
+    def local_only(module_context: Any) -> list[Any]:
+        """Jedi's sys.path changes for *module_context*, minus network paths (#1048)."""
+        from .path_utils import repo_path_refusal
+
+        kept = []
+        for path in original(module_context):
+            if (why := repo_path_refusal(str(path))) is None:
+                kept.append(path)
+            else:
+                logger.warning(
+                    f"Not searching sys.path entry {str(path)!r} from project code: {why}"
+                )
+        return kept
+
+    _mark(local_only, original)
+    jedi_sys_path.check_sys_path_modifications = local_only
 
 
 def _read_lines(path: Any) -> list[str]:

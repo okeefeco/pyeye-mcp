@@ -85,14 +85,28 @@ async def test_a_stub_with_no_source_is_passed_as_it_is(project: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_a_stub_the_mapper_cant_name_is_sent_to_an_honest_miss(project: Path) -> None:
-    """A stub with no module name (here a stub-only ``__init__.pyi``) still says why (#885)."""
+    """A stub with no module name (``my-tool`` isn't an identifier) still says why (#885).
+
+    A stub-only package's ``__init__.pyi`` used to be the example; since #1004
+    the mapper names it as its namespace package (next test).
+    """
+    (project / "pkg" / "my-tool.pyi").write_text("Z: int\n", encoding="utf-8")
+    miss = await _call("outline", project, handle="pkg/my-tool.pyi")
+
+    followed = await _follow(miss["detail"], project)
+    assert followed["found"] is False and followed["reason"] == "unresolved"
+    assert "stub with no .py source beside it" in followed["detail"]
+
+
+@pytest.mark.asyncio
+async def test_a_stub_only_packages_init_is_sent_to_the_package(project: Path) -> None:
+    """The hint for ``stubpkg/__init__.pyi`` now leads to the namespace package (#1004)."""
     (project / "stubpkg").mkdir()
     (project / "stubpkg" / "__init__.pyi").write_text("Z: int\n", encoding="utf-8")
     miss = await _call("outline", project, handle="stubpkg/__init__.pyi")
 
     followed = await _follow(miss["detail"], project)
-    assert followed["found"] is False and followed["reason"] == "unresolved"
-    assert "stub with no .py source beside it" in followed["detail"]
+    assert followed["found"] is True and followed["handle"] == "stubpkg"
 
 
 @pytest.mark.parametrize(

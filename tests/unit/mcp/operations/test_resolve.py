@@ -1032,19 +1032,32 @@ class TestResolveFileLineErrorPaths:
         assert result["reason"] == "file_not_found"
 
     @pytest.mark.asyncio
-    async def test_goto_raises_propagates(self, analyzer: JediAnalyzer) -> None:
-        """A goto failure at a valid position is internal, not "no symbol" (#704)."""
+    @pytest.mark.parametrize(
+        ("line", "method"),
+        [
+            (18, "goto"),  # `DEFAULT_NAME: str = ...`: a use-or-binding, via goto
+            (21, "get_names"),  # `class Widget:`: a definition's own name (#1024)
+        ],
+    )
+    async def test_a_jedi_failure_propagates(
+        self, analyzer: JediAnalyzer, line: int, method: str
+    ) -> None:
+        """A Jedi failure at a valid position is internal, not "no symbol" (#704)."""
         import jedi
 
+        from pyeye import file_artifact_cache
         from pyeye.mcp.operations.resolve import _resolve_file_line
 
         widgets_path = _FIXTURE / "mypackage" / "_core" / "widgets.py"
+        # A cached Script keeps its all-scope names (#1044): start cold, so
+        # this call is the one that reads them and meets the failure.
+        file_artifact_cache.invalidate(widgets_path)
 
         with (
-            patch.object(jedi.Script, "goto", side_effect=RuntimeError("jedi fail")),
+            patch.object(jedi.Script, method, side_effect=RuntimeError("jedi fail")),
             pytest.raises(RuntimeError, match="jedi fail"),
         ):
-            await _resolve_file_line(widgets_path, 21, analyzer)
+            await _resolve_file_line(widgets_path, line, analyzer)
 
     @pytest.mark.asyncio
     async def test_position_past_the_end_is_still_a_miss(self, analyzer: JediAnalyzer) -> None:

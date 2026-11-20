@@ -1166,7 +1166,9 @@ _TRACE_LOSS_MAPS = (
 #: E.9 / T.12 (#1006): the subclasses no handle can name. Loss fields by what
 #: they are, not by an ``unresolved_`` prefix: these were found and resolved.
 _HANDLELESS_KEYS = ("handleless_subclass_count", "handleless_subclasses")
-_HANDLELESS_REASONS = frozenset({"function_local", "no_module_path", "not_a_handle"})
+_HANDLELESS_REASONS = frozenset(
+    {"nested_local", "ambiguous_local", "no_module_path", "not_a_handle"}
+)  # #1024
 _HANDLELESS_TRACE_KEY = "handleless_subclass_counts"
 
 

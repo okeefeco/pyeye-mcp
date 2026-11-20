@@ -153,20 +153,34 @@ def _render_ceilings(members: list[Fact], indent: str, facts: Facts) -> str:
     return ("\n" + indent).join(lines)
 
 
+def _render_tiers(members: list[Fact], indent: str, facts: Facts) -> str:  # noqa: ARG001
+    """Each determinism tier (#452) as ``- ``tier`` (``edge``, ...): meaning.``."""
+    lines = []
+    for m in members:
+        edges = m.value.get("edges") if isinstance(m.value, dict) else None
+        if edges is None:
+            raise SlotError(f"{m.id!r} is not a determinism tier")
+        names = ", ".join(_rst(e) for e in edges)
+        lines.append(f"- {_rst(label(m))} ({names}): {m.value['meaning']}.")
+    return ("\n" + indent).join(lines)
+
+
 #: Forms that render several lines, at the slot's own indentation. A slot in one
 #: of them must be on a line of its own, or :func:`fill` raises :class:`SlotError`.
-BLOCK_FORMS = frozenset({"bullets", "ceilings"})
+BLOCK_FORMS = frozenset({"bullets", "ceilings", "tiers"})
 
 #: Slot forms. Inline: ``list`` (the default), ``applies_to``, and ``ceiling``
 #: (an edge's ceiling statement). Block (one member per line, see
-#: :data:`BLOCK_FORMS`): ``bullets`` (each member's meaning) and ``ceilings``
-#: (each edge with its ceiling statement).
+#: :data:`BLOCK_FORMS`): ``bullets`` (each member's meaning), ``ceilings``
+#: (each edge with its ceiling statement) and ``tiers`` (each determinism tier
+#: with its edges and guarantee, #452).
 FORMS: dict[str, Callable[[list[Fact], str, Facts], str]] = {
     "list": _render_list,
     "bullets": _render_bullets,
     "applies_to": _render_applies_to,
     "ceiling": _render_ceiling,
     "ceilings": _render_ceilings,
+    "tiers": _render_tiers,
 }
 
 

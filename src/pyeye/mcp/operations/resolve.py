@@ -74,7 +74,7 @@ from pyeye.mcp.operations.completeness import (
 )
 from pyeye.mcp.operations.not_found import NOT_FOUND_REASON, SOURCE_SUFFIXES, not_found_for
 from pyeye.path_utils import anchor, normalize_path
-from pyeye.project_layout import mark_stub
+from pyeye.project_layout import is_namespace_stub_init, mark_stub
 from pyeye.resolver import (
     Ambiguous,
     NotFound,
@@ -171,6 +171,8 @@ IdentifierForm = dict[str, Any]
 
 # Regex: <some-path>:<positive-integer>
 _FILE_LINE_RE = re.compile(r"^(.+):(\d+)$")
+# A ``class``/``def`` header: the defined name starts at group ``name``.
+_DEFINITION_HEADER_RE = re.compile(r"^\s*(?:async\s+def|def|class)\s+(?P<name>\w+)")
 
 
 def _parse_identifier(identifier: str) -> IdentifierForm:
@@ -386,7 +388,11 @@ async def _resolve_at_position(
     # should land on the definition site, not the use site. Callers that
     # want the symbol AT the position rather than its definition should
     # use a name-based form via resolve(identifier).
-    definitions = script.goto(line, column, follow_imports=True)
+    # On a class or def's own name, the answer is that definition. ``goto``
+    # there looks the name up through the enclosing class's MRO, so a nested
+    # ``Meta`` or an overriding method lands on the base class's (#1024).
+    own = _definition_at(script, file_path, line, column)
+    definitions = [own] if own is not None else script.goto(line, column, follow_imports=True)
 
     if not definitions:
         return _miss("no_symbol_at_position")
@@ -443,6 +449,24 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
             return fallback
 
     return result
+
+
+def _definition_at(script: Any, file_path: Path, line: int, column: int) -> Any | None:
+    """The class or function whose own name is at (*line*, *column*), or ``None``.
+
+    Only a ``class``/``def`` header with the cursor on its name qualifies, so
+    every other position keeps ``goto``'s answer (and cost).
+    """
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    match = _DEFINITION_HEADER_RE.match(lines[line - 1]) if line <= len(lines) else None
+    if match is None or not match.start("name") <= column <= match.end("name"):
+        return None
+    # Read once per cached Script: an all-scopes get_names per call grew its
+    # inference state without bound (#1044).
+    for name in file_artifact_cache.all_scope_names(script):
+        if name.line == line and name.column == match.start("name"):
+            return name
+    return None
 
 
 def _position_in_file(file_path: Path, line: int, column: int) -> bool:
@@ -628,9 +652,10 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
     A ``.pyi`` stub beside its ``.py`` resolves as that source: the same handle
     and location its ``file:line`` form already lands on (#885). A project
     stub-only module resolves at its stub (#933): the one file↔module mapper
-    names it (:func:`pyeye.project_layout.module_name_for_file`). A stub the
-    mapper can't name (typeshed, a ``foo-stubs`` package, a stub-only
-    ``__init__.pyi``) stays an honest miss that says why.
+    names it (:func:`pyeye.project_layout.module_name_for_file`). A namespace
+    portion's ``__init__.pyi`` resolves as its package does, at the package's
+    directory (#1004). A stub the mapper can't name (typeshed, a ``foo-stubs``
+    package) stays an honest miss that says why.
     """
     if not file_path.exists():
         return _miss("file_not_found")
@@ -646,6 +671,10 @@ async def _resolve_file_only(file_path: Path, analyzer: JediAnalyzer) -> _Helper
     module_path = analyzer._get_import_path_for_file(file_path)
     if not module_path:
         return _stub_only_miss(file_path) if _stub_only(file_path) else _miss("unresolved")
+    if is_namespace_stub_init(file_path):
+        # One portion's declarations of a namespace package (#1004): the package
+        # itself is anchored at its directory, so answer as its dotted name does.
+        return _from_resolver(module_path, analyzer)
 
     try:
         handle = Handle(module_path)

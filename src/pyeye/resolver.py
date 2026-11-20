@@ -27,7 +27,7 @@ import ast
 import errno
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
@@ -52,6 +52,7 @@ from pyeye.project_layout import (
     file_for_module,
     find_namespace_package_dirs,
     module_name_for_file,
+    namespace_stub_inits,
     project_roots,
 )
 from pyeye.scope import classify_scope
@@ -613,18 +614,19 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         module_dotted = ".".join(parts[:split_at])
         mod_file = file_for_module(analyzer, module_dotted)
         if mod_file is None:
+            # A namespace package's members are declared in its portions'
+            # __init__.pyi, the first portion first, as Jedi merges them (#1004).
+            in_stubs = _place_in_namespace_stubs(path, module_dotted, analyzer)
+            if in_stubs is not None:
+                return in_stubs
             continue
         rest = parts[split_at:]
         # The module file exists, so a failure reading its names is internal (#704).
-        names = file_artifact_cache.get_script(mod_file, analyzer.project).get_names(
-            all_scopes=True, definitions=True, references=False
-        )
+        names = file_artifact_cache.get_all_scope_names(mod_file, analyzer.project)
         # ``self.x = …`` / ``obj.x = …`` share a binding's full_name but bind
         # nothing in this scope (#567).
         matches = [
-            name
-            for name in names
-            if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
         ]
         if matches:
             # Several definitions of one function-local name: none is THE answer (#1022).
@@ -642,6 +644,26 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
         return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
             module_dotted, mod_file, rest, analyzer, hops
         )
+    return None
+
+
+def _place_in_namespace_stubs(
+    path: str, module_dotted: str, analyzer: JediAnalyzer
+) -> tuple[str, Any] | None:
+    """*path* declared in one of namespace *module_dotted*'s ``__init__.pyi`` (#1004).
+
+    The portions are tried in sys.path order, so a name two portions declare is
+    the first portion's, as Jedi resolves it.
+    """
+    for init in namespace_stub_inits(module_dotted, analyzer):
+        names = file_artifact_cache.get_all_scope_names(init, analyzer.project)  # #1044
+        matches = [
+            name for name in names if _names_path(name, path) and not is_attribute_target(name)
+        ]
+        if matches:
+            anchor = _anchor_on_bindings(matches, init, path)
+            placed = _canonical_of(anchor, path, analyzer)
+            return (placed, anchor) if placed is not None else None
     return None
 
 
@@ -693,7 +715,7 @@ def local_member_full_name(name: Any) -> str | None:
 
 
 def _local_class_member(
-    path: str, names: list[Any], analyzer: JediAnalyzer, hops: int
+    path: str, names: Sequence[Any], analyzer: JediAnalyzer, hops: int
 ) -> tuple[str, Any] | None:
     """Place *path* as a member of a function-local class it names (#1025).
 
@@ -759,9 +781,8 @@ def _follow_star(
     the first that resolves wins. Explicit bindings were tried first, as Python
     lets them shadow a star. Bounded by the alias hop limit and a seen-set.
     """
-    from pyeye.analyzers.base_resolution import build_star_sources
     from pyeye.import_analyzer import resolve_relative_import
-    from pyeye.star_exports import star_exported
+    from pyeye.star_exports import build_star_sources, star_exported
 
     if hops >= _MAX_ALIAS_HOPS:
         return None
@@ -798,36 +819,26 @@ def _follow_star(
             _STAR_SEEN.reset(token)
 
 
-def _names_path(name: Any, path: str, qualname: str, analyzer: JediAnalyzer) -> bool:
-    """Whether Jedi's *name* is the definition *path* names, in pyeye's naming (#814).
+def _names_path(name: Any, path: str) -> bool:
+    """Whether Jedi's *name* is the definition *path* names: its ``full_name`` is *path*.
 
-    Jedi names a file from the first sys_path root that contains it, so a
-    package added inside the project (``.hidden/upstream/clonepkg``) gets a
-    module part from the project root (``.hidden.upstream.clonepkg.thing.X``).
-    pyeye's name comes from the one file -> module mapper (#714), through
-    :func:`handle_for_anchor`. Comparing on Jedi's name missed every such package.
-    The cheap checks run first, so the mapper is asked only about candidates:
-    the respelling changes only the module part, so a name whose Jedi
-    ``full_name`` doesn't end with *qualname* (the part of *path* after its
-    module) can't match.
+    #814 respelled the ``full_name`` through the file -> module mapper first,
+    because Jedi named a configured package nested in the project from the
+    project root (``.hidden.upstream.clonepkg.thing.X``). Since #858 (PR #966)
+    every configured package is on Jedi's own sys_path, so Jedi's names agree
+    with the mapper; the respelling matched nothing in the test suite or on
+    django and is retired (#971).
     """
     # ``name.name`` is cheap; ``full_name`` makes Jedi compute the scope chain.
     if name.name != path.rsplit(".", 1)[-1]:
         return False
-    full_name = name.full_name
-    if not full_name:
-        return False
-    if full_name == path:
-        return True
-    if not full_name.endswith(f".{qualname}"):
-        return False
-    return handle_for_anchor(name, full_name, analyzer) == path
+    return bool(name.full_name) and name.full_name == path
 
 
 def _follow_alias(
     module_dotted: str,
     rest: list[str],
-    names: list[Any],
+    names: Sequence[Any],
     analyzer: JediAnalyzer,
     hops: int,
 ) -> tuple[str, Any] | None:
@@ -1012,9 +1023,7 @@ def _anchor_at_stdlib_definition(found: StdlibDefinition, analyzer: JediAnalyzer
     ``location`` coming from the same place they do for every other symbol;
     only the handle is the public one.
     """
-    names = file_artifact_cache.get_script(found.file, analyzer.project).get_names(
-        all_scopes=True, definitions=True, references=False
-    )
+    names = file_artifact_cache.get_all_scope_names(found.file, analyzer.project)
     for name in names:
         if name.name == found.name and name.line == found.line:
             return name

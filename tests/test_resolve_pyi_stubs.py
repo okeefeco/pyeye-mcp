@@ -91,20 +91,21 @@ class TestStubOnly:
         assert found["location"]["file"].endswith("pkg/stubonly.pyi")
 
     @pytest.mark.asyncio
-    async def test_a_stub_only_package_init_is_an_honest_miss(self, project: Path) -> None:
-        """A package with only an ``__init__.pyi`` has no module handle (#933): it says why.
+    async def test_a_stub_only_package_init_resolves_as_its_package(self, project: Path) -> None:
+        """A package with only an ``__init__.pyi`` is a namespace package (#1004, was a #933 miss).
 
-        Its line forms land on a name Jedi resolves there (#885: a resolvable
-        stub line still resolves), so only the file form is a miss.
+        Its file form answers as its dotted name does: anchored at the package's
+        directory, not the stub, so it carries no ``stub`` flag (Check D.2).
         """
         (project / "stubpkg").mkdir()
         (project / "stubpkg" / "__init__.pyi").write_text("X: int\n", encoding="utf-8")
 
-        miss = await _call("resolve", project, identifier="stubpkg/__init__.pyi")
+        by_file = await _call("resolve", project, identifier="stubpkg/__init__.pyi")
+        by_name = await _call("resolve", project, identifier="stubpkg")
 
-        assert miss["found"] is False and miss["reason"] == "unresolved"
-        assert _STUB_ONLY in miss["detail"]
-        assert "__init__.py'" not in miss["detail"]  # no call to a file that doesn't exist
+        assert by_file["found"] is True and by_file["handle"] == "stubpkg"
+        assert by_file == by_name
+        assert "stub" not in by_file
 
     @pytest.mark.asyncio
     async def test_a_line_that_names_an_import_still_resolves(self, project: Path) -> None:

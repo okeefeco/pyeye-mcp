@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "A stub-only module has handles at its stub; a stub's imports are declarations, its bodies don't exist, and stub declarations carry `stub: true` (#933)"
 issues: [933, 885, 619, 602, 625, 614, 1004]
 anchors: ["pyeye.project_layout.module_name_for_file", "pyeye.project_layout.file_for_module", "pyeye.project_layout.is_module_file", "pyeye.project_layout.declaration_kind", "pyeye.project_layout.mark_stub", "pyeye.mcp.operations.edges.stub_declaration_file", "tests/test_stub_only_modules.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-885-a-pyi-stub-path-resolves-through-its-py-source.md", "2026-11-15-619-imports-and-imported-by-intentionally-differ-in-scope.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1004-a-namespace-package-is-declared-by-its-portions-stubs.md"]
 superseded_by: []
 ---
 

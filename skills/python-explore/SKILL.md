@@ -14,7 +14,9 @@ pyeye answers questions in three widening steps. Start at the cheapest that answ
 your question; only go wider when you need to.
 
 1. **Orient (cheap):** `resolve` a name to a canonical handle, then `inspect` it for
-   structure, or `outline` a module/class for its skeleton.
+   structure, or `outline` a module/class for its skeleton. A handle is pyeye's name for a
+   definition, not necessarily an importable path: a class defined in a function is
+   `pkg.mod.func.Name`. Pass handles back to pyeye; don't `import` them.
 2. **Drill (on demand):** `expand` one edge from a handle to see its immediate
    neighbours (members, callees, importers, subclasses…).
 3. **Trace (across hops):** `trace` follows edges multiple hops to see structure
@@ -204,6 +206,20 @@ of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The 
 
 `enclosing_scope` has none: lexical nesting is exact.
 
+**Determinism.** Each edge also has a determinism tier (#452): which engine picks its
+adjacents, and so what repeats across sessions. `goto` edges can return a different
+external (stdlib or installed) target from one session to the next, so compare their
+project-scope stubs across sessions, never their external ones:
+
+<!-- fact:begin determinism.table -->
+| Determinism | Edges | Guarantee |
+|---|---|---|
+| `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
+| `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
+| `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |
+<!-- fact:end -->
+
 ## ⭐ Honest Limits — pyeye Has No Reverse References (Delegate to Your LSP)
 
 This is the most important rule in this skill.
@@ -346,8 +362,10 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   file parsed). Read those files, or run pyeye on a newer Python, before concluding.
 - **`handleless_subclass_counts`** (present only when you traced `subclasses`): a
   `{handle: count}` map of nodes with direct subclasses that **no handle can name**: a
-  class defined in a function, in a file with no module path (`migrations/0001_initial.py`),
-  or under a non-ASCII name. They're real subclasses, so add them when you count, but `trace`
+  class two or more function levels deep (`nested_local`), one whose name is bound more
+  than once in its function, by another class, a `def` or an assignment (`ambiguous_local`), or one in a file with no module path
+  (`migrations/0001_initial.py`). A class in a function, one level deep and unique, does
+  have a handle (`pkg.mod.func.Name`). They're real subclasses, so add them when you count, but `trace`
   can't walk below them. `expand(handle, "subclasses")` carries `handleless_subclass_count`
   (always complete) and `handleless_subclasses: [{name, file, line, reason}, …]` to `Read`
   them; `max_stubs` caps that list on its own, so `count > len(list)` means it was cut.

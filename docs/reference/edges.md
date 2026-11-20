@@ -6,17 +6,17 @@ The edges `expand` and `trace` follow, from the edge registry.
 
 ## Implemented edges
 
-| Edge | Applies to | Ceiling |
-|---|---|---|
-| `members` | class, module | `static_definitions` |
-| `callees` | function, method | `static_calls` |
-| `imported_by` | module | `static_imports` |
-| `subclasses` | class | `literal_subclassing` |
-| `superclasses` | class | `declared_bases` |
-| `imports` | module | `static_imports` |
-| `enclosing_scope` | attribute, class, enum_member, function, method, property, variable | exact |
-| `submodules` | module | `on_disk_modules` |
-| `re_exports` | attribute, class, enum_member, function, method, property, variable | `package_reexports` |
+| Edge | Applies to | Ceiling | Determinism |
+|---|---|---|---|
+| `members` | class, module | `static_definitions` | `jedi_local` |
+| `callees` | function, method | `static_calls` | `goto` |
+| `imported_by` | module | `static_imports` | `ast` |
+| `subclasses` | class | `literal_subclassing` | `goto` |
+| `superclasses` | class | `declared_bases` | `goto` |
+| `imports` | module | `static_imports` | `goto` |
+| `enclosing_scope` | attribute, class, enum_member, function, method, property, variable | exact | `jedi_local` |
+| `submodules` | module | `on_disk_modules` | `filesystem` |
+| `re_exports` | attribute, class, enum_member, function, method, property, variable | `package_reexports` | `ast` |
 
 ## Deferred edges
 
@@ -33,3 +33,12 @@ Reference edges, deferred until an indexed reference backend lands (`expand` ans
 | `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
 | `static_definitions` | definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, \_\_getattr\_\_, type(), \_\_init\_subclass\_\_) are not included |
 | `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933) |
+
+## Determinism
+
+| Determinism | Edges | Guarantee |
+|---|---|---|
+| `filesystem` | `submodules` | read from a directory listing, without calling Jedi; the same result in every process for the same files on disk |
+| `ast` | `imported_by`, `re_exports` | read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source |
+| `jedi_local` | `members`, `enclosing_scope` | read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source |
+| `goto` | `callees`, `subclasses`, `superclasses`, `imports` | each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057) |

@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "configure_packages re-detects frameworks on the startup project; runtime tool registration is add-only (#659)"
 issues: [659, 665, 618, 637, 770]
 anchors: ["pyeye.mcp.server.redetect_plugins", "pyeye.mcp.server._activate_if_detected", "pyeye.mcp.server._detection_roots", "pyeye.mcp.server.register_plugin_tools", "pyeye.mcp.server.configure_packages", "pyeye.mcp.server.initialize_plugins"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-770-configure-packages-announces-new-tools.md"]
 superseded_by: []
 ---
 

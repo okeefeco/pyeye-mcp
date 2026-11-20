@@ -84,6 +84,7 @@ from pyeye.project_layout import (
     file_for_module,
     find_namespace_package_dirs,
     is_module_file,
+    namespace_stub_inits,
     package_kind,
 )
 from pyeye.resolver import (
@@ -146,7 +147,8 @@ class EdgeResult:
             ``[]`` when every file parsed; ``None`` for every other edge.
         handleless_subclasses: For ``subclasses`` (#1006), the direct subclasses
             no handle can name — ``{name, file, line, reason}``, ``reason``
-            one of ``function_local`` / ``no_module_path`` / ``not_a_handle`` —
+            one of ``nested_local`` / ``ambiguous_local`` / ``no_module_path`` /
+            ``not_a_handle`` —
             sorted by file then line, complete (``expand`` caps the list it
             returns). Found and resolved as subclasses, so not ``unresolved_*``.
             ``[]`` when every subclass has a handle; ``None`` for every other edge.
@@ -433,6 +435,50 @@ CEILING_MEANINGS: dict[str, str] = {
 }
 
 
+#: How deterministic each implemented edge is (#452): which engine picks its
+#: adjacents, and so what is guaranteed to repeat. One tier per edge in
+#: :data:`EDGE_RESOLVERS`, and ``tests/test_edge_determinism.py`` holds every
+#: edge to its tier's contract: in-process across a cache rebuild, without Jedi
+#: for the ``filesystem`` and ``ast`` tiers, and across fresh processes with
+#: different hash seeds.
+EDGE_DETERMINISM: dict[str, str] = {
+    "submodules": "filesystem",
+    "imported_by": "ast",
+    "re_exports": "ast",
+    "members": "jedi_local",
+    "enclosing_scope": "jedi_local",
+    "imports": "goto",
+    "callees": "goto",
+    "superclasses": "goto",
+    "subclasses": "goto",
+}
+
+#: What each determinism tier guarantees: the one definition the docs, the
+#: skill and the tool descriptions use (#452).
+DETERMINISM_MEANINGS: dict[str, str] = {
+    "filesystem": (
+        "read from a directory listing, without calling Jedi; the same result in every "
+        "process for the same files on disk"
+    ),
+    "ast": (
+        "read from the syntax tree of the project's files, without calling Jedi; the same "
+        "result in every process for the same source"
+    ),
+    "jedi_local": (
+        "read by Jedi from the source's own file, with no cross-file inference; the same "
+        "result in every process for the same source"
+    ),
+    "goto": (
+        "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same "
+        "in every process; an external (stdlib or installed) target behind a try/except "
+        "import shim may differ between processes (#419), so don't compare external "
+        "adjacents across sessions. Known gap: a subclasses result whose base is named "
+        "through a try/except import shim may differ between processes even in project "
+        "scope (#1057)"
+    ),
+}
+
+
 def edge_kind(jedi_name: Any) -> str:
     """The kind the applicability table is keyed on (methods promoted, #406)."""
     return normalise_kind_from_name(jedi_name)
@@ -636,8 +682,7 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     handle_depth = len(handle.split("."))
     # Jedi recovers from syntax errors, so a failure here is internal: it
     # propagates, never a measured empty (#704).
-    script = file_artifact_cache.get_script(file_path, analyzer.project)
-    names = script.get_names(all_scopes=True, definitions=True, references=False)
+    names = file_artifact_cache.get_all_scope_names(file_path, analyzer.project)
 
     selected = (
         (name, full_name)
@@ -690,8 +735,25 @@ def _module_members(
     """
     file_path = _own_source(jedi_name)
     if file_path is None:
-        return []
+        # A namespace package has no body of its own, but its portions'
+        # __init__.pyi declare its members, as Jedi merges them (#1004). The
+        # first portion's declaration of a name wins (_collect_members keeps
+        # the first per handle), as sys.path order does.
+        return _collect_members(
+            (
+                pair
+                for init in namespace_stub_inits(handle, analyzer)
+                for pair in _module_member_names(init, handle, analyzer)
+            ),
+            analyzer,
+        )
+    return _collect_members(_module_member_names(file_path, handle, analyzer), analyzer)
 
+
+def _module_member_names(
+    file_path: Path, handle: str, analyzer: JediAnalyzer
+) -> list[tuple[Any, str]]:
+    """``(Jedi Name, full_name)`` for each top-level definition in *file_path*, imports excluded."""
     # A module whose own file doesn't parse has unknown members, not none:
     # raised, never swallowed into [] (#703).  Parse first, so Jedi's error
     # recovery can't produce a partial list for a file Python rejects. Any other
@@ -722,12 +784,11 @@ def _module_members(
 
     # Step 3: emit (handle, name) pairs for every non-import top-level name.
     # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
-    selected = (
+    return [
         (name, name.full_name or f"{handle}.{name.name}")
         for name in names
         if name.name not in import_bound_names and not is_attribute_target(name)
-    )
-    return _collect_members(selected, analyzer)
+    ]
 
 
 def _collect_members(

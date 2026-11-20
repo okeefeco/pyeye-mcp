@@ -3,10 +3,10 @@ date: "2026-11-19"
 title: "Every configured package is on Jedi's sys_path, in one fixed root order (#858, #962)"
 issues: [858, 962, 625, 814, 857, 419, 953]
 anchors: ["pyeye.analyzers.jedi_analyzer.JediAnalyzer.set_additional_paths", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._jedi_roots", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._refresh_jedi_project", "pyeye.analyzers.jedi_analyzer.JediAnalyzer.set_namespace_paths", "tests/test_configured_packages_on_jedi_path.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-625-one-project-roots-policy-and-one-file-module-mapper-both.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-971-names-path-compares-jedis-own-name.md"]
 superseded_by: []
 ---
 

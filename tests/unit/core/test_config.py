@@ -30,9 +30,12 @@ class TestProjectConfig:
 
     def test_load_pyeye_json_config(self, temp_project_dir):
         """Test loading configuration from .pyeye.json file."""
+        # Absolute on every platform: on Windows a bare "/repos/x" is root-relative,
+        # which a repository's config may not name (#1048).
+        repos = (temp_project_dir.parent / "repos").as_posix()
         config_data = {
             "packages": ["../lib1", "../lib2"],
-            "namespaces": {"company": ["/repos/company-auth", "/repos/company-api"]},
+            "namespaces": {"company": [f"{repos}/company-auth", f"{repos}/company-api"]},
             "cache_ttl": 600,
         }
 
@@ -65,13 +68,15 @@ class TestProjectConfig:
 
     def test_load_pyeye_pyproject_toml(self, temp_project_dir):
         """Test loading configuration from [tool.pyeye] in pyproject.toml."""
-        toml_content = """
+        # Absolute on every platform (see test_load_pyeye_json_config, #1048).
+        repos = (temp_project_dir.parent / "repos").as_posix()
+        toml_content = f"""
 [tool.pyeye]
 packages = ["../shared", "../common"]
 cache_ttl = 300
 
 [tool.pyeye.namespaces]
-mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
+mycompany = ["{repos}/mycompany-core", "{repos}/mycompany-utils"]
 """
 
         toml_file = temp_project_dir / "pyproject.toml"
@@ -82,8 +87,8 @@ mycompany = ["/repos/mycompany-core", "/repos/mycompany-utils"]
         assert config.config["packages"] == ["../shared", "../common"]
         assert config.config["cache_ttl"] == 300
         assert config.config["namespaces"]["mycompany"] == [
-            "/repos/mycompany-core",
-            "/repos/mycompany-utils",
+            f"{repos}/mycompany-core",
+            f"{repos}/mycompany-utils",
         ]
 
     def test_config_file_precedence(self, temp_project_dir):

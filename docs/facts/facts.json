@@ -64,6 +64,35 @@
     "config.key.scope_aliases": "scope_aliases",
     "config.key.scope_defaults": "scope_defaults",
     "config.key.standalone": "standalone",
+    "determinism.ast": {
+      "edges": [
+        "imported_by",
+        "re_exports"
+      ],
+      "meaning": "read from the syntax tree of the project's files, without calling Jedi; the same result in every process for the same source"
+    },
+    "determinism.filesystem": {
+      "edges": [
+        "submodules"
+      ],
+      "meaning": "read from a directory listing, without calling Jedi; the same result in every process for the same files on disk"
+    },
+    "determinism.goto": {
+      "edges": [
+        "callees",
+        "subclasses",
+        "superclasses",
+        "imports"
+      ],
+      "meaning": "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same in every process; an external (stdlib or installed) target behind a try/except import shim may differ between processes (#419), so don't compare external adjacents across sessions. Known gap: a subclasses result whose base is named through a try/except import shim may differ between processes even in project scope (#1057)"
+    },
+    "determinism.jedi_local": {
+      "edges": [
+        "members",
+        "enclosing_scope"
+      ],
+      "meaning": "read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source"
+    },
     "duplication.command.dismiss": {},
     "duplication.command.review": {},
     "duplication.default.max_occurrences": 50,
@@ -135,6 +164,7 @@
         "method"
       ],
       "ceiling": "static_calls",
+      "determinism": "goto",
       "status": "implemented"
     },
     "edge.callers": {
@@ -157,6 +187,7 @@
         "variable"
       ],
       "ceiling": null,
+      "determinism": "jedi_local",
       "status": "implemented"
     },
     "edge.imported_by": {
@@ -164,6 +195,7 @@
         "module"
       ],
       "ceiling": "static_imports",
+      "determinism": "ast",
       "status": "implemented"
     },
     "edge.imports": {
@@ -171,6 +203,7 @@
         "module"
       ],
       "ceiling": "static_imports",
+      "determinism": "goto",
       "status": "implemented"
     },
     "edge.members": {
@@ -179,6 +212,7 @@
         "module"
       ],
       "ceiling": "static_definitions",
+      "determinism": "jedi_local",
       "status": "implemented"
     },
     "edge.overridden_by": {
@@ -201,6 +235,7 @@
         "variable"
       ],
       "ceiling": "package_reexports",
+      "determinism": "ast",
       "status": "implemented"
     },
     "edge.read_by": {
@@ -214,6 +249,7 @@
         "class"
       ],
       "ceiling": "literal_subclassing",
+      "determinism": "goto",
       "status": "implemented"
     },
     "edge.submodules": {
@@ -221,6 +257,7 @@
         "module"
       ],
       "ceiling": "on_disk_modules",
+      "determinism": "filesystem",
       "status": "implemented"
     },
     "edge.superclasses": {
@@ -228,6 +265,7 @@
         "class"
       ],
       "ceiling": "declared_bases",
+      "determinism": "goto",
       "status": "implemented"
     },
     "edge.written_by": {

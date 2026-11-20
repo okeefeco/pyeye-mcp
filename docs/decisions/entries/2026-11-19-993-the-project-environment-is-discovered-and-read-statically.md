@@ -3,10 +3,10 @@ date: "2026-11-19"
 title: "The project's Python environment is discovered by convention and read statically; Jedi runs only pyeye's interpreter (#993)"
 issues: [993, 722, 858, 665, 618, 568, 856, 909]
 anchors: ["pyeye.environment.discover", "pyeye.environment.site_paths", "pyeye.environment.not_found_note", "pyeye._jedi_project.make_project", "pyeye._jedi_project.own_environment", "tests/test_project_environment.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-16-722-jedi-s-own-subprocess-directory-is-never-on-pyeye-s-sys-path.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1035-editable-finders-are-read-as-text-never-run.md"]
 superseded_by: []
 ---
 
