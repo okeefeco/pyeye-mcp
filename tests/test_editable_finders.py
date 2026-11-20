@@ -205,8 +205,13 @@ class TestBudget:
 
         assert site_paths(tmp_path / ".venv")[1:] == [two.resolve().as_posix()]
 
+    @_POSIX_ONLY
     def test_a_same_size_rewrite_with_its_mtime_restored_is_reread(self, tmp_path: Path) -> None:
-        """The memo key has the ctime too, which os.utime can't restore (#1045 review)."""
+        """The memo key has the ctime too, which os.utime can't restore (#1045 review).
+
+        POSIX only: on Windows st_ctime is the creation time, so this rewrite
+        isn't detected there (a recorded limit; roots are re-checked anyway).
+        """
         import os
 
         site = _site(tmp_path)
@@ -302,6 +307,65 @@ class TestNonRegularFiles:
             site.resolve().as_posix(),
             project.resolve().as_posix(),
         ]
+
+
+class TestUnusableFinders:
+    """Each way a finder can fail to give a root adds nothing and never raises."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "MAPPING = {'flatpkg': \n",  # a syntax error
+            "MAPPING = {'a': " + "(" * 5000 + "'/x'" + ")" * 5000 + "}\n",  # nested in the cap
+        ],
+        ids=["syntax-error", "nested-within-the-cap"],
+    )
+    def test_a_finder_that_does_not_parse(self, tmp_path: Path, source: str) -> None:
+        site = _site(tmp_path)
+        (site / "m.pth").write_text("import M\n", encoding="utf-8")
+        (site / "M.py").write_text(source, encoding="utf-8")
+
+        assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
+
+    @pytest.mark.parametrize(
+        "statement",
+        [
+            "MAPPING = {1: '/x/flatpkg'}\n",  # a non-str key
+            "NAMESPACES = {'acme': [ROOT]}\n",  # a non-str element
+            "MAPPING = {'flatpkg': 'relative/flatpkg'}\n",  # a relative target
+            "MAPPING = {'not-a-name': '/x/not-a-name'}\n",  # not an identifier
+        ],
+    )
+    def test_an_unusable_entry(self, tmp_path: Path, statement: str) -> None:
+        site, project = _site(tmp_path), _flat_project(tmp_path, "goodpkg")
+        good = f"F.map_module('goodpkg', {str((project / 'goodpkg').as_posix())!r})\n"
+        (site / "m.pth").write_text("import M\n", encoding="utf-8")
+        (site / "M.py").write_text(statement + good, encoding="utf-8")
+
+        assert site_paths(tmp_path / ".venv") == [
+            site.resolve().as_posix(),
+            project.resolve().as_posix(),
+        ]
+
+    def test_the_memo_evicts_when_full(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(env_module, "_FINDER_CACHE_SIZE", 1)
+        site = _site(tmp_path)
+        one, two = _flat_project(tmp_path, "onepkg"), _flat_project(tmp_path, "twopkg")
+        for name, project in (("onepkg", one), ("twopkg", two)):
+            (site / f"_editable_impl_{name}.pth").write_text(
+                f"import _editable_impl_{name}", "utf-8"
+            )
+            (site / f"_editable_impl_{name}.py").write_text(
+                f"F.map_module({name!r}, {str((project / name).as_posix())!r})\n", "utf-8"
+            )
+
+        assert site_paths(tmp_path / ".venv")[1:] == [
+            one.resolve().as_posix(),
+            two.resolve().as_posix(),
+        ]
+        assert len(env_module._FINDER_CACHE) == 1
 
 
 class TestNeverRun:
@@ -422,6 +486,28 @@ class TestHostile:
             validation._credential_pattern.cache_clear()
 
     @_POSIX_ONLY
+    def test_a_symlinked_finder_is_refused_without_o_nofollow(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Where the OS has no O_NOFOLLOW (Windows), an is_symlink check refuses it."""
+        import os
+
+        site, project = _site(tmp_path), _flat_project(tmp_path)
+        real = tmp_path / "elsewhere" / "finder.py"
+        real.parent.mkdir()
+        real.write_text(
+            f"MAPPING = {{'flatpkg': {str((project / 'flatpkg').as_posix())!r}}}\n",
+            encoding="utf-8",
+        )
+        (site / "__editable__.flatpkg-0.1.pth").write_text(
+            "import __editable___flatpkg_0_1_finder", encoding="utf-8"
+        )
+        (site / "__editable___flatpkg_0_1_finder.py").symlink_to(real)
+        monkeypatch.delattr(os, "O_NOFOLLOW")
+
+        assert site_paths(tmp_path / ".venv") == [site.resolve().as_posix()]
+
+    @_POSIX_ONLY
     def test_a_symlinked_finder_is_not_read(self, tmp_path: Path) -> None:
         site, project = _site(tmp_path), _flat_project(tmp_path)
         real = tmp_path / "elsewhere" / "finder.py"
@@ -453,8 +539,12 @@ class TestHostile:
     ) -> None:
         site = _site(tmp_path)
         monkeypatch.setattr(env_module, "MAX_PTH_LINES", 3)
-        # Distinct parents, so dedup can't hide the bound (#1045 review).
-        mapping = ", ".join(f"'p{i}': '/nowhere{i}/p{i}'" for i in range(50))
+        # Distinct parents, so dedup can't hide the bound (#1045 review), and
+        # absolute on every platform: '/nowhere' has no drive on Windows.
+        missing = tmp_path / "missing"
+        mapping = ", ".join(
+            f"'p{i}': {(missing / f'nowhere{i}' / f'p{i}').as_posix()!r}" for i in range(50)
+        )
         _setuptools_finder(site, "{" + mapping + "}")
         looked_up: list[Path] = []
         real_is_dir = Path.is_dir

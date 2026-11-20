@@ -50,6 +50,7 @@ Measured per build backend with `uv pip install -e` (#1035): every backend write
 - **Known limits** (informational, final pass; each needs a concurrent local attacker):
   - Windows has no `O_NOFOLLOW`, so the symlink refusal is an `is_symlink` check before `open`, and racy;
   - a swap of a PARENT directory component between listing and open isn't covered (`openat` with `dir_fd` would cover it).
+  - Windows: a same-size in-place rewrite with the mtime restored isn't detected, because `st_ctime` there is the creation time. Roots are re-checked on every call, so there is no security impact.
 - **Filed separately:** on Windows, a UNC target is touched before the path check, both for a `.pth` line and for a finder root (#1048). It predates this, and the fix must refuse UNC paths lexically.
 
 **Anchor:** `pyeye.environment._finder_roots` / `_finder_targets` / `_root_for` / `_pth_paths`; #1035, #993, #998.
