@@ -371,6 +371,8 @@ def _home_spelling() -> str | None:
 #: The first wait before retrying a failed passwd lookup, and the longest (#1030 review).
 _PASSWD_RETRY_FIRST_S = 5.0
 _PASSWD_RETRY_MAX_S = 300.0
+#: How long a check waits for a lookup another thread is making (#1030 final review).
+_PASSWD_WAIT_S = 2.0
 
 
 class _PasswdHome:
@@ -381,10 +383,15 @@ class _PasswdHome:
     for the process: the uid doesn't change, and a lookup can be slow (NSS,
     LDAP). A failed one (LDAP or SSSD down, no entry yet) is retried, after
     5 s and then twice as long each time up to 5 min, so an outage can't blind
-    the deny-list for the life of the process (#1030 review). Meanwhile, and
-    while another thread is looking it up, the answer is ``None``. An empty or
+    the deny-list for the life of the process (#1030 review). An empty or
     relative ``pw_dir`` is no home: ``Path("")`` would make the working
     directory one (#1030 review).
+
+    A check that arrives while another thread is looking it up WAITS for that
+    lookup, up to :data:`_PASSWD_WAIT_S`, rather than answering ``None`` at
+    once: answering early let a store below that home through during the
+    lookup (#1030 final review). The answer is ``None`` only during the
+    backoff after a real failure, or when a lookup hangs past the wait.
     """
 
     def __init__(self) -> None:
@@ -397,11 +404,15 @@ class _PasswdHome:
     def __call__(self) -> str | None:
         if self._known:
             return self._value
-        if time.monotonic() < self._retry_at or not self._lock.acquire(blocking=False):
-            return None
+        if time.monotonic() < self._retry_at:
+            return None  # backing off after a real failure (documented window)
+        if not self._lock.acquire(timeout=_PASSWD_WAIT_S):
+            return None  # another thread's lookup is hanging (documented)
         try:
             if self._known:
                 return self._value
+            if time.monotonic() < self._retry_at:
+                return None  # the lookup we waited for failed
             return self._look_up()
         finally:
             self._lock.release()
@@ -429,7 +440,10 @@ class _PasswdHome:
         return self._value
 
     def cache_clear(self) -> None:
-        """Forget the lookup and any pending retry."""
+        """Forget the lookup and any pending retry.
+
+        Not locked: it is for tests, which call it with no lookup running.
+        """
         self._value = None
         self._known = False
         self._retry_at = 0.0

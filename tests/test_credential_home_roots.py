@@ -307,3 +307,59 @@ class TestThePasswdLookup:
         answer[0] = real_home.as_posix()  # the directory came back
 
         assert credential_path(real_home / ".aws" / "credentials") == ".aws"
+
+
+class TestALookupInFlight:
+    """The #1051 final review: a check during the FIRST lookup must not fail open (#1030)."""
+
+    def test_a_concurrent_check_waits_and_refuses_the_store(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, homes: Callable[..., None]
+    ) -> None:
+        import pwd
+        import threading
+
+        svc = tmp_path / "svc"  # the passwd home, outside every home root
+        svc.mkdir()
+        homes(tmp_path / "srv")  # $HOME=/srv-like
+        entered, release = threading.Event(), threading.Event()
+
+        def slow_getpwuid(_uid: int):  # type: ignore[no-untyped-def]
+            entered.set()
+            assert release.wait(5)
+            return type("pw", (), {"pw_dir": svc.as_posix()})()
+
+        monkeypatch.setattr(pwd, "getpwuid", slow_getpwuid)
+        lookup = validation._PasswdHome()
+        monkeypatch.setattr(validation, "_passwd_home", lookup)
+        first = threading.Thread(target=lookup)
+        first.start()
+        assert entered.wait(5)  # the first lookup is now in flight
+
+        answers: list[str | None] = []
+        check = threading.Thread(
+            target=lambda: answers.append(credential_path(svc / ".ssh" / "id_rsa"))
+        )
+        check.start()
+        check.join(0.3)
+        assert check.is_alive()  # it waits for the lookup rather than answering early
+        release.set()
+        check.join(5)
+        first.join(5)
+
+        assert answers == [".ssh"]
+
+    def test_a_hung_lookup_bounds_the_wait(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Past the wait the answer is None (documented): one hang can't stall every check."""
+        import threading
+        import time as real_time
+
+        monkeypatch.setattr(validation, "_PASSWD_WAIT_S", 0.2)
+        lookup = validation._PasswdHome()
+        lookup._lock.acquire()  # a lookup stuck in another thread
+        try:
+            start = real_time.monotonic()
+            assert lookup() is None
+            assert real_time.monotonic() - start < 2
+        finally:
+            lookup._lock.release()
+        assert threading.active_count() >= 1

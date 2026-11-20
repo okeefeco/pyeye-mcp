@@ -24,7 +24,8 @@ superseded_by: []
   - **A failed resolve fails toward the spelling.** It is logged and retried at the next rebuild, and the spelled root still applies meanwhile.
   - **A root resolving to `/` is skipped:** `^/[^/]+/` would make every top-level directory a home.
 - **The passwd home.** `_passwd_home` (`pwd.getpwuid(os.getuid()).pw_dir`, POSIX) is a home like `$HOME`: matched as spelled and as resolved, and its links are recorded. From the review:
-  - **Only a success is kept.** A failed lookup (LDAP or SSSD down) is retried after 5 s, then twice as long each time up to 5 min. A lookup already running in another thread answers `None` rather than blocking. Caching a failure, as `functools.cache` did, failed open for the life of the process.
+  - **Only a success is kept.** A failed lookup (LDAP or SSSD down) is retried after 5 s, then twice as long each time up to 5 min. Caching a failure, as `functools.cache` did, failed open for the life of the process.
+  - **A check waits for a lookup in flight** (final review). It waits up to 2 s (`_PASSWD_WAIT_S`) rather than answering `None` at once: answering early let the passwd home's stores, spelled and linked, through during the first lookup. The answer is `None` only in two documented windows: the backoff after a real failure, and a lookup that hangs past the wait. Then the stores below that home are refused by spelling only if a home root covers them.
   - **An empty or relative `pw_dir` is no home.** `Path("")` is `.`, which would make the working directory a home and refuse a project's own `.npmrc`.
   - **The cheap key compares the passwd home's cached value and never stats it.** The full key reads its store links, and a build covers it. Stat'ing it on every call would hang every check when it sits on a dead mount. The trade-off is a documented limit: a store below the passwd home (when that isn't `$HOME`) relinked while the server runs is matched at its new target at the next rebuild, a change in `$HOME`'s store directories, or after a restart. Paths spelled through the store are refused all along. A recovered lookup changes the cached value and so the cheap key, so the stores are rebuilt at once.
 - **`HOME=/`** (pre-existing from #1028, found in the review). `"/".rstrip("/")` is empty, so the cheap key stat'ed `""` and saw nothing. `_under` joins paths below a home correctly for `/`.
@@ -44,7 +45,7 @@ superseded_by: []
 
 - a store at a symlinked root's resolved form is refused and pruned, and a walk through the link skips it;
 - a root is resolved once across rebuilds and never under the store lock; a failed resolve logs, keeps the spelling and is retried; a root resolving to `/` adds nothing; `HOME=/` still has a cheap key;
-- a failed passwd lookup is retried after the backoff rather than cached, and a success is kept; an empty or relative `pw_dir` is no home; a recovered lookup rebuilds the stores;
+- a failed passwd lookup is retried after the backoff rather than cached, and a success is kept; a concurrent check waits for the first lookup and refuses the store (red at the earlier non-blocking version), and a hung lookup bounds the wait; an empty or relative `pw_dir` is no home; a recovered lookup rebuilds the stores;
 - a single-home root resolves as one home;
 - every `USER_HOMES` pattern reads as a root;
 - the passwd home's linked store is refused at its target, and its stores are refused by spelling. A relink below it is seen at the next rebuild (pinned limit), and the cheap key never stats it;

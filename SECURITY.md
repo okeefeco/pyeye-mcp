@@ -158,7 +158,10 @@ they can't drift from it.
   autofs `/home/u` that points at `/data/u`) is covered under either name.
   When `$HOME` isn't the user's home in the password database (a service
   started with `HOME=/srv/app`), that home counts as the server's own too
-  (#1030). A failed lookup (LDAP or SSSD down) is retried, not remembered. A
+  (#1030). A failed lookup (LDAP or SSSD down) is retried, not remembered; a
+  check made while the lookup runs waits for it, for a short bounded time, so
+  only a failed or hung lookup leaves that home's stores to the spelled
+  patterns. A
   credential store below the server's home that is itself a
   symlink (`~/.ssh` pointing at `/data/keys`, or a Windows junction) is also
   matched where it points, so a file reached through the target is refused
