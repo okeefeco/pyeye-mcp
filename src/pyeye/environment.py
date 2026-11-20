@@ -374,6 +374,16 @@ def not_found_note(analyzer: Any, dotted: str) -> str | None:
     env = getattr(analyzer, "environment", None)
     if env is None or env.source != SOURCE_NONE:
         return None
+    return NO_ENVIRONMENT_NOTE if third_party_top(analyzer, dotted) is not None else None
+
+
+def third_party_top(analyzer: Any, dotted: str) -> str | None:
+    """*dotted*'s top-level name when it looks third-party, else ``None`` (#993, #1035).
+
+    Third-party: an identifier that is neither a standard-library module nor a
+    module of the project's own roots. The one test behind both not-found
+    notes (no environment; an undeclared sibling).
+    """
     top = dotted.split(".", 1)[0]
     if not top.isidentifier() or top in sys.stdlib_module_names:
         return None
@@ -381,4 +391,4 @@ def not_found_note(analyzer: Any, dotted: str) -> str | None:
 
     if file_for_module(analyzer, top) is not None:
         return None
-    return NO_ENVIRONMENT_NOTE
+    return top

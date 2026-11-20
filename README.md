@@ -183,8 +183,20 @@ Configuration is loaded in the following order (later sources override earlier o
 1. **Global Config**: the first of <!-- fact:begin config.files.global -->`~/.config/pyeye/config.json`, `~/.pyeye.json`<!-- fact:end --> that exists - User defaults
 2. **Project Config**: the first of <!-- fact:begin config.files.project -->`.pyeye.json`, `.pyeye.yaml`, `.pyeye.yml`, `pyproject.toml`, `.claude/pyeye.json`<!-- fact:end --> in the project root (in `pyproject.toml`, the `[tool.pyeye]` section)
 3. **Override File**: <!-- fact:begin config.files.override -->`.pyeye.override.json`<!-- fact:end --> - Local development overrides (keep it out of git)
-4. **Auto-Discovery**, only if no `packages` are configured yet: a `src/` layout is used when there is one; otherwise sibling packages are added. (The project's virtualenv isn't a package: pyeye reads it as the project's environment, above.) `configure_packages` lists what was discovered under `discovered`, and a save never writes it to `.pyeye.json`.
+4. **Auto-Discovery**: a `src/` layout, only if no `packages` are configured yet, and the path dependencies the project's `pyproject.toml` declares, always (below). (The project's virtualenv isn't a package: pyeye reads it as the project's environment, above.) `configure_packages` lists what was discovered under `discovered`, and a save never writes it to `.pyeye.json`.
 5. **This session's unsaved additions**: packages, namespaces and standalone directories added with `configure_packages(save=false)`. They're applied last and don't stop auto-discovery
+
+**Packages beside your project.** pyeye doesn't guess at neighbouring directories (#1035). A package that lives beside your project is analysed when one of these says so:
+
+- **A path dependency in `pyproject.toml`,** read statically:
+  - `[tool.uv.sources]` entries with a `path`;
+  - `[tool.uv.workspace]` `members` (a glob member stays inside the workspace; a literal path can point anywhere);
+  - Poetry `path` dependencies, in the main table and in groups;
+  - `name @ file:...` references in `[project]` dependencies, optional dependencies and `[dependency-groups]`. PDM's `${PROJECT_ROOT}` and Hatch's `{root:uri}` are expanded.
+- **An editable install** in the project's environment that writes its path to a `.pth` file. That covers every common build backend with a `src/` layout, and flat layouts on hatchling, pdm-backend, flit, poetry-core and uv_build. Setuptools' flat-layout install uses an import-hook `.pth` instead, which pyeye doesn't run, so declare such a package or configure it.
+- **Your pyeye config:** `packages`, `namespaces`, or `configure_packages`.
+
+A declared directory with a `src/` layout is read from its `src/`. When a top-level import doesn't resolve, `resolve` and `inspect` suggest declaring the package or adding it with `configure_packages`.
 
 The top-level keys pyeye reads are <!-- fact:begin config.keys -->`packages`, `namespaces`, `standalone`, `scope_defaults`, `scope_aliases`, `environment`<!-- fact:end -->.
 

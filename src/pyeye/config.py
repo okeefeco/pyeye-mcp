@@ -141,7 +141,8 @@ class ProjectConfig:
         1. Global config (~/.config/pyeye/config.json)
         2. Project config files (.pyeye.json, pyproject.toml, etc.)
         3. Override file (.pyeye.override.json) - for local development
-        4. Auto-discovery (if no packages configured)
+        4. Auto-discovery (if no packages configured): a ``src/`` layout. Then,
+           always, the path dependencies ``pyproject.toml`` declares (#1035)
         5. The session's unsaved additions (``configure_packages(save=False)``,
            #953), last, as a ``save=False`` call appended them before: they
            don't suppress auto-discovery
@@ -166,6 +167,10 @@ class ProjectConfig:
         # 4. Auto-discover if no config found
         if not self.config.get("packages"):
             self._auto_discover()
+
+        # 4b. Path dependencies the project declares in pyproject.toml, always:
+        # they are the project's own facts, read statically, never saved (#1035).
+        self._add_declared_dependencies()
 
         # 5. The session's unsaved additions (#953), merged as a save merges them.
         if self.include_unsaved:
@@ -216,13 +221,18 @@ class ProjectConfig:
     def discovered(self) -> list[dict[str, str]]:
         """The packages pyeye added on its own, each with why (#1038).
 
-        ``reason`` is ``sibling``, ``src_layout``, ``pyright_extra_paths`` or
-        ``build_backend_layout``. ``path`` is resolved and POSIX, the form
-        ``packages`` reports. ``[]`` when none were added, e.g. once
-        ``packages`` are configured. They are analysed, but never saved.
+        ``reason`` is ``src_layout``, ``pyright_extra_paths``,
+        ``build_backend_layout``, or a declared path dependency's
+        (``uv_source``, ``uv_workspace``, ``poetry_path``,
+        ``pep621_file_url``; #1035). ``path`` is resolved and POSIX, the form
+        ``packages`` reports. An entry the path check refuses is not listed:
+        it is in :meth:`rejected_paths` instead. ``[]`` when none were added.
+        They are analysed, but never saved.
         """
         out = []
         for entry, reason in self._derived:
+            if self._package_refusal(entry) is not None:
+                continue
             path = Path(entry).expanduser()
             if not path.is_absolute():
                 path = self.project_path / path
@@ -509,50 +519,35 @@ class ProjectConfig:
             return True
         return False
 
-    def _discover_sibling_packages(self) -> list[str]:
-        """Discover sibling packages in parent directory.
-
-        Returns:
-            List of sibling package paths
-        """
-        potential_packages = []
-        parent = self.project_path.parent
-
-        if parent != self.project_path:
-            try:
-                # Sorted: iterdir order varies by filesystem, and the packages'
-                # order is Jedi's root order (#1038).
-                for sibling in sorted(parent.iterdir()):
-                    try:
-                        if (
-                            sibling.is_dir()
-                            and sibling != self.project_path
-                            and (any(sibling.glob("*.py")) or (sibling / "setup.py").exists())
-                        ):
-                            potential_packages.append(str(sibling))
-                    except (PermissionError, OSError):
-                        continue
-            except (PermissionError, OSError):
-                pass
-
-        return potential_packages
-
     def _auto_discover(self) -> None:
-        """Auto-discover package locations."""
-        # Check for src layout first (most specific pattern)
-        if self._discover_src_layout():
-            return  # Don't look for other patterns if src/ found
+        """Auto-discover the project's own source root: a ``src/`` layout.
 
-        # Discover sibling packages. The project's virtualenv is not a package:
-        # its site-packages reach Jedi as the project environment, for every
-        # layout, src/ included (pyeye.environment, #993).
-        potential_packages = []
-        potential_packages.extend(self._discover_sibling_packages())
+        Directories beside the project are never guessed (#1035): a sibling
+        package comes from a declaration (:meth:`_add_declared_dependencies`),
+        the project's environment (#993) or pyeye's own config. The project's
+        virtualenv is not a package either: it is the environment.
+        """
+        self._discover_src_layout()
 
-        if potential_packages:
-            logger.info(f"Auto-discovered packages: {potential_packages}")
-            self.config.setdefault("packages", []).extend(potential_packages)
-            self._derived.extend((p, "sibling") for p in potential_packages)
+    def _add_declared_dependencies(self) -> None:
+        """Add the path dependencies the project's ``pyproject.toml`` declares (#1035).
+
+        Read statically by :func:`pyeye.declared_deps.declared_path_dependencies`.
+        Each is a derived package: analysed, reported in :meth:`discovered`,
+        never saved, and path-checked like any configured package.
+        """
+        from .declared_deps import declared_path_dependencies
+
+        packages = self.config.setdefault("packages", [])
+        have = {_posix_entry(p) for p in packages}
+        for root, reason in declared_path_dependencies(self.project_path):
+            if root in have:
+                continue
+            have.add(root)
+            packages.append(root)
+            self._derived.append((root, reason))
+        if not packages:
+            del self.config["packages"]
 
     def _process_package_path(self, package: str) -> list[str]:
         """Process a single package path, handling globs and validation.

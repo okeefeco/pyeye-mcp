@@ -163,12 +163,17 @@ virtualenv's `path` (or `null`), and its `source`: `config` (the `environment`
 setting), `project` (a `.venv`, `venv` or `env` in the project), `VIRTUAL_ENV` or
 `CONDA_PREFIX` (an activated environment), or `none` (#993).
 
-`discovered` lists the packages pyeye added on its own, because none are
-configured: each as `{"path", "reason"}`, with `reason` one of `sibling` (a
-directory beside the project), `src_layout`, `pyright_extra_paths` (from
-`[tool.pyright]`) or `build_backend_layout` (from `pyproject.toml`'s build
-backend). They are analysed, so they are in `packages` too, but a save never
-writes them. It is `[]` when none were added (#1038).
+`discovered` lists the packages pyeye added on its own: each as
+`{"path", "reason"}`, with `reason` one of:
+
+- `src_layout`, when no packages are configured;
+- `pyright_extra_paths` (from `[tool.pyright]`);
+- `build_backend_layout` (from `pyproject.toml`'s build backend);
+- for a path dependency `pyproject.toml` declares (#1035): `uv_source`, `uv_workspace`, `poetry_path` or `pep621_file_url`.
+
+They are analysed, so they are in `packages` too, but a save never writes
+them. A declared path the path check refuses is in `rejected_paths` instead.
+It is `[]` when none were added (#1038).
 
 `unsaved` lists the entries that live only in this session, not in a config
 file, in the same shape as `packages`, `namespaces` and `standalone`, so each
