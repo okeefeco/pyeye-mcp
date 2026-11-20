@@ -434,6 +434,50 @@ CEILING_MEANINGS: dict[str, str] = {
 }
 
 
+#: How deterministic each implemented edge is (#452): which engine picks its
+#: adjacents, and so what is guaranteed to repeat. One tier per edge in
+#: :data:`EDGE_RESOLVERS`, and ``tests/test_edge_determinism.py`` holds every
+#: edge to its tier's contract: in-process across a cache rebuild, without Jedi
+#: for the ``filesystem`` and ``ast`` tiers, and across fresh processes with
+#: different hash seeds.
+EDGE_DETERMINISM: dict[str, str] = {
+    "submodules": "filesystem",
+    "imported_by": "ast",
+    "re_exports": "ast",
+    "members": "jedi_local",
+    "enclosing_scope": "jedi_local",
+    "imports": "goto",
+    "callees": "goto",
+    "superclasses": "goto",
+    "subclasses": "goto",
+}
+
+#: What each determinism tier guarantees: the one definition the docs, the
+#: skill and the tool descriptions use (#452).
+DETERMINISM_MEANINGS: dict[str, str] = {
+    "filesystem": (
+        "read from a directory listing, without calling Jedi; the same result in every "
+        "process for the same files on disk"
+    ),
+    "ast": (
+        "read from the syntax tree of the project's files, without calling Jedi; the same "
+        "result in every process for the same source"
+    ),
+    "jedi_local": (
+        "read by Jedi from the source's own file, with no cross-file inference; the same "
+        "result in every process for the same source"
+    ),
+    "goto": (
+        "each adjacent is a Jedi forward goto target. Project-scope adjacents are the same "
+        "in every process; an external (stdlib or installed) target behind a try/except "
+        "import shim may differ between processes (#419), so don't compare external "
+        "adjacents across sessions. Known gap: a subclasses result whose base is named "
+        "through a try/except import shim may differ between processes even in project "
+        "scope (#1057)"
+    ),
+}
+
+
 def edge_kind(jedi_name: Any) -> str:
     """The kind the applicability table is keyed on (methods promoted, #406)."""
     return normalise_kind_from_name(jedi_name)

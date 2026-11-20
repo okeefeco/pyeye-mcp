@@ -12,7 +12,7 @@ from pathlib import Path
 
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
-PREFIXES = ("edge", "edges", "ceiling", "ceilings")
+PREFIXES = ("edge", "edges", "ceiling", "ceilings", "determinism")
 
 #: The response linter holds the set of edges ``inspect``'s ``edge_counts`` must
 #: never show; the live-response check and the docs rule read the same set (#396).
@@ -80,6 +80,8 @@ def extract_code() -> Iterator[Bindable]:
             value["ceiling"] = reg.EDGE_CEILINGS[name]
         elif name in reg.EXACT_EDGES:
             value["ceiling"] = None
+        if name in reg.EDGE_DETERMINISM:
+            value["determinism"] = reg.EDGE_DETERMINISM[name]
         fact = Fact(f"edge.{name}", value, code(name))
         by_status.setdefault(status, []).append(fact)
         yield fact
@@ -105,9 +107,10 @@ def extract_code() -> Iterator[Bindable]:
                 code(fact.id[5:]),
                 ", ".join(kinds),
                 code(ceiling) if ceiling else "exact",
+                code(fact.value["determinism"]),
             ]
         )
-    yield view("edges.table", shown, table(["Edge", "Applies to", "Ceiling"], rows))
+    yield view("edges.table", shown, table(["Edge", "Applies to", "Ceiling", "Determinism"], rows))
 
     ceilings = [
         Fact(f"ceiling.{cid}", {"meaning": meaning}, text(meaning))
@@ -118,4 +121,24 @@ def extract_code() -> Iterator[Bindable]:
         "ceilings.table",
         ceilings,
         table(["Ceiling", "Complete over"], [[code(c.id[8:]), c.markdown] for c in ceilings]),
+    )
+
+    # Determinism tiers (#452), in the order they're defined: most to least stable.
+    tiers = []
+    for tier, meaning in reg.DETERMINISM_MEANINGS.items():
+        members = [f.id[5:] for f in shown if f.value["determinism"] == tier]
+        tiers.append(
+            Fact(f"determinism.{tier}", {"meaning": meaning, "edges": members}, text(meaning))
+        )
+    yield from tiers
+    yield view(
+        "determinism.table",
+        tiers,
+        table(
+            ["Determinism", "Edges", "Guarantee"],
+            [
+                [code(t.id[12:]), ", ".join(code(e) for e in t.value["edges"]), t.markdown]
+                for t in tiers
+            ],
+        ),
     )

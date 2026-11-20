@@ -1150,6 +1150,12 @@ async def expand(
         ``stubs: []``.  A non-module handle returns the unsupported branch with
         ``reason: "not_applicable"``.  Ceiling: <<fact:edge.submodules:ceiling>>.
 
+    Determinism (#452): which engine picks an edge's adjacents decides what
+    repeats.  The same query gives the same stubs in one session; across
+    sessions each edge's tier says what is guaranteed:
+
+    <<fact:determinism.table:tiers>>
+
     Unsupported edges return the unsupported branch (never raise):
       - Inbound/reference edges (<<fact:edges.deferred>>) require the Pyright
         reference backend (#333) and return
@@ -1303,6 +1309,13 @@ async def trace(
     subclasses are not walked.  Each edge's ceiling:
 
     <<fact:edges.implemented:ceilings>>
+
+    Determinism (#452): a hop repeats as its edge's tier guarantees, so a trace
+    is reproducible across sessions only as far as its least stable edge.  A
+    differing external target on a ``goto`` hop can also change which nodes
+    are reached before ``max_nodes`` cuts the walk.  The tiers:
+
+    <<fact:determinism.table:tiers>>
 
     Response shape — ``Subgraph``::
 

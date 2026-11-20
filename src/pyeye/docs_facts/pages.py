@@ -64,7 +64,7 @@ def tools_page(facts: Facts) -> str:
 
 
 def edges_page(facts: Facts) -> str:
-    """Every edge, its kinds and ceiling, and what each ceiling means."""
+    """Every edge, its kinds, ceiling and determinism tier, and what each means."""
     return _page(
         "Edges",
         "The edges `expand` and `trace` follow, from the edge registry.",
@@ -78,6 +78,7 @@ def edges_page(facts: Facts) -> str:
                 + ".",
             ),
             ("Ceilings", facts["ceilings.table"].markdown),
+            ("Determinism", facts["determinism.table"].markdown),
         ],
     )
 
