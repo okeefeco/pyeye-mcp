@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -204,6 +205,24 @@ class TestBudget:
 
         assert site_paths(tmp_path / ".venv")[1:] == [two.resolve().as_posix()]
 
+    def test_a_same_size_rewrite_with_its_mtime_restored_is_reread(self, tmp_path: Path) -> None:
+        """The memo key has the ctime too, which os.utime can't restore (#1045 review)."""
+        import os
+
+        site = _site(tmp_path)
+        one, two = _flat_project(tmp_path, "aaapkg"), _flat_project(tmp_path, "bbbpkg")
+        _setuptools_finder(site, f"{{'aaapkg': {str((one / 'aaapkg').as_posix())!r}}}")
+        finder = next(site.glob("__editable___*.py"))
+        assert site_paths(tmp_path / ".venv")[1:] == [one.resolve().as_posix()]
+        before = finder.stat()
+
+        text = finder.read_text(encoding="utf-8").replace("aaapkg", "bbbpkg")
+        finder.write_text(text, encoding="utf-8")
+        os.utime(finder, ns=(before.st_atime_ns, before.st_mtime_ns))
+        assert finder.stat().st_size == before.st_size  # the same size, the same mtime
+
+        assert site_paths(tmp_path / ".venv")[1:] == [two.resolve().as_posix()]
+
     def test_at_most_max_finder_modules_are_read_per_environment(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -245,6 +264,44 @@ class TestBudget:
             base=2000.0, linux_ci=3000.0, macos_ci=6000.0, windows_ci=6000.0
         )
         assert_performance_threshold(elapsed_ms, threshold, "a large finder set")
+
+
+def _within(seconds: float, fn: Any) -> Any:
+    """*fn*'s result, or a failure if it hasn't returned in *seconds* (it may block)."""
+    import threading
+
+    box: list[Any] = []
+    worker = threading.Thread(target=lambda: box.append(fn()), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    assert not worker.is_alive(), f"blocked for over {seconds} s"
+    return box[0]
+
+
+@_POSIX_ONLY
+class TestNonRegularFiles:
+    """A FIFO named like a finder or a .pth never blocks discovery (#1045 review)."""
+
+    def test_a_fifo_finder(self, tmp_path: Path) -> None:
+        import os
+
+        site = _site(tmp_path)
+        os.mkfifo(site / "Ff.py")
+        (site / "ff.pth").write_text("import Ff\n", encoding="utf-8")
+
+        assert _within(10, lambda: site_paths(tmp_path / ".venv")) == [site.resolve().as_posix()]
+
+    def test_a_fifo_pth_file(self, tmp_path: Path) -> None:
+        import os
+
+        site, project = _site(tmp_path), _flat_project(tmp_path)
+        os.mkfifo(site / "a.pth")
+        (site / "b.pth").write_text(f"{project.as_posix()}\n", encoding="utf-8")
+
+        assert _within(10, lambda: site_paths(tmp_path / ".venv")) == [
+            site.resolve().as_posix(),
+            project.resolve().as_posix(),
+        ]
 
 
 class TestNeverRun:

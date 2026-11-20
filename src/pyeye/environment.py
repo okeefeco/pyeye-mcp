@@ -314,11 +314,16 @@ def _pth_paths(
     directory is path-checked on its RESOLVED form. *_mtime_ns* and *_size*
     only key the cache.
     """
+    opened = _open_regular(pth, follow_symlinks=True)
+    if opened is None:
+        return (), 0, ()
+    fd, _ = opened
     try:
-        with pth.open("rb") as handle:
-            data = handle.read(MAX_PTH_BYTES + 1)
+        data = os.read(fd, MAX_PTH_BYTES + 1)
     except OSError:
         return (), 0, ()
+    finally:
+        os.close(fd)
     if len(data) > MAX_PTH_BYTES:
         logger.warning(f"{pth.as_posix()} is over {MAX_PTH_BYTES} bytes; reading only the start")
         data = data[:MAX_PTH_BYTES]
@@ -379,9 +384,42 @@ def _finder_paths(
     return roots, cost
 
 
-#: Parsed finder modules, keyed on (path, device, inode, mtime, size): each is
+def _open_regular(path: Path, *, follow_symlinks: bool) -> tuple[int, os.stat_result] | None:
+    """A read-only descriptor for *path* and its ``fstat``, only if it is a regular file.
+
+    Opened with ``O_NONBLOCK``, so a FIFO (or a device) named like a ``.pth``
+    or a finder can't block discovery waiting for a writer (#1045 review);
+    regular files read as usual. The type is checked with ``fstat`` on the
+    same descriptor, so it can't change between check and read. Without
+    *follow_symlinks* a symlink is refused: with ``O_NOFOLLOW`` where the OS
+    has it, else by an ``is_symlink`` check first (Windows; racy only against
+    a concurrent local writer). ``None`` when any of this fails; the caller
+    closes the descriptor.
+    """
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    if not follow_symlinks:
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        elif path.is_symlink():
+            return None
+    try:
+        fd = os.open(path, flags)
+    except OSError:
+        return None
+    try:
+        info = os.fstat(fd)
+    except OSError:
+        os.close(fd)
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        os.close(fd)
+        return None
+    return fd, info
+
+
+#: Parsed finder modules, keyed on (path, device, inode, mtime, ctime, size): each is
 #: parsed at most once while it is unchanged, across environments too.
-_FINDER_CACHE: dict[tuple[str, int, int, int, int], tuple[str, ...]] = {}
+_FINDER_CACHE: dict[tuple[str, int, int, int, int, int], tuple[str, ...]] = {}
 _FINDER_CACHE_SIZE = 128
 
 
@@ -397,20 +435,23 @@ def _finder_module_roots(module: Path) -> tuple[str, ...]:
     mapped name is the target's own name (:func:`_root_for`). A parse failure
     reads nothing.
     """
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    opened = _open_regular(module, follow_symlinks=False)
+    if opened is None:
+        return ()  # absent, a symlink, or not a regular file (a FIFO, a device)
+    fd, info = opened
     try:
-        if not hasattr(os, "O_NOFOLLOW") and module.is_symlink():
+        if info.st_size > MAX_FINDER_BYTES:
+            logger.warning(f"Not reading {module.as_posix()}: over {MAX_FINDER_BYTES} bytes")
             return ()
-        fd = os.open(module, flags)
-    except OSError:
-        return ()  # absent, or a symlink (O_NOFOLLOW refuses it)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_size > MAX_FINDER_BYTES:
-            if stat.S_ISREG(info.st_mode):
-                logger.warning(f"Not reading {module.as_posix()}: over {MAX_FINDER_BYTES} bytes")
-            return ()
-        key = (module.as_posix(), info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+        # ctime too: an in-place rewrite that restores the mtime still moves it.
+        key = (
+            module.as_posix(),
+            info.st_dev,
+            info.st_ino,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+            info.st_size,
+        )
         if key in _FINDER_CACHE:
             return _FINDER_CACHE[key]
         data = os.read(fd, MAX_FINDER_BYTES + 1)
