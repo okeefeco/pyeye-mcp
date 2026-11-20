@@ -55,6 +55,7 @@ from pyeye._ast_targets import (
 )
 from pyeye._jedi_location import location_from_name
 from pyeye.canonicalization import collect_re_exports
+from pyeye.declared_deps import not_found_note as undeclared_not_found_note
 from pyeye.environment import not_found_note as environment_not_found_note
 from pyeye.handle import Handle
 from pyeye.mcp.operations.edges import (
@@ -828,9 +829,14 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         if resolved.honest_detail:  # refused (#999), or several local definitions (#1022)
             return not_found(handle, detail=resolved.honest_detail)
         response = not_found(handle)
-        # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
-        if note := environment_not_found_note(analyzer, handle):
-            response["detail"] = f"{response['detail']} {note}"
+        # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568), or
+        # "an undeclared sibling" (#1035).
+        for note in (
+            environment_not_found_note(analyzer, handle),
+            undeclared_not_found_note(analyzer, handle),
+        ):
+            if note:
+                response["detail"] = f"{response['detail']} {note}"
         return response
     jedi_name = resolved.anchor
     handle = resolved.handle

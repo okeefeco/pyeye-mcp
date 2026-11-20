@@ -163,13 +163,9 @@ class TestSaveWritesOnlyExplicitConfig:
 
 
 class TestDiscovered:
-    def test_siblings_are_listed_with_why(self, parent: Path) -> None:
-        response = _configure(parent / "proj")
-
-        assert response["discovered"] == [
-            {"path": (parent / "unrelated1").as_posix(), "reason": "sibling"},
-            {"path": (parent / "unrelated2").as_posix(), "reason": "sibling"},
-        ]
+    def test_undeclared_siblings_are_not_discovered(self, parent: Path) -> None:
+        """Since #1035, directories beside the project are never guessed."""
+        assert _configure(parent / "proj")["discovered"] == []
 
     def test_a_src_layout_is_listed(self, tmp_path: Path) -> None:
         proj = tmp_path / "solo" / "proj"
@@ -214,8 +210,13 @@ class TestDiscovered:
 
         assert _configure(proj)["discovered"] == []
 
-    def test_every_discovered_path_is_a_package(self, parent: Path) -> None:
+    def test_every_discovered_path_is_a_package(self, tmp_path: Path) -> None:
         """What's listed is what is analysed: each one is in ``packages`` too."""
-        response = _configure(parent / "proj")
+        proj = tmp_path / "solo" / "proj"
+        (proj / "src" / "pkg").mkdir(parents=True)
+        (proj / "src" / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+        response = _configure(proj)
+
+        assert response["discovered"]
 
         assert {d["path"] for d in response["discovered"]} <= set(response["packages"])

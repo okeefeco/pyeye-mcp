@@ -62,6 +62,7 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, Required, TypedDict
 from pyeye import file_artifact_cache
 from pyeye._jedi_location import location_from_name
 from pyeye._jedi_names import is_attribute_target
+from pyeye.declared_deps import not_found_note as undeclared_not_found_note
 from pyeye.environment import not_found_note as environment_not_found_note
 from pyeye.exceptions import ValidationError
 from pyeye.handle import Handle
@@ -704,12 +705,14 @@ async def resolve(
         if result.get("note"):
             response["detail"] = f"{response['detail']} {result['note']}"
         # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
-        if (
-            result["reason"] == NOT_FOUND_REASON
-            and not is_restricted_detail(result.get("detail"))
-            and (env_note := environment_not_found_note(analyzer, identifier))
-        ):
-            response["detail"] = f"{response['detail']} {env_note}"
+        # "Couldn't see the venv" (#993) or "an undeclared sibling" (#1035).
+        if result["reason"] == NOT_FOUND_REASON and not is_restricted_detail(result.get("detail")):
+            for note in (
+                environment_not_found_note(analyzer, identifier),
+                undeclared_not_found_note(analyzer, identifier),
+            ):
+                if note:
+                    response["detail"] = f"{response['detail']} {note}"
         return response
     return _mark_stubs(result)
 
