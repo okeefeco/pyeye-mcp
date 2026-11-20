@@ -310,6 +310,28 @@ class TestGitPointers:
         assert not any(HOST in d for d in declared)
         assert any(d.endswith("/lib") for d in declared)  # a local one still counts
 
+    @pytest.mark.parametrize(
+        "gitdir",
+        [
+            "/elsewhere/.git/worktrees/feature",  # root-relative on Windows (the fixtures' form)
+            f"//{HOST}/share/.git/worktrees/feature",  # a share
+        ],
+    )
+    def test_a_refused_worktree_shaped_gitdir_is_still_a_worktree(
+        self, tmp_path: Path, touched: list[str], gitdir: str
+    ) -> None:
+        """Refused means not looked up, NOT "a normal source tree": the pointer's layout decides.
+
+        The same lexical rule as a pruned worktree's gitdir (``…/worktrees/<name>``), so
+        a duplicate checkout is still kept out of the walk (#1053 CI, Windows).
+        """
+        from pyeye.async_utils import _is_linked_worktree
+
+        _write(tmp_path, {".git": f"gitdir: {gitdir}\n"})
+
+        assert _is_linked_worktree(tmp_path) is True
+        assert touched == []
+
     def test_a_gitdir_pointer_is_not_followed(self, tmp_path: Path, touched: list[str]) -> None:
         from pyeye.async_utils import _is_linked_worktree
 

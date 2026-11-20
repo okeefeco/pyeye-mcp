@@ -36,11 +36,15 @@ async def read_file_async(path: Path) -> str:
 _GITDIR_PREFIX = "gitdir:"
 
 
-def _gitdir_pointer(directory: Path) -> Path | None:
-    """Return the gitdir a ``.git`` *file* points at, or ``None``.
+def _gitdir_pointer(directory: Path) -> tuple[Path, bool] | None:
+    """The gitdir a ``.git`` *file* points at, and whether it must not be looked up; or ``None``.
 
     Both linked worktrees and submodules replace ``.git`` with a file holding
-    ``gitdir: <path>``; the path may be relative to ``directory``.
+    ``gitdir: <path>``; the path may be relative to ``directory``. A tarball or
+    sdist "repository" can carry this file, so a gitdir that
+    :func:`~pyeye.path_utils.repo_path_refusal` refuses (a share, or on Windows
+    a root-relative ``/x``) comes back flagged: the caller decides from its
+    spelling alone (#1053 review and CI).
     """
     dot_git = directory / ".git"
     try:
@@ -52,14 +56,11 @@ def _gitdir_pointer(directory: Path) -> Path | None:
     if not pointer.startswith(_GITDIR_PREFIX):
         return None
     raw = pointer[len(_GITDIR_PREFIX) :].strip()
-    # A tarball or sdist "repository" can carry this file: a network gitdir
-    # is never looked up (#1053 review).
-    if repo_path_refusal(raw) is not None:
-        return None
+    refused = repo_path_refusal(raw) is not None
     target = Path(raw)
     if not target.name:
         return None
-    return target if target.is_absolute() else directory / target
+    return (target if target.is_absolute() else directory / target), refused
 
 
 #: A ``path = <dir>`` line of a ``.gitmodules`` file (git-config syntax).
@@ -125,11 +126,17 @@ def _is_linked_worktree(directory: Path) -> bool:
 
     Only when the gitdir is missing entirely — ``git worktree prune`` deletes
     it but leaves the checkout on disk, still a full duplicate tree — does the
-    pointer's layout decide, since nothing is left to inspect.
+    pointer's layout decide, since nothing is left to inspect. The layout also
+    decides, with nothing looked up, for a gitdir that must not be touched (a
+    share): refused means "not followed", never "a normal source tree", so a
+    worktree-shaped pointer still keeps the duplicate out (#1053 CI).
     """
-    target = _gitdir_pointer(directory)
-    if target is None:
+    pointer = _gitdir_pointer(directory)
+    if pointer is None:
         return False
+    target, refused = pointer
+    if refused:
+        return target.parent.name == "worktrees"
     try:
         if (target / "commondir").is_file():
             return True
