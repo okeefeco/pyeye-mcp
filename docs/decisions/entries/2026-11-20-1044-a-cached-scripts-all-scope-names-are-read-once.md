@@ -2,7 +2,7 @@
 date: "2026-11-20"
 title: "A cached Jedi script's all-scope names are read once and reused (#1044)"
 issues: [1044, 713, 1024]
-anchors: ["pyeye.file_artifact_cache.FileArtifactCache.get_all_scope_names", "pyeye.file_artifact_cache.get_all_scope_names", "pyeye.resolver._place_definition", "pyeye.resolver._anchor_at_stdlib_definition", "pyeye.mcp.operations.edges._class_members", "tests/test_all_scope_names_cached.py"]
+anchors: ["pyeye.file_artifact_cache.FileArtifactCache.get_all_scope_names", "pyeye.file_artifact_cache.get_all_scope_names", "pyeye.resolver._place_definition", "pyeye.resolver._anchor_at_stdlib_definition", "pyeye.mcp.operations.edges._class_members", "pyeye.mcp.operations.resolve._definition_at", "pyeye.file_artifact_cache.all_scope_names", "tests/test_all_scope_names_cached.py"]
 status: "active"
 amends: []
 supersedes: []
@@ -17,7 +17,7 @@ superseded_by: []
 **Decision:** approved by coordinator-3 (2026-11-20).
 
 - **Read once per cached Script.** `file_artifact_cache.get_all_scope_names(path, project)` makes the call once per cached Script and returns the same tuple for that Script's lifetime. A tuple can't be mutated by the callers that share it. The names are held in a `WeakKeyDictionary` keyed by the Script, so an evicted or invalidated Script frees them with no bookkeeping in the eviction paths. A new file version gets a new Script, and so new names. Like every Jedi call, it runs on the Jedi worker thread.
-- **The three callers use it:** `pyeye.resolver._place_definition` (definition placement), `pyeye.resolver._anchor_at_stdlib_definition` (the anchor lookup) and `pyeye.mcp.operations.edges._class_members` (members). A fitness test fails if any other code calls `get_names` with `all_scopes` anything but `False`.
+- **Its callers:** `pyeye.resolver._place_definition` (definition placement), `pyeye.resolver._anchor_at_stdlib_definition` (the anchor lookup), `pyeye.mcp.operations.edges._class_members` (members), and `pyeye.mcp.operations.resolve._definition_at` (resolve_at's definition lookup, added by #1043 after this branch began; it already holds the Script, so it uses `file_artifact_cache.all_scope_names(script)`). A fitness test fails if any other code calls `get_names` with `all_scopes` anything but `False`.
 - **Upstream:** a minimal plain-Jedi repro (Jedi 0.20.1) was written up for the user to decide whether to report it; nothing was filed.
 - **Measured on dev01** (django `cd385e6b8c`, 2 GB cap):
 
@@ -35,7 +35,8 @@ superseded_by: []
 **Applies-to:**
 
 - `pyeye.file_artifact_cache.FileArtifactCache.get_all_scope_names` and `pyeye.file_artifact_cache.get_all_scope_names`;
-- its callers: `pyeye.resolver._place_definition`, `pyeye.resolver._anchor_at_stdlib_definition` and `pyeye.mcp.operations.edges._class_members`;
+- `pyeye.file_artifact_cache.all_scope_names`, the same for a Script already loaded;
+- its callers: `pyeye.resolver._place_definition`, `pyeye.resolver._anchor_at_stdlib_definition`, `pyeye.mcp.operations.edges._class_members` and `pyeye.mcp.operations.resolve._definition_at`;
 - every future reader of a cached Script's all-scope names (the fitness test);
 - `docs/architecture/caching.md` (the parsed-file cache paragraph).
 
