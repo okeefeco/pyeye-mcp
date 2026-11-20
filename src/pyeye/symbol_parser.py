@@ -1,7 +1,5 @@
 """Parser for compound Python symbols like Class.method or module.Class.method."""
 
-import re
-
 
 def is_compound_symbol(name: str) -> bool:
     """Check if a symbol name contains dots (is compound).
@@ -76,10 +74,9 @@ def validate_symbol_component(component: str) -> bool:
     if not component:
         return False
 
-    # Python identifier pattern: starts with letter or underscore,
-    # followed by letters, digits, or underscores
-    pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*$"
-    return bool(re.match(pattern, component))
+    # Any Python identifier (PEP 3131), so a non-ASCII name such as ``Héllo``
+    # is a handle segment, as it is a name in Python (#1024).
+    return component.isidentifier()
 
 
 def get_parent_and_member(components: list[str]) -> tuple[str, str]:

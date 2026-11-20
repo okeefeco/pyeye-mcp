@@ -171,6 +171,8 @@ IdentifierForm = dict[str, Any]
 
 # Regex: <some-path>:<positive-integer>
 _FILE_LINE_RE = re.compile(r"^(.+):(\d+)$")
+# A ``class``/``def`` header: the defined name starts at group ``name``.
+_DEFINITION_HEADER_RE = re.compile(r"^\s*(?:async\s+def|def|class)\s+(?P<name>\w+)")
 
 
 def _parse_identifier(identifier: str) -> IdentifierForm:
@@ -386,7 +388,11 @@ async def _resolve_at_position(
     # should land on the definition site, not the use site. Callers that
     # want the symbol AT the position rather than its definition should
     # use a name-based form via resolve(identifier).
-    definitions = script.goto(line, column, follow_imports=True)
+    # On a class or def's own name, the answer is that definition. ``goto``
+    # there looks the name up through the enclosing class's MRO, so a nested
+    # ``Meta`` or an overriding method lands on the base class's (#1024).
+    own = _definition_at(script, file_path, line, column)
+    definitions = [own] if own is not None else script.goto(line, column, follow_imports=True)
 
     if not definitions:
         return _miss("no_symbol_at_position")
@@ -443,6 +449,22 @@ async def _resolve_file_line(file_path: Path, line: int, analyzer: JediAnalyzer)
             return fallback
 
     return result
+
+
+def _definition_at(script: Any, file_path: Path, line: int, column: int) -> Any | None:
+    """The class or function whose own name is at (*line*, *column*), or ``None``.
+
+    Only a ``class``/``def`` header with the cursor on its name qualifies, so
+    every other position keeps ``goto``'s answer (and cost).
+    """
+    lines = file_path.read_text(encoding="utf-8").splitlines()
+    match = _DEFINITION_HEADER_RE.match(lines[line - 1]) if line <= len(lines) else None
+    if match is None or not match.start("name") <= column <= match.end("name"):
+        return None
+    for name in script.get_names(all_scopes=True, definitions=True, references=False):
+        if name.line == line and name.column == match.start("name"):
+            return name
+    return None
 
 
 def _position_in_file(file_path: Path, line: int, column: int) -> bool:

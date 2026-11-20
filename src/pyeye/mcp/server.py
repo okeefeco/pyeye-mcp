@@ -906,6 +906,9 @@ async def resolve(
     Accepts bare names, FQN dotted paths, re-exported public paths,
     file:line coordinates, or file paths. Returns the definition-site
     canonical handle along with kind and scope ("project" or "external").
+    A handle is pyeye's name for a definition, NOT necessarily an importable
+    path: a class defined in a function is ``pkg.mod.func.Name``, which no
+    ``import`` reaches (#1024). Pass it back to pyeye's tools; don't import it.
 
     Args:
         identifier: The identifier to resolve. Forms supported:
@@ -1005,7 +1008,8 @@ async def inspect(
     default — no source content, no exhaustive enumerations.
 
     Args:
-        handle: Canonical Python dotted-name string (from resolve/resolve_at).
+        handle: A canonical handle (from resolve/resolve_at): pyeye's dotted name
+            for the definition, not necessarily an importable path (#1024).
         project_path: Project root path (default: current directory)
 
     Returns:
@@ -1107,13 +1111,15 @@ async def expand(
         route.  ``subclasses`` is an expand-only edge: ``inspect`` does NOT
         measure it, by design: the edge reads the whole-project class graph, and
         ``inspect`` stays independent of whole-project indices, which every edit
-        drops (#392, ruled 2026-11-20).  A subclass no handle can name (defined in a
-        function, in a file with no module path, or under a name the ASCII-only
-        handle grammar rejects) can't be a stub: it is counted in
-        ``handleless_subclass_count`` (always complete) and listed in
-        ``handleless_subclasses`` as ``{name, file, line, reason}``, ``reason``
-        one of ``function_local`` / ``no_module_path`` / ``not_a_handle``, sorted
-        by file then line, never dropped (#1006).  ``max_stubs`` caps that list
+        drops (#392, ruled 2026-11-20).  A class defined in a function is a stub
+        when it is one function level deep and its name is unique there
+        (``pkg.mod.func.Name``, #1024).  A subclass no handle can name can't be
+        a stub: it is counted in ``handleless_subclass_count`` (always complete)
+        and listed in ``handleless_subclasses`` as ``{name, file, line,
+        reason}``, ``reason`` one of ``nested_local`` (two or more function
+        levels deep), ``ambiguous_local`` (its name is bound more than once in
+        its function: another class, a ``def``, an assignment, ``del``), ``no_module_path`` or ``not_a_handle``, sorted by file
+        then line, never dropped (#1006).  ``max_stubs`` caps that list
         separately: a cut list shows as ``count > len(list)``.  Add the count to
         ``len(stubs)`` (and ``total``) for every direct subclass.
         ``stubs: []`` with a count of ``0`` means the class has no project
