@@ -618,6 +618,10 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             anchor = _anchor_on_bindings(matches, mod_file, path)
             placed = _canonical_of(anchor, path, analyzer)
             return (placed, anchor) if placed is not None else None
+        # A member of a function-local class, which Jedi leaves unnamed (#1025).
+        member = _local_class_member(path, names, analyzer, hops)
+        if member is not None:
+            return member
         # An explicit binding first, then the module's star imports (#1007).
         return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
             module_dotted, mod_file, rest, analyzer, hops
@@ -625,14 +629,81 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
     return None
 
 
-def _in_a_function(name: Any) -> bool:
+def is_function_local(name: Any) -> bool:
     """Whether *name* is defined inside a function or method, at any depth (#1022)."""
-    scope = name.parent()
+    parent = getattr(name, "parent", None)
+    scope = parent() if parent is not None else None
     while scope is not None and scope.type != "module":
         if scope.type == "function":
             return True
         scope = scope.parent()
     return False
+
+
+def local_member_full_name(name: Any) -> str | None:
+    """*name*'s dotted name, naming a member of a function-local class by its class (#1025).
+
+    Jedi names a function-local class (``app.m.outer.Local``) but leaves every
+    member of it unnamed (``full_name`` is ``None``), and so do the scope
+    wrappers ``parent()`` returns. Such a member is named from its module and
+    the chain of scopes above it (``app.m.outer.Local.x``, and deeper for a
+    class nested in one), pyeye's existing notation. Only a member OF A CLASS,
+    with at most one function in that chain, is named: anything else stays
+    unnamed (``None``), such as a class in a nested function (#1026, #1011).
+    """
+    full_name = getattr(name, "full_name", None)
+    if isinstance(full_name, str) and full_name:
+        return full_name
+    parent = getattr(name, "parent", None)
+    owner = parent() if parent is not None else None
+    if owner is None or owner.type != "class":
+        return None
+    parts = [name.name]
+    functions = 0
+    scope = owner
+    while scope is not None and scope.type != "module":
+        if scope.type == "function":
+            functions += 1
+            if functions > 1:
+                return None
+        elif scope.type != "class":
+            return None
+        parts.append(scope.name)
+        scope = scope.parent()
+    module = getattr(name, "module_name", None)
+    if not module or not functions:
+        return None
+    return ".".join([module, *reversed(parts)])
+
+
+def _local_class_member(
+    path: str, names: list[Any], analyzer: JediAnalyzer, hops: int
+) -> tuple[str, Any] | None:
+    """Place *path* as a member of a function-local class it names (#1025).
+
+    The owner (*path* minus its last part) must resolve to ONE class: a member of
+    a name several local classes share (#1022) names no single definition.
+    """
+    owner_path, _, leaf = path.rpartition(".")
+    owner = _resolve(owner_path, analyzer, hops + 1)
+    if owner is None or isinstance(owner[1], _SharedLocalName):
+        return None
+    owner_anchor = owner[1]
+    if getattr(owner_anchor, "type", None) != "class" or not is_function_local(owner_anchor):
+        return None
+    where = (owner_anchor.module_path, owner_anchor.line, owner_anchor.column)
+    members = [
+        name
+        for name in names
+        if name.name == leaf
+        and not is_attribute_target(name)
+        and (owner_of := name.parent()) is not None
+        and (owner_of.module_path, owner_of.line, owner_of.column) == where
+    ]
+    if not members:
+        return None
+    shared = _shared_local_definitions(members, path)
+    return (path, shared) if shared is not None else (path, members[0])
 
 
 def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName | None:
@@ -641,7 +712,7 @@ def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName
     ``None`` when there is one definition, or any match is not function-local:
     module-level names keep #857's binding rules.
     """
-    if len(matches) < 2 or not all(_in_a_function(m) for m in matches):
+    if len(matches) < 2 or not all(is_function_local(m) for m in matches):
         return None
     anchors: dict[tuple[Any, int, int], Any] = {}
     for match in matches:

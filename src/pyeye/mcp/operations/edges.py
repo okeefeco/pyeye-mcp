@@ -86,7 +86,14 @@ from pyeye.project_layout import (
     is_module_file,
     package_kind,
 )
-from pyeye.resolver import Resolved, handle_for_anchor, in_restricted_dir, resolve_external_item
+from pyeye.resolver import (
+    Resolved,
+    handle_for_anchor,
+    in_restricted_dir,
+    is_function_local,
+    local_member_full_name,
+    resolve_external_item,
+)
 from pyeye.scope import classify_scope, is_stdlib_source
 
 if TYPE_CHECKING:
@@ -517,7 +524,8 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
         ``unresolved_call_sites`` is always ``None`` — that notion is
         callees-only.
     """
-    handle = getattr(jedi_name, "full_name", None)
+    # A member of a function-local class has no Jedi full_name (#1025).
+    handle = local_member_full_name(jedi_name)
     if not handle:
         return EdgeResult(adjacents=[])
 
@@ -612,6 +620,17 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
     file_path = _own_source(jedi_name)
     if file_path is None:
         return []
+
+    if is_function_local(jedi_name):
+        # Jedi leaves a function-local class's members unnamed, so the full_name
+        # filter below would find none: a false zero (#1025). Its own scope
+        # lists them; they are named after the class, as the resolver names them.
+        own = (
+            (name, f"{handle}.{name.name}")
+            for name in jedi_name.defined_names()
+            if not is_attribute_target(name)
+        )
+        return _collect_members(own, analyzer)
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))

@@ -79,6 +79,7 @@ from pyeye.resolver import (
     NotFound,
     Resolved,
     is_restricted_detail,
+    local_member_full_name,
     resolve_handle,
     resolve_name,
 )
@@ -344,7 +345,8 @@ async def _resolve_at_position(
         return _miss("no_symbol_at_position")
 
     name = definitions[0]
-    full_name = name.full_name
+    # A member of a function-local class has no Jedi full_name (#1025).
+    full_name = local_member_full_name(name)
     if not full_name:
         return _miss("no_symbol_at_position")
     # ``goto`` on the ``x`` of ``self.x = …`` lands on the target itself, whose
