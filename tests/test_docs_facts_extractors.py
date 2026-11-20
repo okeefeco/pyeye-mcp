@@ -104,14 +104,20 @@ class TestMcpSurface:
         assert _names(_members(facts, "tools.admin")) == {f.__name__ for f in ADMIN_TOOLS}
 
     def test_core_parameters_match_the_signatures(self, facts: dict[str, Bindable]) -> None:
+        from mcp.server.mcpserver.utilities.context_injection import find_context_parameter
+
         from pyeye.mcp import server
 
         for tool_id in _members(facts, "tools.core"):
             name = tool_id.split(".", 1)[1]
-            signature = inspect.signature(getattr(server, name))
+            tool = getattr(server, name)
+            signature = inspect.signature(tool)
             params = _fact(facts, tool_id).value["params"]
+            # The SDK injects a Context parameter and hides it from the schema (#770).
+            injected = find_context_parameter(tool)
+            visible = [p for p in signature.parameters if p != injected]
 
-            assert [p.rsplit(".", 1)[1] for p in params] == list(signature.parameters), name
+            assert [p.rsplit(".", 1)[1] for p in params] == visible, name
             for param_id in params:
                 param = signature.parameters[param_id.rsplit(".", 1)[1]]
                 value = _fact(facts, param_id).value

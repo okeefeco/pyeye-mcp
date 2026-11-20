@@ -38,6 +38,7 @@ from ..settings import settings
 from ..validation import PathValidator, validate_mcp_inputs
 from . import meta
 from .jedi_worker import on_jedi_worker
+from .list_changed import announces_new_tools
 from .operations.expand import expand as _expand_impl
 from .operations.inspect import inspect as _inspect_impl
 from .operations.outline import outline as _outline_impl
@@ -193,8 +194,9 @@ def redetect_plugins(project_path: str, config: ProjectConfig) -> list[str]:
     Runs ``detect()`` (root and configured paths) for each plugin class not yet
     active, and registers ONLY the new plugins' tools, through the same
     decorator stack as at startup.  Add-only: nothing already registered is
-    unregistered or renamed.  No ``tools/list_changed`` is sent (#770); a client
-    can call the new tools by name, and the caller reports the names.
+    unregistered or renamed.  A client can call the new tools by name; the
+    caller reports the names, and ``configure_packages`` announces them with a
+    tools-changed event (#770).
     """
     active = {type(plugin) for plugin in _plugins}
     new = [
@@ -746,6 +748,7 @@ def _config_entry_targets(entry: str, final: str) -> list[str]:
 
 
 @mcp.tool()
+@announces_new_tools
 @tool_errors
 @validate_mcp_inputs
 @metrics.measure("configure_packages")
@@ -784,9 +787,11 @@ def configure_packages(
     newly added package (e.g. Flask) activates, and its tools are registered
     immediately; the result's ``activated_plugins`` names them (``[]`` when none
     newly activated; absent for any other project, which isn't re-detected).
-    The new tools are **callable by name right away**, even if your client
-    doesn't refresh its tool list: no ``tools/list_changed`` notification is
-    sent (#770).  Registration is add-only; nothing is ever removed.
+    The new tools are **callable by name right away**.  A call that activates
+    a plugin also sends one tools-changed event (``notifications/tools/list_changed``,
+    or a ``subscriptions/listen`` event from protocol 2026-07-28 on), so a client that
+    honours it re-lists its tools (#770).  Registration is add-only; nothing is
+    ever removed.
     """
     from ..analyzers import project_graph
     from .operations import typeref

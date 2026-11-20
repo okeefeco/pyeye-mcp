@@ -45,7 +45,8 @@ anything else propagates (#622, #637).
    activated and their tools registered; the result names them (see
    [`configure_packages`](../reference/tools.md#configure_packages)). Other
    projects aren't re-detected. This is add-only: nothing already registered is
-   removed or renamed, and no `tools/list_changed` is sent (#659, #770).
+   removed or renamed. The call that activates a plugin sends one tools-changed
+   event, so a client that honours it re-lists its tools (#770).
 
 ## What every plugin tool gets
 
