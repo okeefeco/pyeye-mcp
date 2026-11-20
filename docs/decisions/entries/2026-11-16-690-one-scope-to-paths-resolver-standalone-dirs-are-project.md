@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "One scope→paths resolver for the analyzer and the plugins; standalone dirs are project (#690)"
 issues: [690, 594, 623]
 anchors: ["pyeye.scope_utils.resolve_scope_paths", "ScopeLayout", "ScopeLayout.from_parts", "ScopeLayout.configured_scopes", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._resolve_scope_to_paths", "pyeye.plugins.base.AnalyzerPlugin._scope_paths", "describe_scope", "pyeye.config.ProjectConfig.get_standalone_paths", "pyeye.project_layout.RootsBoundary.SCOPE"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-594-plugin-tools-take-an-opt-in-envelope-that-reports-searched.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-21-1041-a-standalone-script-is-named-from-its-dir-unless-shadowed.md"]
 superseded_by: []
 ---
 

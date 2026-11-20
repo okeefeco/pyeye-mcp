@@ -39,9 +39,11 @@ Boundary               Subset, in order (and why)
 ``TOP_LEVEL_PACKAGE``  project, source_roots. Only the project's *own* top-level
                        package is promoted by bare name, never a configured
                        external package root.
-``MODULE_LOOKUP``      source_roots, project, additional_paths. sys.path
-                       precedence for dotted-module → file lookup and for
-                       file → module naming.
+``MODULE_LOOKUP``      source_roots, project, additional_paths, standalone
+                       dirs. sys.path precedence for dotted-module → file
+                       lookup and for file → module naming. A standalone dir
+                       comes last and names a script only when nothing else
+                       owns its name (``standalone_shadow``, #1041).
 ``NAMESPACE_PORTIONS`` source_roots, project, added_sys_path, additional_paths.
                        Every sys.path root a PEP 420 portion can live under, in
                        precedence order (first portion wins, #419/#444).
@@ -59,6 +61,7 @@ compared against.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -66,7 +69,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
 
-from .path_utils import dedupe_paths, relative_within
+from .path_utils import dedupe_paths, paths_equal, relative_within
 
 
 class RootsBoundary(StrEnum):
@@ -82,7 +85,14 @@ class RootsBoundary(StrEnum):
 # is a one-line edit here; the module docstring records why each is what it is.
 _SUBSETS: dict[RootsBoundary, tuple[str, ...]] = {
     RootsBoundary.TOP_LEVEL_PACKAGE: ("project_path", "source_roots"),
-    RootsBoundary.MODULE_LOOKUP: ("source_roots", "project_path", "additional_paths"),
+    # Standalone script dirs last (#1041): a script is named from its dir only
+    # when nothing earlier, nor the stdlib or the environment, owns the name.
+    RootsBoundary.MODULE_LOOKUP: (
+        "source_roots",
+        "project_path",
+        "additional_paths",
+        "standalone_paths",
+    ),
     RootsBoundary.NAMESPACE_PORTIONS: (
         "source_roots",
         "project_path",
@@ -356,7 +366,14 @@ def module_name_for_file(analyzer: Any, file: Path) -> str | None:
     for root in project_roots(analyzer, RootsBoundary.MODULE_LOOKUP):
         rel = relative_within(file, root)
         if rel is not None:
-            return _dotted(rel, file)
+            name = _dotted(rel, file)
+            if name is not None and _is_standalone_root(analyzer, root):
+                # A script is named only if that name leads back to it: never a
+                # handle another file, the stdlib or the environment owns (#1041).
+                owner = file_for_module(analyzer, name)
+                if owner is None or not paths_equal(owner, file):
+                    return None
+            return name
 
     for ns_name, ns_paths in getattr(analyzer, "namespace_paths", {}).items():
         for ns_path in ns_paths:
@@ -409,6 +426,8 @@ def file_for_module(analyzer: Any, module_dotted: str) -> Path | None:
     for base, rel_parts in bases:
         found = _module_file_under(base, rel_parts)
         if found is not None:
+            if _is_standalone_root(analyzer, base) and standalone_shadow(analyzer, parts[0]):
+                continue  # the name is someone else's (#1041)
             return found
     for split_at in range(len(parts) - 1, 0, -1):
         for portion in find_namespace_package_dirs(".".join(parts[:split_at]), analyzer):
@@ -611,6 +630,88 @@ def _dir_shallow_qualifies_capped(path: Path, *, _recurse: bool) -> bool:
             if _recurse and _dir_shallow_qualifies_capped(entry, _recurse=False):
                 return True
     return False
+
+
+def _is_standalone_root(analyzer: Any, root: Path) -> bool:
+    """Whether *root* is one of the analyzer's standalone script directories (#1041)."""
+    return any(
+        paths_equal(root, standalone)
+        for standalone in getattr(analyzer, "standalone_paths", None) or []
+    )
+
+
+#: The suffixes of a compiled module (``json.cpython-312-x86_64-linux-gnu.so``).
+_EXTENSION_SUFFIXES = (".so", ".pyd")
+
+
+def standalone_shadow(analyzer: Any, top: str) -> str | None:
+    """What owns the top-level name *top* ahead of any standalone dir, or ``None`` (#1041).
+
+    A standalone script is named from its directory only when nothing else
+    already answers to that name, as Python would import it: the standard
+    library, a non-standalone root (source root, project, package), a
+    configured or discovered namespace package, or a module in the project's
+    environment (its ``site-packages`` and ``.pth`` roots, read statically,
+    #993). The answer says what, for the honest miss that names the shadow.
+    An earlier standalone dir is not covered here: ``file_for_module``'s
+    root order picks it, and ``module_name_for_file`` checks the round trip.
+    """
+    if top in sys.stdlib_module_names:
+        return f"the standard library module {top}"
+    standalone = getattr(analyzer, "standalone_paths", None) or []
+    for root in project_roots(analyzer, RootsBoundary.MODULE_LOOKUP):
+        if any(paths_equal(root, s) for s in standalone):
+            continue
+        found = _module_file_under(root, [top])
+        if found is not None:
+            return found.as_posix()
+    if find_namespace_package_dirs(top, analyzer):
+        return f"the namespace package {top}"
+    environment = getattr(analyzer, "environment", None)
+    for site in getattr(environment, "site_paths", ()) or ():
+        if top in _site_tops(Path(site)):
+            return f"the module {top} in the project's environment ({Path(site).as_posix()})"
+    return None
+
+
+#: ``site dir -> (its mtime_ns, its top-level module names)`` (#1041).
+_site_tops_cache: dict[str, tuple[int, frozenset[str]]] = {}
+_site_tops_lock = threading.Lock()
+
+
+def _site_tops(site: Path) -> frozenset[str]:
+    """The top-level module names *site* provides: packages, modules, stubs, extensions.
+
+    A site-packages dir can hold thousands of entries, and a standalone file's
+    name is checked often, so the listing is cached by the directory's mtime:
+    installing or removing a top-level package changes it (#1041).
+    """
+    key = site.as_posix()
+    try:
+        mtime = site.stat().st_mtime_ns
+    except OSError:
+        return frozenset()
+    with _site_tops_lock:
+        cached = _site_tops_cache.get(key)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    tops: set[str] = set()
+    try:
+        for entry in site.iterdir():
+            name = entry.name
+            if entry.is_dir():
+                if name.isidentifier():
+                    tops.add(name)
+            elif name.endswith((".py", ".pyi")):
+                tops.add(name.rsplit(".", 1)[0])
+            elif name.endswith(_EXTENSION_SUFFIXES):
+                tops.add(name.split(".", 1)[0])
+    except OSError:
+        return frozenset()
+    result = frozenset(tops)
+    with _site_tops_lock:
+        _site_tops_cache[key] = (mtime, result)
+    return result
 
 
 def namespace_stub_inits(module_dotted: str, analyzer: Any) -> list[Path]:
