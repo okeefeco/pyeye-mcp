@@ -1186,10 +1186,13 @@ class TestInheritanceCost:
     @pytest.mark.asyncio
     async def test_a_warm_trace_is_bounded(self, tmp_path):
         import shutil
-        import time
 
         from tests.utils.environment import give_installed_packages
-        from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
+        from tests.utils.performance import (
+            PerformanceThresholds,
+            assert_performance_threshold,
+            warm_median_ms,
+        )
 
         # A copy with an environment of its own (#993): never a .venv in the repo.
         fixture = tmp_path / "docs_examples"
@@ -1200,11 +1203,14 @@ class TestInheritanceCost:
         target = next(m for m in models if m["name"] == "User")
         await plugin.inheritance_for("User", target, models)  # cold: Jedi infers pydantic
 
-        start = time.perf_counter()
         result = await plugin.inheritance_for("User", target, models)
-        elapsed_ms = (time.perf_counter() - start) * 1000
-
         assert result["mro"][-1] == "builtins.object"
+
+        # A min over runs of each run's median, not one sample: a single call
+        # failed the local base while other suites ran on the box (#1017).
+        elapsed_ms = await warm_median_ms(
+            lambda: plugin.inheritance_for("User", target, models), calls=5, repeats=3
+        )
         threshold = PerformanceThresholds(
             base=1000.0, linux_ci=2000.0, macos_ci=4000.0, windows_ci=4000.0
         )
