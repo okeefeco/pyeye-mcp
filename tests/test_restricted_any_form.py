@@ -23,6 +23,7 @@ import os
 import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -228,7 +229,8 @@ class TestTheStoreCacheIsKeyed:
         """The race: a background build for the real home lands after the test's clear."""
         validation._credential_pattern.cache_clear()
         stale_key = validation._store_key()  # the real home
-        stale = (stale_key, validation._build_credential_stores(stale_key[0][0]))
+        # Even marked vouched, the worst case: the home's spelling differs.
+        stale = (stale_key, validation._build_credential_stores(stale_key[0][0]), True)
         home_at(tmp_path / "home")
         validation._credential_pattern._built = stale
 
@@ -301,7 +303,7 @@ class TestTheStoreCacheIsKeyed:
         # A fresh directory's ctime is always recent; take the window away so
         # only the key decides, as for a home that has been quiet a while.
         monkeypatch.setattr(validation, "_RECENT_NS", 0)
-        validation._credential_pattern()  # built
+        validation._credential_pattern()  # built, and vouched: nothing is recent
         calls = []
         monkeypatch.setattr(validation, "_store_key", lambda: calls.append(1))
 
@@ -325,6 +327,41 @@ class TestTheStoreCacheIsKeyed:
         os.utime(home, ns=(old + 1, old + 1))  # still old: only the mtime differs
 
         assert restricted_path(keys / "id_rsa") is True
+
+    def test_a_build_inside_a_changing_tick_is_not_trusted_later(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_at: Callable[[Path], None]
+    ) -> None:
+        """Relink, build, relink in one 1 s tick, then idle: the second relink is seen.
+
+        A filesystem with 1 s timestamps (HFS+, ext3, many NFS servers) gives
+        both relinks the same directory times, so the cheap key can't tell
+        them apart. The build was read while that tick was open, so it isn't
+        vouched, and the full key decides however long the idle (#1028 review).
+        The times are floored and the clock is faked, so nothing sleeps.
+        """
+        tick = 1_700_000_000 * 10**9  # one whole second, every directory's time
+        monkeypatch.setattr(
+            validation, "_dir_times", lambda path: (tick, tick) if os.path.isdir(path) else None
+        )
+        clock = [tick + 50_000_000]  # 0.05 s into the tick
+        monkeypatch.setattr(validation, "time", SimpleNamespace(time_ns=lambda: clock[0]))
+        home = tmp_path / "home"
+        home.mkdir()
+        home_at(home)
+        first, second = tmp_path / "a", tmp_path / "b"
+        first.mkdir()
+        second.mkdir()
+
+        (home / ".aws").symlink_to(first, target_is_directory=True)
+        assert restricted_path(first / "credentials") is True  # built inside the tick
+        (home / ".aws").unlink()
+        (home / ".aws").symlink_to(second, target_is_directory=True)  # same tick
+        clock[0] = tick + 3 * 10**9  # idle past the window
+
+        assert restricted_path(second / "credentials") is True
+        assert restricted_path(first / "credentials") is False
+        assert validation._credential_pattern._built is not None
+        assert validation._credential_pattern._built[2] is True  # now vouched
 
     def test_an_mtime_set_back_after_a_relink_is_still_seen(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, home_at: Callable[[Path], None]

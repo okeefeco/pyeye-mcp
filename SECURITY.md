@@ -166,7 +166,10 @@ they can't drift from it.
     the store itself are still refused;
   - on Windows, where a directory's change time isn't available, a relink
     whose directory's modification time is then set back to exactly its
-    old value isn't noticed. Homes anywhere other than directly in `/home`, `/Users` or
+    old value isn't noticed;
+  - a home on a filesystem whose clock runs well behind the server's (NFS
+    clock skew) can hide a relink made within the same timestamp tick as
+    an earlier one. Homes anywhere other than directly in `/home`, `/Users` or
   `/root` (for example `/var/lib/jenkins`, a nested `/home/groups/u`,
   `/srv/users/bob` or `/export/home/u`) are covered only for the server's own
   user; other users' homes there are not (#909).

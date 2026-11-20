@@ -455,31 +455,44 @@ class _StoreCache:
     ``~/.aws``) is seen at once. The build runs under a lock.
 
     The full key costs a ``readlink`` per store path, too much for the walkers'
-    per-entry prune (#1028 review), so each call checks the cheap
-    :func:`_dir_key` first: unchanged, and no store directory changed in the
-    last :data:`_RECENT_NS`, means no link changed either. Otherwise the full
-    key decides. ``cache_clear()`` forgets the last build.
+    per-entry prune (#1028 review), so a call checks the cheap :func:`_dir_key`
+    first, but only for a VOUCHED build: one whose key was read when every store
+    directory's times were already :data:`_RECENT_NS` old. A change after that
+    lands in a later timestamp tick, so it changes the cheap key. A build read
+    while a directory was still changing might share its tick with a further
+    change (a filesystem with 1 s timestamps: relink, build, relink in the same
+    second), so until a full-key match is made once the directories are old,
+    every call checks the full key. Comparing the times with NOW instead, as
+    the first version did, let such a build be trusted 2 s later (#1028
+    review). ``cache_clear()`` forgets the last build.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._built: tuple[_StoreKey, _CredentialStores] | None = None
+        #: ``(key, stores, vouched)``: one tuple, swapped whole, so a reader on
+        #: another thread never pairs one build's key with another's stores.
+        self._built: tuple[_StoreKey, _CredentialStores, bool] | None = None
 
     def __call__(self) -> _CredentialStores:
         built = self._built
-        if built is not None:
-            dir_key = _dir_key(_home_spelling())
-            if dir_key == built[0][0] and not _recently_changed(dir_key):
-                return built[1]
+        if built is not None and built[2] and _dir_key(_home_spelling()) == built[0][0]:
+            return built[1]
+        read_ns = time.time_ns()  # before the key is read, so it can vouch for it
         key = _store_key()
+        vouched = _settled(key[0], read_ns)
         if built is not None and built[0] == key:
+            if vouched and not built[2]:
+                with self._lock:
+                    if self._built is built:
+                        self._built = (built[0], built[1], True)
             return built[1]
         with self._lock:
-            built = self._built
-            if built is None or built[0] != key:
-                built = (key, _build_credential_stores(key[0][0]))
-                self._built = built
-        return built[1]
+            current = self._built
+            if current is not None and current[0] == key:
+                return current[1]
+            stores = _build_credential_stores(key[0][0])
+            self._built = (key, stores, vouched)
+        return stores
 
     def cache_clear(self) -> None:
         """Forget the last build, so the next call rebuilds."""
@@ -487,10 +500,13 @@ class _StoreCache:
             self._built = None
 
 
-def _recently_changed(dir_key: _DirKey) -> bool:
-    """Whether a store directory changed within :data:`_RECENT_NS`, so its times can't vouch."""
-    now = time.time_ns()
-    return any(times is not None and now - max(times) < _RECENT_NS for times in dir_key[1])
+def _settled(dir_key: _DirKey, read_ns: int) -> bool:
+    """Whether every store directory was :data:`_RECENT_NS` old at *read_ns*.
+
+    Then a later change to one falls in a later timestamp tick and changes
+    *dir_key*, so a key read at *read_ns* can vouch for the cheap check.
+    """
+    return all(times is None or read_ns - max(times) >= _RECENT_NS for times in dir_key[1])
 
 
 _credential_pattern = _StoreCache()
