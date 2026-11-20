@@ -13,7 +13,7 @@ bash scripts/setup_dogfooding.sh
 This will:
 
 - Install the project's git hooks with `pre-commit install`, including the post-checkout hook that starts a session on issue branches
-- Add shell aliases to `~/.bashrc` or `~/.zshrc`: a `grep` and a `cd` wrapper, and the `dogfood-*` commands
+- Add shell aliases to `~/.bashrc` or `~/.zshrc`: a `cd` wrapper and the `dogfood-*` commands
 - Install wrappers for `grep`, `egrep`, `fgrep` and `rg` in `~/.local/bin` that count code searches, then run the real command
 - Create the metrics directory
 - Test the installation
@@ -110,17 +110,17 @@ switch to an issue branch (`type/<issue>-description`).
 
 ### Shell Aliases (in ~/.bashrc or ~/.zshrc)
 
-- `grep` wrapper - Counts every `grep` run in a directory with `scripts/dogfooding_metrics.py`
 - `cd` wrapper - Auto-starts sessions when entering project
 - `dogfood-*` commands - Quick access to metrics functions
 
-With the search wrappers below also installed, a code search in the project is
-counted twice, once by each ([#1020](https://github.com/okeefeco/pyeye-mcp/issues/1020)).
+Before #1020 this block also defined a `grep` alias that counted searches too, so
+with the wrappers below each code search was counted twice. Remove an old block
+and re-run the setup (see Updating below) to drop it.
 
 ### Search wrappers (in ~/.local/bin)
 
 - `grep`, `egrep`, `fgrep` and `rg` - Count searches that look like code
-  searches, then run the real command
+  searches, then run the real command. They are the only search counter
 - An `export PATH="$HOME/.local/bin:$PATH"` line in `~/.bashrc` and `~/.zshrc`
   (where they exist), if `~/.local/bin` isn't on your PATH yet
 

@@ -277,23 +277,17 @@ setting = "value"
         assert "company.api" in namespaces
 
     def test_save_config(self, temp_project_dir):
-        """Test saving configuration to file."""
+        """A save writes the explicit additions, not the merged view (#1038)."""
         config = ProjectConfig(str(temp_project_dir))
 
-        # Update config
-        config.config["packages"] = ["new_package"]
-        config.config["cache_ttl"] = 500
+        config.add_explicit(packages=["new_package"])
+        config.config["scratch"] = 500  # the merged view alone: never saved
 
-        # Save config
         config.save_config()
 
-        # Reload and verify
         config_file = temp_project_dir / ".pyeye.json"
         assert config_file.exists()
-
-        saved_data = json.loads(config_file.read_text())
-        assert saved_data["packages"] == ["new_package"]
-        assert saved_data["cache_ttl"] == 500
+        assert json.loads(config_file.read_text()) == {"packages": ["new_package"]}
 
     def test_validate_paths_in_config(self, temp_project_dir):
         """Test that paths in config are validated."""

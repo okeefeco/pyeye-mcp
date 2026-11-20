@@ -1,5 +1,5 @@
 <!--
-Audience: Claude Code
+Audience: Both (Claude's placement rules; its DocEntry in src/pyeye/docs_facts/docs.py says both)
 Purpose: Teach Claude about documentation types and where to place content
 When to update: When documentation structure changes or new patterns emerge
 -->
@@ -56,7 +56,7 @@ When someone asks you to document something, ALWAYS ask yourself:
 
 3. **Is this both informational and actionable?**
    - Contains both explanation AND commands
-   - Action: Mark with `<!-- Audience: Both -->` comment
+   - Action: Register it with audience `both` (see "Register Every New Page" below)
    - Location: Choose based on primary purpose
 
 ### NEVER Mix These Patterns
@@ -95,35 +95,44 @@ Is this about Claude's behavior?
 └─ NO → Is this for humans?
     ├─ YES → docs/ or README.md
     │   ├─ API documentation? → docs/api/
-    │   ├─ User guide? → docs/guides/
+    │   ├─ Design or contract? → docs/architecture/
+    │   ├─ Testing or dev practice? → docs/testing/ or docs/development/
     │   └─ Contributing? → CONTRIBUTING.md
     │
     └─ NO → Is it both?
-        ├─ Commands with explanation → Mark "Audience: Both"
+        ├─ Commands with explanation → register with audience `both`
         └─ Reference material → docs/ with executable examples
 ```
 
 ### File Organization in .claude/instructions/
 
-Files are numbered for load order priority:
+Files are numbered by topic. They load in the order `CLAUDE.md` `@`-imports them,
+not by number: a new file MUST be added to `CLAUDE.md`'s imports or it never loads.
 
 - `00-*` - Foundational (this file, core understanding)
 - `01-*` - Core rules and enforcement
-- `02-*` - Startup and context
+- `02-*` - Session startup
 - `03-*` - Required practices (MCP, etc.)
 - `04-*` - Behavioral triggers (agents, etc.)
 - `05-07-*` - Workflows and processes
 - `08-*` - Project-specific configuration
 - `09-10-*` - Tools and utilities
+- `11-*` - Pull request requirements
+
+### Register Every New Page
+
+- A new `.md` file MUST get a `DocEntry` (audience and kind) in
+  `src/pyeye/docs_facts/docs.py` in the same PR; `tests/test_docs_facts_registry.py`
+  fails otherwise. The `DocEntry` is the audience of record, not a comment in the page.
 
 ### Examples of Correct Placement
 
 | Content Type | Example | Correct Location |
 |-------------|---------|-----------------|
 | Claude must never force-delete | Enforcement rule | `.claude/instructions/01-core-rules.md` |
-| How MCP server works | Explanation | `docs/architecture.md` or `README.md` |
+| How MCP server works | Explanation | `docs/architecture/` or `README.md` |
 | When to use the smart-commit agent | Trigger pattern | `.claude/instructions/04-agent-triggers.md` |
-| Project setup guide | Tutorial | `docs/setup.md` or `README.md` |
+| Project setup guide | Tutorial | `README.md` (Installation) or `CONTRIBUTING.md` |
 | Commit message format | Both (rule + example) | `.claude/instructions/06-workflow-commits.md` with examples |
 | API endpoint documentation | Reference | `docs/api/` |
 | TodoWrite tool usage rules | Claude behavior | `.claude/instructions/09-task-management.md` |

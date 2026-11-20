@@ -6,7 +6,7 @@ anchors: ["pyeye.resolver.resolve_handle", "Resolved", "NotFound", "_synthetic_i
 status: "amended"
 amends: ["2026-10-29-506-dotted-handles-are-placed-by-definition-lookup-never-by.md", "2026-06-21-444-namespace-packages-anchored-through-resolve-inspect.md", "2026-06-21-454-edge-stub-scope-reconciles-to-the-project-definition-site.md"]
 supersedes: []
-amended_by: ["2026-11-15-544-stdlib-private-definitions-get-public-handles-os-path-is-located.md", "2026-11-16-704-an-internal-failure-is-a-crash-or-an-item-s-unknown-never.md"]
+amended_by: ["2026-11-15-544-stdlib-private-definitions-get-public-handles-os-path-is-located.md", "2026-11-16-704-an-internal-failure-is-a-crash-or-an-item-s-unknown-never.md", "2026-11-20-1022-a-name-shared-by-local-definitions-is-ambiguous-never-the-first.md"]
 superseded_by: []
 ---
 

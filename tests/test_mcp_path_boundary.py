@@ -102,6 +102,11 @@ def walk(obj: Any, where: str = "$") -> list[str]:
                         problems += _path_problems(item, f"{here}[{i}]")
                     else:
                         problems += walk(item, f"{here}[{i}]")
+            elif key == "discovered" and isinstance(value, list):
+                # configure_packages' auto-added packages (#1038): [{path, reason}].
+                for i, item in enumerate(value):
+                    if isinstance(item, dict):
+                        problems += _path_problems(item.get("path"), f"{here}[{i}].path")
             elif key == "environment" and isinstance(value, dict):
                 # configure_packages' environment (#993): its directory, or null.
                 if value.get("path") is not None:
@@ -140,6 +145,8 @@ def test_walker_flags_bad_paths(value: str, ok: bool) -> None:
     assert (not problems) is ok, problems
     env_problems = walk({"environment": {"path": value, "source": "project"}})
     assert (not env_problems) is ok, env_problems
+    found = walk({"discovered": [{"path": value, "reason": "sibling"}]})
+    assert (not found) is ok, found
 
 
 def test_a_backslashed_absolute_path_is_reported_once() -> None:

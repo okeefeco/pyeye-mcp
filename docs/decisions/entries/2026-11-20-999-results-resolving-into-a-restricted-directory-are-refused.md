@@ -6,7 +6,7 @@ anchors: ["pyeye.resolver.resolve_handle", "pyeye.resolver.in_restricted_dir", "
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-20-1005-windows-fails-closed-only-on-a-link-loop.md"]
+amended_by: ["2026-11-20-1005-windows-fails-closed-only-on-a-link-loop.md", "2026-11-20-1019-restricted-on-any-form-and-linked-stores.md"]
 superseded_by: []
 ---
 

@@ -40,7 +40,13 @@ from pyeye._module_sentinel import ModuleSentinel
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
-from pyeye.path_utils import normalize_path, normalize_path_strict, path_to_key, paths_equal
+from pyeye.path_utils import (
+    absolute_path,
+    normalize_path,
+    normalize_path_strict,
+    path_to_key,
+    paths_equal,
+)
 from pyeye.project_layout import (
     RootsBoundary,
     file_for_module,
@@ -87,6 +93,33 @@ class NotFound:
     #: it is refused. The operations then show *detail* as it is: it is the
     #: honest reason, not a guess.
     restricted: bool = False
+    #: The path names several definitions of one function-local name (#1022),
+    #: such as ``class Twin`` in both branches of an ``if``. No single answer is
+    #: true, so a handle-taking tool says so (*detail*), ``resolve`` answers
+    #: ``ambiguous`` with these, and ``resolve_at`` picks the one at its position.
+    candidates: tuple[Resolved, ...] = ()
+
+    @property
+    def honest_detail(self) -> str | None:
+        """*detail* when it is the honest reason to show the caller, else ``None``.
+
+        A refused restricted definition (#999) and a path naming several local
+        definitions (#1022) say why; any other miss lets the operation use its
+        own default detail.
+        """
+        return self.detail if (self.restricted or self.candidates) else None
+
+
+@dataclass(frozen=True)
+class _SharedLocalName:
+    """The anchor of a path that names several function-local definitions (#1022).
+
+    Python reuses one dotted name (``pkg.mod.outer.Twin``) for every ``class
+    Twin`` in ``outer``. :func:`resolve_handle` turns this into a
+    :class:`NotFound` carrying every definition, never one of them.
+    """
+
+    anchors: tuple[Any, ...]
 
 
 @dataclass(frozen=True)
@@ -117,7 +150,7 @@ def in_restricted_dir(name: Any) -> bool:
     Jedi follows a symlink in the project or the venv's site-packages while it
     looks up an import, so a hit can land in ``/etc`` or a credential store
     where no input check or pruned walk applies. The file is checked on its
-    resolved form with the walkers' own test, :func:`pyeye.validation.restricted_dir`.
+    spelled and resolved forms with the walkers' own predicate (#1019).
     A name with no file (a builtin, a namespace sentinel without one) is never
     restricted.
     """
@@ -131,7 +164,14 @@ _WINERROR_CANT_RESOLVE = 1921
 
 
 def restricted_path(path: str | Path) -> bool:
-    """Whether *path* RESOLVES into a restricted directory (#999).
+    """Whether ANY form of *path* is in a restricted directory (#999, #1019).
+
+    Both forms are checked, as the input checks (``validate_final``) check
+    them, with the same predicate (:func:`pyeye.validation.restricted_reason`):
+    the path as spelled (made absolute, links kept), so a path inside a
+    credential store that links out is caught, and the path RESOLVED, so a link
+    into one is caught. A store that is itself a link is matched at its target
+    too (:func:`pyeye.validation.credential_path`).
 
     Fails closed: a path whose links can't be followed counts as restricted,
     so an unfollowable route never returns a result. On POSIX that is every
@@ -142,8 +182,11 @@ def restricted_path(path: str | Path) -> bool:
     (#1005). The credential stores do apply on Windows, below the server's
     own home, so the check can't simply be skipped there.
     """
-    from pyeye.validation import restricted_dir
+    from pyeye.validation import credential_stores, restricted_reason
 
+    stores = credential_stores()  # one look at the stores for both forms
+    if restricted_reason(absolute_path(path), stores) is not None:
+        return True
     try:
         resolved = normalize_path_strict(path)
     except RuntimeError:
@@ -155,7 +198,7 @@ def restricted_path(path: str | Path) -> bool:
             resolved = normalize_path(path)
         except (OSError, RuntimeError):
             return True
-    return restricted_dir(resolved)
+    return restricted_reason(resolved, stores) is not None
 
 
 #: Whether the server runs on Windows: patched by tests of the Windows policy.
@@ -186,6 +229,8 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
+    if isinstance(anchor, _SharedLocalName):
+        return _shared_local(canonical, anchor, analyzer)
     anchor = relocate_platform(canonical, anchor)  # os.path → its sys.platform branch (#329)
     if in_restricted_dir(anchor):
         # Refused, not returned: its symbols and location would expose the file (#999).
@@ -198,6 +243,35 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         kind=kind,
         scope=scope_for(anchor, canonical, kind, analyzer),
         anchor=anchor,
+    )
+
+
+def _shared_local(path: str, shared: _SharedLocalName, analyzer: JediAnalyzer) -> NotFound:
+    """A :class:`NotFound` for a path naming several local definitions (#1022)."""
+    if any(in_restricted_dir(a) for a in shared.anchors):
+        return NotFound(
+            reason="unresolved", detail=RESTRICTED_DETAIL.format(path=path), restricted=True
+        )
+    candidates = []
+    for anchor in shared.anchors:
+        kind = normalise_kind_from_name(anchor)
+        candidates.append(
+            Resolved(
+                handle=path,
+                kind=kind,
+                scope=scope_for(anchor, path, kind, analyzer),
+                anchor=anchor,
+            )
+        )
+    lines = ", ".join(str(a.line) for a in shared.anchors)
+    return NotFound(
+        reason="unresolved",
+        detail=(
+            f"{path!r} names {len(shared.anchors)} definitions in one function "
+            f"(lines {lines}), so no single answer is true. Use resolve_at on the "
+            "one you mean."
+        ),
+        candidates=tuple(candidates),
     )
 
 
@@ -553,14 +627,116 @@ def _place_definition(path: str, analyzer: JediAnalyzer, hops: int) -> tuple[str
             if _names_path(name, path, ".".join(rest), analyzer) and not is_attribute_target(name)
         ]
         if matches:
+            # Several definitions of one function-local name: none is THE answer (#1022).
+            shared = _shared_local_definitions(matches, path)
+            if shared is not None:
+                return path, shared
             anchor = _anchor_on_bindings(matches, mod_file, path)
             placed = _canonical_of(anchor, path, analyzer)
             return (placed, anchor) if placed is not None else None
+        # A member of a function-local class, which Jedi leaves unnamed (#1025).
+        member = _local_class_member(path, names, analyzer, hops)
+        if member is not None:
+            return member
         # An explicit binding first, then the module's star imports (#1007).
         return _follow_alias(module_dotted, rest, names, analyzer, hops) or _follow_star(
             module_dotted, mod_file, rest, analyzer, hops
         )
     return None
+
+
+def is_function_local(name: Any) -> bool:
+    """Whether *name* is defined inside a function or method, at any depth (#1022)."""
+    parent = getattr(name, "parent", None)
+    scope = parent() if parent is not None else None
+    while scope is not None and scope.type != "module":
+        if scope.type == "function":
+            return True
+        scope = scope.parent()
+    return False
+
+
+def local_member_full_name(name: Any) -> str | None:
+    """*name*'s dotted name, naming a member of a function-local class by its class (#1025).
+
+    Jedi names a function-local class (``app.m.outer.Local``) but leaves every
+    member of it unnamed (``full_name`` is ``None``), and so do the scope
+    wrappers ``parent()`` returns. Such a member is named from its module and
+    the chain of scopes above it (``app.m.outer.Local.x``, and deeper for a
+    class nested in one), pyeye's existing notation. Only a member OF A CLASS,
+    with at most one function in that chain, is named: anything else stays
+    unnamed (``None``), such as a class in a nested function (#1026, #1011).
+    """
+    full_name = getattr(name, "full_name", None)
+    if isinstance(full_name, str) and full_name:
+        return full_name
+    parent = getattr(name, "parent", None)
+    owner = parent() if parent is not None else None
+    if owner is None or owner.type != "class":
+        return None
+    parts = [name.name]
+    functions = 0
+    scope = owner
+    while scope is not None and scope.type != "module":
+        if scope.type == "function":
+            functions += 1
+            if functions > 1:
+                return None
+        elif scope.type != "class":
+            return None
+        parts.append(scope.name)
+        scope = scope.parent()
+    module = getattr(name, "module_name", None)
+    if not module or not functions:
+        return None
+    return ".".join([module, *reversed(parts)])
+
+
+def _local_class_member(
+    path: str, names: list[Any], analyzer: JediAnalyzer, hops: int
+) -> tuple[str, Any] | None:
+    """Place *path* as a member of a function-local class it names (#1025).
+
+    The owner (*path* minus its last part) must resolve to ONE class: a member of
+    a name several local classes share (#1022) names no single definition.
+    """
+    owner_path, _, leaf = path.rpartition(".")
+    owner = _resolve(owner_path, analyzer, hops + 1)
+    if owner is None or isinstance(owner[1], _SharedLocalName):
+        return None
+    owner_anchor = owner[1]
+    if getattr(owner_anchor, "type", None) != "class" or not is_function_local(owner_anchor):
+        return None
+    where = (owner_anchor.module_path, owner_anchor.line, owner_anchor.column)
+    members = [
+        name
+        for name in names
+        if name.name == leaf
+        and not is_attribute_target(name)
+        and (owner_of := name.parent()) is not None
+        and (owner_of.module_path, owner_of.line, owner_of.column) == where
+    ]
+    if not members:
+        return None
+    shared = _shared_local_definitions(members, path)
+    return (path, shared) if shared is not None else (path, members[0])
+
+
+def _shared_local_definitions(matches: list[Any], path: str) -> _SharedLocalName | None:
+    """Every distinct function-local definition *path* names, if there are several (#1022).
+
+    ``None`` when there is one definition, or any match is not function-local:
+    module-level names keep #857's binding rules.
+    """
+    if len(matches) < 2 or not all(is_function_local(m) for m in matches):
+        return None
+    anchors: dict[tuple[Any, int, int], Any] = {}
+    for match in matches:
+        anchor = _anchor_on_definition(match, path)
+        anchors.setdefault((anchor.module_path, anchor.line or 0, anchor.column or 0), anchor)
+    if len(anchors) < 2:
+        return None
+    return _SharedLocalName(tuple(anchors[spot] for spot in sorted(anchors, key=lambda k: k[1:])))
 
 
 #: The ``(star source module, name)`` pairs already tried in this resolution, so a

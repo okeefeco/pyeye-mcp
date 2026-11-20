@@ -3,10 +3,10 @@ date: "2026-11-19"
 title: "The deny-list adds boot and secrets dirs, and credential stores below every user home (#909)"
 issues: [909, 939, 856, 867]
 anchors: ["pyeye.validation.PathValidator.RESTRICTED_TARGETS", "pyeye.validation.PathValidator.CREDENTIAL_PATHS", "pyeye.validation.PathValidator.USER_HOMES", "pyeye.validation.credential_path", "pyeye.validation.restricted_dir", "tests/test_extended_deny_list.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-18-856-every-caller-path-is-checked-in-its-final-form.md", "2026-11-18-939-the-deny-list-is-anchored-patterns-only-matched-ignoring-case.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-20-1019-restricted-on-any-form-and-linked-stores.md"]
 superseded_by: []
 ---
 

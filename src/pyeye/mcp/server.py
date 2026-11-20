@@ -31,6 +31,7 @@ from ..plugins.base import AnalyzerPlugin, Scope
 from ..plugins.django import DjangoPlugin
 from ..plugins.flask import FlaskPlugin
 from ..plugins.pydantic import PydanticPlugin
+from ..project_layout import mark_stub
 from ..project_manager import get_project_manager
 from ..scope_utils import SmartScopeResolver
 from ..settings import settings
@@ -245,7 +246,8 @@ def all_plugin_tool_names(project_path: str) -> set[str]:
 PLUGIN_PROJECT_PATH_NOTE = """
 
 Each record also carries ``scope`` (project or external) and an absolute
-``location`` (#627).  A record that names a symbol carries its canonical
+``location`` (#627), plus ``stub: true`` when it is declared in a ``.pyi``
+(absent means source; #933).  A record that names a symbol carries its canonical
 ``handle``, ready for ``inspect`` or ``expand``, or ``unresolved``
 (``{reason, detail}``) when it can't be placed.
 
@@ -489,7 +491,15 @@ async def _lookup_model(tool_name: str, plugin: Any, model_name: str, scope: Any
 
     if len(matches) > 1:
         candidates = [
-            {"handle": m["handle"], "kind": "class", "scope": m["scope"], "location": m["location"]}
+            mark_stub(
+                {
+                    "handle": m["handle"],
+                    "kind": "class",
+                    "scope": m["scope"],
+                    "location": m["location"],
+                },
+                m["location"].get("file"),
+            )
             for m in matches
             if "handle" in m
         ]
@@ -759,6 +769,10 @@ def configure_packages(
             session's earlier unsaved calls added. False keeps this call's
             entries for the session only: unsaved calls accumulate until the
             server restarts or a save writes them; ``unsaved`` lists them (#953).
+            A save writes the project's own config plus those entries only:
+            never a package pyeye discovered on its own (the result's
+            ``discovered`` lists those, each with why), the global config or
+            the override file (#1038).
         project_path: Project root to configure (default: current directory)
 
     The call errors (an MCP tool error, not a response) only when it can't run:
@@ -791,22 +805,9 @@ def configure_packages(
     if save:
         # The loaded config already carries the session's unsaved entries
         # (#953): add this call's, and persist both, then forget the overlay.
-        if packages:
-            existing = config.config.setdefault("packages", [])
-            have = {Path(p).as_posix() for p in existing}
-            existing.extend(Path(p).as_posix() for p in packages if Path(p).as_posix() not in have)
-        if namespaces:
-            config.config.setdefault("namespaces", {}).update(
-                {ns: [Path(p).as_posix() for p in paths] for ns, paths in namespaces.items()}
-            )
-        if standalone_dirs:
-            if not isinstance(config.config.get("standalone"), dict):
-                config.config["standalone"] = {}
-            dirs = config.config["standalone"].setdefault("dirs", [])
-            have = {Path(d).as_posix() for d in dirs}
-            dirs.extend(
-                Path(d).as_posix() for d in standalone_dirs if Path(d).as_posix() not in have
-            )
+        # Only explicit config is saved: never a derived package, the global
+        # config or the override file (#1038).
+        config.add_explicit(packages, namespaces, standalone_dirs)
         if packages or namespaces or standalone_dirs or has_unsaved(root):
             config.save_config()
             clear_unsaved(root)
@@ -857,6 +858,9 @@ def configure_packages(
         "standalone": config.get_standalone_config(),
         # Where third-party imports are read from (#993): always present.
         "environment": discover_environment(root, config.get_environment_setting()).as_response(),
+        # Packages pyeye added on its own, each with why; analysed, never
+        # saved. Always present, [] when none (#1038).
+        "discovered": config.discovered(),
     }
     # Entries the path check refused, skipped above; [] when none. Absent when
     # the check couldn't complete (a config that failed to load), never a []
@@ -920,7 +924,9 @@ async def resolve(
     Returns:
         ResolveResult dict — one of:
         - Success: {"found": True, "handle": str, "kind": str, "scope": "project"|"external",
-          "location": {...}} (the definition site, a pointer: no source content)
+          "location": {...}} (the definition site, a pointer: no source content),
+          plus ``stub: true`` when that site is a ``.pyi`` (absent means source,
+          a measured no; #933). Each ambiguous candidate carries it the same way.
         - Ambiguous: {"found": True, "ambiguous": True, "candidates": [...]}
           At most ``max_candidates`` (default 50; ``None`` for all) candidates
           come back, in sorted order (#435).  When more match, the result also
@@ -1004,7 +1010,9 @@ async def inspect(
 
     Returns:
         Node dict with ``found: True``, universal fields (handle, kind, scope,
-        location, docstring, edge_counts) plus kind-dependent fields.
+        location, docstring, edge_counts) plus kind-dependent fields, and
+        ``stub: true`` when the definition is declared in a ``.pyi`` (absent
+        means source, a measured no; #933).
         ``edge_counts`` counts only the edges cheap to measure from the
         definition itself.  An edge it didn't measure, including one that ran
         past its time budget, is ABSENT, never ``0``.  Follow an edge with
@@ -1149,6 +1157,11 @@ async def expand(
         code using newer syntax) returns the unsupported branch with
         ``reason: "unparseable"`` (#703), never ``stubs: []``: its edges were
         not measured.  ``detail`` names the file and line; Read the file.
+      - A definition declared only in a stub (``.pyi``: a project stub-only
+        module, typeshed, a stub-only package) has no body, so the edge that
+        reads a body's calls returns the unsupported branch with ``reason:
+        "stub_declaration"`` (#933): its calls weren't measured, never
+        ``stubs: []``.  Its other edges read declarations, so they still apply.
       - Unrecognised edge names return ``reason: "unknown_edge"``.
 
     Response shape — discriminated union.  ``found`` is always present.
@@ -1201,7 +1214,9 @@ async def expand(
 
     Each Stub carries: ``handle``, ``kind``, ``scope``, ``line_start``,
     ``line_end``, and ``signature`` when Jedi yields one (always for
-    class/function/method; also any name whose inferred type is callable).
+    class/function/method; also any name whose inferred type is callable),
+    plus ``stub: true`` when the definition is declared in a ``.pyi`` (absent
+    means source, a measured no; #933).
     A ``re_exports`` stub also carries ``bindings``, the public names it binds.
 
     A call, import or base whose definition Jedi can't pin to exactly one
@@ -1266,8 +1281,9 @@ async def trace(
     ``follow`` (deferred reference edges, unknown names) is reported in
     ``unsupported_edges`` rather than silently dropped — a silent drop would
     falsely read as "no such neighbours".  So is an implemented edge that does
-    not apply to a node's kind (e.g. ``imports`` on a class), with ``expand``'s
-    own reason and detail (#621).
+    not apply to a node's kind (e.g. ``imports`` on a class), or ``callees`` on
+    a declaration in a stub (``stub_declaration``, #933), with ``expand``'s own
+    reason and detail (#621).
 
     Every hop is exactly what ``expand(node, edge)`` would return: a node
     ``expand`` cannot resolve is not walked and is listed in
@@ -1363,8 +1379,10 @@ async def outline(
 
     Returns a nested ``OutlineTree`` — the ``members`` hierarchy of *handle* as a
     tree of lightweight structural nodes (``Stub``).  Each node carries
-    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``, and
-    ``signature`` when Jedi yields one.  No source content anywhere in the tree.
+    ``handle``, ``kind``, ``scope``, ``line_start``, ``line_end``,
+    ``signature`` when Jedi yields one, and ``stub: true`` when it is declared
+    in a ``.pyi`` (absent means source; #933).  No source content anywhere in
+    the tree.
 
     Use ``resolve()`` or ``inspect()`` first to obtain a canonical handle, then
     ``outline()`` to see the structural skeleton in one call — the single-call

@@ -70,11 +70,26 @@ async def test_resolve_of_a_stub_resolves_its_source(project: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_stub_with_no_source_is_sent_to_an_honest_miss(project: Path) -> None:
-    """The hint passes the stub as it is; it never names a .py that isn't there (#885)."""
+async def test_a_stub_with_no_source_is_passed_as_it_is(project: Path) -> None:
+    """The hint passes the stub as it is; it never names a .py that isn't there (#885).
+
+    Followed, it resolves: a project stub-only module has a handle at its stub (#933).
+    """
     miss = await _call("outline", project, handle="pkg/stub.pyi")
 
     assert "stub.py'" not in miss["detail"]
+    followed = await _follow(miss["detail"], project)
+    assert followed["found"] is True and followed["handle"] == "pkg.stub"
+    assert followed["location"]["file"].endswith("pkg/stub.pyi")
+
+
+@pytest.mark.asyncio
+async def test_a_stub_the_mapper_cant_name_is_sent_to_an_honest_miss(project: Path) -> None:
+    """A stub with no module name (here a stub-only ``__init__.pyi``) still says why (#885)."""
+    (project / "stubpkg").mkdir()
+    (project / "stubpkg" / "__init__.pyi").write_text("Z: int\n", encoding="utf-8")
+    miss = await _call("outline", project, handle="stubpkg/__init__.pyi")
+
     followed = await _follow(miss["detail"], project)
     assert followed["found"] is False and followed["reason"] == "unresolved"
     assert "stub with no .py source beside it" in followed["detail"]

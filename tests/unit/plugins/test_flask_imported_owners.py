@@ -17,7 +17,11 @@ import pytest
 from pyeye import project_manager as project_manager_module
 from pyeye.plugins.flask import FlaskPlugin
 from pyeye.project_manager import ProjectManager
-from tests.utils.performance import PerformanceThresholds, assert_performance_threshold
+from tests.utils.performance import (
+    PerformanceThresholds,
+    assert_performance_threshold,
+    warm_median_ms,
+)
 
 _BLUEPRINTS = "from flask import Blueprint\n\nbp = Blueprint('bp', __name__)\n"
 
@@ -211,20 +215,19 @@ async def test_files_without_an_unplaced_shortcut_never_touch_the_resolver(
 
 
 #: A warm ``find_flask_routes`` over 50 files, one of them using 10 shortcuts on
-#: an imported blueprint. Measured on dev01 under pytest (inert watchers): about
-#: 60 ms warm alone; the import placement is one resolve (~3 ms) per call. The local
-#: base allows for two concurrent suites (#835); CI values follow ENRICH_MANY's
-#: ratios.
+#: an imported blueprint, measured with ``warm_median_ms(calls=3, repeats=3)``.
+#: Re-measured for #1034 on dev01 under pytest with one other suite running
+#: (2026-11-20): 133-157 ms with the url registry cached, 258-298 ms without it
+#: (#957 rebuilt it on every call). The local base is ~1.4x the cached value, so
+#: that slowdown fails it; the import placement is one resolve (~3 ms) per call.
+#: The CI values are unchanged (#920, ENRICH_MANY's ratios).
 IMPORTED_OWNER_ROUTES = PerformanceThresholds(
-    base=400.0, linux_ci=600.0, macos_ci=1200.0, windows_ci=1200.0
+    base=220.0, linux_ci=600.0, macos_ci=1200.0, windows_ci=1200.0
 )
 
 
 @pytest.mark.asyncio
 async def test_placing_an_imported_blueprint_stays_cheap(tmp_path: Path) -> None:
-    import statistics
-    import time
-
     files = {"app/__init__.py": "", "app/blueprints.py": _BLUEPRINTS}
     for i in range(48):
         files[f"app/mod{i}.py"] = "from flask import Flask\n\napp = Flask(__name__)" + "".join(
@@ -236,13 +239,10 @@ async def test_placing_an_imported_blueprint_stays_cheap(tmp_path: Path) -> None
     plugin = FlaskPlugin(_project(tmp_path, files).as_posix())
     assert len(await plugin.find_routes()) == 250  # cold: builds the analyzer
 
-    samples = []
-    for _ in range(3):
-        start = time.perf_counter()
-        await plugin.find_routes()
-        samples.append((time.perf_counter() - start) * 1000)
+    # A min over runs of each run's median: one run of 3 still failed under load (#1017).
+    warm_ms = await warm_median_ms(plugin.find_routes, calls=3, repeats=3)
     assert_performance_threshold(
-        statistics.median(samples), IMPORTED_OWNER_ROUTES, "find_flask_routes, imported blueprint"
+        warm_ms, IMPORTED_OWNER_ROUTES, "find_flask_routes, imported blueprint"
     )
 
 

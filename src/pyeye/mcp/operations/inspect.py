@@ -67,7 +67,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
-from pyeye.project_layout import package_kind
+from pyeye.project_layout import mark_stub, package_kind
 from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
 if TYPE_CHECKING:
@@ -825,8 +825,8 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     resolved = resolve_handle(handle, analyzer)
     if isinstance(resolved, NotFound):
         logger.debug("inspect(%r): %s", handle, resolved.detail)
-        if resolved.restricted:  # refused, with the honest reason (#999)
-            return not_found(handle, detail=resolved.detail)
+        if resolved.honest_detail:  # refused (#999), or several local definitions (#1022)
+            return not_found(handle, detail=resolved.honest_detail)
         response = not_found(handle)
         # "Doesn't exist" vs "couldn't see the project's venv" (#993, #568).
         if note := environment_not_found_note(analyzer, handle):
@@ -895,6 +895,7 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
         "location": location,
         "docstring": docstring,
     }
+    mark_stub(node, location.get("file") if isinstance(location, dict) else None)  # #933
     node.update(kind_fields)
     # Phase 4: edge_counts populated with per-measurement budgeted counts.
     # `superclasses` is passed for call-site stability but is unused by

@@ -25,7 +25,7 @@ If you need to modify Claude's behavior:
 │   ├── 02-*.md      # Startup/context
 │   └── ...          # Other behaviors
 ├── agents/          # Agent definitions
-├── feedback/        # Learning/logs
+├── skills/          # Repo-internal skills (shipped skills live in /skills)
 └── settings.json    # Configuration
 ```
 
@@ -44,16 +44,18 @@ If you need to modify Claude's behavior:
 
 #### Understanding the System
 
-The instruction files use a numbered prefix system:
+The instruction files use a numbered prefix. Claude Code loads them in the
+order `/CLAUDE.md` `@`-imports them, so a new file must be added there too:
 
-- `00-*` Foundational understanding
+- `00-*` Foundational understanding (the documentation system)
 - `01-*` Core rules and enforcement
-- `02-*` Startup and context detection
-- `03-*` Required practices
-- `04-*` Behavioral triggers
-- `05-07-*` Workflows
+- `02-*` Session startup
+- `03-*` Required practices (MCP dogfooding)
+- `04-*` Behavioral triggers (agents and commands)
+- `05-07-*` Workflows (issues, commits, validation)
 - `08-*` Project-specific
-- `09-10-*` Tools and utilities
+- `09-10-*` Tools and utilities (task management, cross-platform paths)
+- `11-*` Pull request requirements
 
 ### Warning
 

@@ -1,12 +1,13 @@
-"""``resolve`` accepts ``.pyi`` stub paths (#885).
+"""``resolve`` accepts ``.pyi`` stub paths (#885, #933).
 
 - A stub beside its ``.py`` source resolves exactly as the source does, in
   every file form: the same handle, kind, scope and location (the ``.py``).
-- A stub with no source beside it stays not-found, saying why. A handle for
-  it would be one no other tool accepts (#602), and no hint names a ``.py``
-  that isn't there.
-- An external stub (typeshed, a ``-stubs`` package) behaves like any external
-  file path: it doesn't resolve by path. Pinned here so a change is deliberate.
+- A project stub-only module resolves at its stub, in every form, since #933
+  (``tests/test_stub_only_modules.py``).
+- A stub the file↔module mapper can't name stays not-found, saying why: an
+  external stub (typeshed, a ``-stubs`` package) and a package's stub-only
+  ``__init__.pyi``. A handle for it would be one no other tool accepts (#602),
+  and no hint names a ``.py`` that isn't there. Pinned so a change is deliberate.
 """
 
 from __future__ import annotations
@@ -82,30 +83,28 @@ class TestStubBesideItsSource:
 
 class TestStubOnly:
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("tool", "args"),
-        [
-            ("resolve", {"identifier": "pkg/stubonly.pyi"}),
-            ("resolve", {"identifier": "pkg/stubonly.pyi:3"}),
-            ("resolve_at", {"file": "pkg/stubonly.pyi", "line": 3, "column": 6}),
-        ],
-    )
-    async def test_every_file_form_is_an_honest_miss(
-        self, project: Path, tool: str, args: dict[str, Any]
-    ) -> None:
-        miss = await _call(tool, project, **args)
+    async def test_a_stub_only_module_resolves_at_its_stub(self, project: Path) -> None:
+        """#933 reversed #885's miss for a project module; the full surface is tested elsewhere."""
+        found = await _call("resolve", project, identifier="pkg/stubonly.pyi")
+
+        assert found["found"] is True and found["handle"] == "pkg.stubonly"
+        assert found["location"]["file"].endswith("pkg/stubonly.pyi")
+
+    @pytest.mark.asyncio
+    async def test_a_stub_only_package_init_is_an_honest_miss(self, project: Path) -> None:
+        """A package with only an ``__init__.pyi`` has no module handle (#933): it says why.
+
+        Its line forms land on a name Jedi resolves there (#885: a resolvable
+        stub line still resolves), so only the file form is a miss.
+        """
+        (project / "stubpkg").mkdir()
+        (project / "stubpkg" / "__init__.pyi").write_text("X: int\n", encoding="utf-8")
+
+        miss = await _call("resolve", project, identifier="stubpkg/__init__.pyi")
 
         assert miss["found"] is False and miss["reason"] == "unresolved"
         assert _STUB_ONLY in miss["detail"]
-        assert "stubonly.py'" not in miss["detail"]  # no call to a file that doesn't exist
-
-    @pytest.mark.asyncio
-    async def test_it_has_no_handle_anywhere(self, project: Path) -> None:
-        """Consistent with every other tool: the stub-only module isn't analysed."""
-        assert (await _call("resolve", project, identifier="pkg.stubonly"))["found"] is False
-        assert (await _call("inspect", project, handle="pkg.stubonly"))["found"] is False
-        submodules = await _call("expand", project, handle="pkg", edge="submodules")
-        assert [s["handle"] for s in submodules["stubs"]] == ["pkg.mod"]
+        assert "__init__.py'" not in miss["detail"]  # no call to a file that doesn't exist
 
     @pytest.mark.asyncio
     async def test_a_line_that_names_an_import_still_resolves(self, project: Path) -> None:

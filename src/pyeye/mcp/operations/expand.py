@@ -109,6 +109,7 @@ from pyeye.mcp.operations.edges import (
     STATUS_IMPLEMENTED,
     STATUS_NOT_APPLICABLE,
     STATUS_NOT_YET_IMPLEMENTED,
+    STATUS_STUB_DECLARATION,
     STATUS_UNPARSEABLE,
     EdgeResult,
     UnparseableSource,
@@ -116,6 +117,8 @@ from pyeye.mcp.operations.edges import (
     edge_kind,
     edge_status,
     not_applicable_detail,
+    stub_declaration_detail,
+    stub_declaration_file,
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.stubs import build_stub
@@ -217,7 +220,7 @@ async def expand(
     check_cap(max_stubs, "max_stubs")  # a bad cap is a caller error, before any work
     resolved = resolve_handle(handle, analyzer)  # the one resolver (#623)
     if isinstance(resolved, NotFound):
-        return not_found(handle, edge=edge, detail=resolved.detail if resolved.restricted else None)
+        return not_found(handle, edge=edge, detail=resolved.honest_detail)
 
     return await expand_resolved(
         resolved.anchor, resolved.handle, edge, analyzer, max_stubs=max_stubs
@@ -281,6 +284,22 @@ async def expand_resolved(
             "reason": STATUS_NOT_APPLICABLE,
             "detail": not_applicable_detail(edge, edge_kind(jedi_name)),
             # Kept from the pre-#626 wrong-kind branch (no field is removed in 2.x).
+            "report_issues": meta.issues_url(),
+        }
+
+    # ------------------------------------------------------------------
+    # A body edge on a stub declaration (#933): the stub has no body, so the
+    # edge wasn't measured.  Unsupported, never a measured ``stubs: []``.
+    # ------------------------------------------------------------------
+    stub = stub_declaration_file(edge, jedi_name)
+    if stub is not None:
+        return {
+            "found": True,
+            "source": source,
+            "edge": edge,
+            "unsupported": True,
+            "reason": STATUS_STUB_DECLARATION,
+            "detail": stub_declaration_detail(edge, source, stub),
             "report_issues": meta.issues_url(),
         }
 
