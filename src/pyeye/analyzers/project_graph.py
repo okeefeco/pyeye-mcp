@@ -480,6 +480,42 @@ def get_class_graph(
     return cast(ClassGraph, graph)
 
 
+def cached_graph(
+    kind: str, project_key: str, *, layout_key: str = "", scope_key: str = ""
+) -> object | None:
+    """The cached *kind* artifact for that project, layout and scope, or ``None``.
+
+    For an artifact built by ASYNC code (a plugin's, #1034), which
+    :func:`_get_graph`'s synchronous *build* can't run. Pair it with
+    :func:`store_graph`: take :func:`generation` first, build on a miss, then
+    store. Same store, keys and invalidation as the class and import graphs.
+    Two concurrent first calls may both build (no single-flight); both results
+    are correct, and the first stored wins.
+    """
+    return _graphs.get(_normalize(project_key), {}).get((kind, layout_key, scope_key))
+
+
+def store_graph(
+    kind: str,
+    project_key: str,
+    value: object,
+    generation: Generation,
+    *,
+    layout_key: str = "",
+    scope_key: str = "",
+) -> None:
+    """Cache *value* as :func:`cached_graph` reads it, unless the project changed since.
+
+    *generation* is the :func:`generation` taken before the build listed its
+    files. If the project was invalidated since, *value* may predate the change,
+    so it isn't stored (#617); the caller still returns it.
+    """
+    key = _normalize(project_key)
+    with _lock:
+        if generation == (_epoch, _generations.get(key, 0)):
+            _graphs.setdefault(key, {}).setdefault((kind, layout_key, scope_key), value)
+
+
 def get_import_graph(
     project_key: str,
     build: Callable[[], ImportGraph],
