@@ -129,8 +129,9 @@ or other call on the project sees the added packages, and the project's active
 framework plugins get the new paths. If the added packages bring in a framework
 the server didn't detect at startup (for example, Flask is used only in a newly
 added package), that plugin activates now and its tools can be called by name
-straight away; the response's `activated_plugins` names them. Your client's tool
-list may not refresh, because no list-changed notification is sent (#659, #770).
+straight away; the response's `activated_plugins` names them. The call also sends
+a tools-changed event, so a client that honours it refreshes its tool list; one
+that doesn't can still call the new tools by name (#659, #770).
 Plugin activation applies only to the project the server started in; the new
 paths themselves take effect on whichever project you configure.
 

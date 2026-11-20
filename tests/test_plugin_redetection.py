@@ -6,8 +6,8 @@ even after a restart.  Detection now covers the root and every configured
 package and namespace path, at startup and again after ``configure_packages``
 on the startup project.  Newly activated plugins' tools are registered at
 runtime (add-only: nothing is ever unregistered or renamed), and any client can
-call them by name; ``activated_plugins`` names what appeared.  No
-``tools/list_changed`` is sent (#770).
+call them by name; ``activated_plugins`` names what appeared.  The
+tools-changed event is #770's (``tests/test_tools_list_changed.py``).
 """
 
 from __future__ import annotations

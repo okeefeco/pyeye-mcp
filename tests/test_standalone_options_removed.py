@@ -47,7 +47,10 @@ def _saved(project: Path) -> dict:
 
 class TestConfigurePackagesSurface:
     def test_signature_has_no_dead_standalone_options(self):
-        assert list(inspect.signature(configure_packages).parameters) == [
+        params = inspect.signature(configure_packages).parameters
+        # #770's injected Context: keyword-only, never in the input schema.
+        assert params["ctx"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert [name for name in params if name != "ctx"] == [
             "packages",
             "namespaces",
             "standalone_dirs",

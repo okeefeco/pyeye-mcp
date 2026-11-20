@@ -159,9 +159,13 @@ def main() -> None:
     logger = logging.getLogger(__name__)
     logger.info("Starting PyEye Server with file watching and connection diagnostics")
 
-    # Run the server
+    # Run the server: the SDK's stdio path, plus tools.listChanged (#770)
+    import anyio
+
+    from .list_changed import run_stdio
+
     try:
-        mcp.run()
+        anyio.run(run_stdio, mcp)
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
         log_connection_end("keyboard_interrupt")
