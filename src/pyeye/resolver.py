@@ -1514,8 +1514,12 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     - **Imports and plain definitions, all unconditional** (``from .src import
       A`` then ``class A``): the LAST binding wins, as at runtime. If the last is
       an import (``class A`` then ``from .src import A``), it collapses.
+    - **Overloads with an implementation** (#1088): when every binding is a
+      ``def`` and all but one are ``@overload``, the one without is the
+      implementation and is the anchor (:func:`_overload_implementation`).
+      Overload-only definitions (a ``.pyi``, a Protocol) fall through.
     - **Everything else keeps the first binding**, as before: no import among
-      them (a property's setter, overloads, an if/else ``def``), a binding inside
+      them (a property's setter, overload-only defs, an if/else ``def``), a binding inside
       a branch (``TYPE_CHECKING``, ``try/except ImportError``), anything that
       isn't a plain definition (a comprehension or lambda target, ``A: int``,
       ``A = A``, ``A += 1``, ``del A``), or a module that won't parse.
@@ -1523,6 +1527,9 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     first = matches[0]
     if len(matches) == 1:
         return _cross_file_target(first) or _anchor_on_definition(first, handle)
+    implementation = _overload_implementation(matches, mod_file)
+    if implementation is not None:
+        return _anchor_on_definition(implementation, handle)
     found = _bindings(mod_file)
     if found is None:
         return _anchor_on_definition(first, handle)
@@ -1542,6 +1549,47 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     if ((last.line or 0), last.name) in found.imports:
         return _cross_file_target(last) or _anchor_on_definition(last, handle)
     return _anchor_on_definition(last, handle)
+
+
+#: The ``@overload`` decorator, by qualified name (#1088).
+_OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
+
+
+def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:
+    """The implementation among *matches*, when the others are its ``@overload`` stubs (#1088).
+
+    Every match must be a ``def`` (found at its line in *mod_file*); exactly one
+    may lack an ``@overload`` decorator (``typing.overload`` or
+    ``typing_extensions.overload``, however the module imports them), and at
+    least one must have it. That one runs and has the body, so its location,
+    signature and edges describe the function; the first overload, kept before,
+    is a declaration with a ``...`` body. ``None`` otherwise, including
+    overload-only definitions (a ``.pyi``, a Protocol), which keep the first.
+    """
+    from pyeye._ast_targets import find_function_def_at_line
+    from pyeye._module_scope import build_import_table
+    from pyeye.deprecation import dotted_name, qualify
+    from pyeye.import_analyzer import resolve_relative_import
+
+    try:
+        tree = file_artifact_cache.get_ast(mod_file)
+    except (SyntaxError, ValueError, OSError):
+        return None
+    table = build_import_table(
+        tree, "", resolve_relative_import, mod_file.name in ("__init__.py", "__init__.pyi")
+    )
+    plain = []
+    for match in matches:
+        definition = find_function_def_at_line(mod_file, match.line or 0)
+        if definition is None:
+            return None  # not every binding is a def: not an overload set
+        if not any(
+            (name := dotted_name(d.func if isinstance(d, ast.Call) else d)) is not None
+            and qualify(name, table) in _OVERLOAD_DECORATORS
+            for d in definition.decorator_list
+        ):
+            plain.append(match)
+    return plain[0] if len(plain) == 1 and len(matches) > 1 else None
 
 
 def _anchor_on_definition(name: Any, handle: str) -> Any:

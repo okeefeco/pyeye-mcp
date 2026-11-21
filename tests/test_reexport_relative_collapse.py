@@ -299,7 +299,9 @@ BINDING_CASES = {
         "function",
         "cond.py:4",
     ),
-    "overload_first": (
+    # #1088: overloads anchor on the implementation, the def without
+    # ``@overload`` (it was the first overload stub before).
+    "overload_implementation": (
         {
             "pkg/__init__.py": (
                 "from typing import overload\n\n\nclass Thing:\n    @overload\n"
@@ -310,7 +312,7 @@ BINDING_CASES = {
         "pkg.Thing.ov",
         "pkg.Thing.ov",
         "method",
-        "__init__.py:6",
+        "__init__.py:11",
     ),
     "type_checking_branch": (
         {
