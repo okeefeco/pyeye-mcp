@@ -53,10 +53,9 @@ def iter_module_scope_imports(
         Each :class:`ast.Import` / :class:`ast.ImportFrom` node at module scope,
         in source order.
     """
-    if not include_guarded:
-        yield from (n for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom)))
-        return
-    for node, _type_only in iter_module_scope_imports_guarded(tree):
+    for node, _type_only in iter_module_scope_imports_guarded(
+        tree, include_guarded=include_guarded
+    ):
         yield node
 
 
@@ -65,11 +64,13 @@ _TYPING_MODULES = ("typing", "typing_extensions")
 
 
 def iter_module_scope_imports_guarded(
-    tree: ast.Module,
+    tree: ast.Module, *, include_guarded: bool = True
 ) -> Iterator[tuple[ast.Import | ast.ImportFrom, bool]]:
-    """:func:`iter_module_scope_imports`, each import with whether it is type-only (#1081).
+    """THE module-scope import walk (#360), each import with whether it is type-only (#1081).
 
-    The same walk (#360), so ``members`` and ``imports`` still share it. An
+    :func:`iter_module_scope_imports` is this walk without the flag, so
+    ``members`` and ``imports`` still share one walk; *include_guarded* is as
+    documented there. An
     import is type-only when it sits in the BODY of an ``if`` whose test is the
     ``TYPE_CHECKING`` guard, at any depth below it (a nested ``if``, a ``try``).
     The ``else``/``elif`` branch runs at runtime; ``if not TYPE_CHECKING:``
@@ -113,6 +114,9 @@ def iter_module_scope_imports_guarded(
             elif not isinstance(node, SCOPE_BOUNDARY_NODES):
                 yield from walk(ast.iter_child_nodes(node), type_only)
 
+    if not include_guarded:  # only the statements directly in the module body
+        yield from ((n, False) for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom)))
+        return
     yield from walk(tree.body, False)
 
 

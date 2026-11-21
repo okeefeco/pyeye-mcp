@@ -312,10 +312,12 @@ PROJECT_SEARCH_ALLOWLIST: dict[Site, str] = {}
 PROJECT_SEARCH_PINNING_TESTS_ALLOWLIST: dict[Site, str] = {}
 
 # 3. Module-scope Import/ImportFrom walk over ``tree.body``: only
-#    ``_module_scope.iter_module_scope_imports`` (#360, moved below both layers in #630).
+#    ``_module_scope.iter_module_scope_imports_guarded`` (#360, moved below both layers
+#    in #630). #1081 made it yield each import's type-only flag; the unflagged
+#    ``iter_module_scope_imports`` only delegates to it, so it is still ONE walk.
 MODULE_SCOPE_WALK_SANCTIONED: Site | None = (
     "_module_scope.py",
-    "iter_module_scope_imports",
+    "iter_module_scope_imports_guarded",
 )
 MODULE_SCOPE_WALK_ALLOWLIST: dict[Site, str] = {}
 
