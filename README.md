@@ -315,7 +315,7 @@ file, the first of the project config files above that exists, so a
 `.pyeye.json` or `.pyeye.yaml` in the root means it is never read. And detection
 only runs when no `packages` are set yet, including by your global config.
 
-If no configuration is found in `pyproject.toml`, PyEye will also check for the presence of a `src/` directory containing Python packages and automatically add it to the package paths.
+If no configuration is found in `pyproject.toml`, PyEye also treats `src/` as a source root when it holds a regular package (a directory with `__init__.py`), or when it holds the project's own package under its declared name (`[project].name` or `[tool.poetry].name`, lowercased, with `-` and `.` as `_`), even a namespace package with no `__init__.py`. That is where Poetry, Hatch, uv, PDM and setuptools look by default, so a project like Poetry, whose `src/poetry` is a namespace, is named `poetry.…`, not `src.poetry.…`. No other directory under `src/` is taken as a root.
 
 **Note:** Explicit `[tool.pyeye]` configuration always takes precedence over auto-detected layouts.
 
