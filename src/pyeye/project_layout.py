@@ -60,7 +60,9 @@ compared against.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -70,6 +72,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from .path_utils import dedupe_paths, paths_equal, relative_within
+
+logger = logging.getLogger(__name__)
 
 
 class RootsBoundary(StrEnum):
@@ -812,21 +816,73 @@ def package_kind(module_path: Any) -> PackageKind:
     return "unknown"
 
 
+def read_pyproject(project_root: Path | str) -> dict[str, Any]:
+    """The project's ``pyproject.toml``, parsed statically; ``{}`` if absent or unreadable."""
+    path = Path(project_root) / "pyproject.toml"
+    if not path.is_file():
+        return {}
+    import tomllib
+
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        logger.debug(f"Not reading {path.as_posix()}: {error}")
+        return {}
+
+
+def _normalised_name(name: Any) -> str | None:
+    """*name* as a distribution's import directory: lowercase, runs of ``-_.`` as ``_`` (PEP 503)."""
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return re.sub(r"[-_.]+", "_", name.strip()).lower()
+
+
+def _project_names(project_root: Path) -> list[str]:
+    """The project's own normalised names: ``[project].name`` and ``[tool.poetry].name``."""
+    data = read_pyproject(project_root)
+
+    def table(value: Any) -> dict[str, Any]:
+        return value if isinstance(value, dict) else {}
+
+    candidates = [
+        table(data.get("project")).get("name"),
+        table(table(data.get("tool")).get("poetry")).get("name"),
+    ]
+    return list(dict.fromkeys(n for n in map(_normalised_name, candidates) if n))
+
+
 def detect_src_layout(project_path: Path | str) -> Path | None:
     """Return ``<project>/src`` when the project uses a src layout, else ``None``.
 
     The one src-layout rule (#625), shared by ``ProjectConfig`` auto-discovery
     and a ``JediAnalyzer`` built without a config, so the two never name the
-    same files differently. A src layout is a ``src/`` directory holding at
-    least one regular package (a subdirectory with ``__init__.py``).
+    same files differently. A src layout is a ``src/`` directory holding:
+
+    - a regular package (a subdirectory with ``__init__.py``); or
+    - the project's OWN package, by its declared name (#1078): ``src/<name>``,
+      where ``<name>`` is ``[project].name`` or ``[tool.poetry].name``
+      normalised (PEP 503), as a package or a PEP 420 directory
+      (:func:`dir_shallow_qualifies`, #444). That is where poetry-core,
+      hatchling, uv_build, pdm-backend and setuptools' src-layout discovery
+      look by default, so it is a declaration in effect (#1035), not a guess:
+      no other directory under ``src/`` counts. Poetry's own ``src/poetry``
+      is a namespace shared with poetry-core.
+
+    A declared ``from`` / ``where`` is read by ``ProjectConfig`` first and
+    wins: auto-discovery runs only when no packages were declared.
     """
-    src_dir = Path(project_path) / "src"
+    root = Path(project_path)
+    src_dir = root / "src"
     try:
         if not src_dir.is_dir():
             return None
-        has_package = any(
-            (item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()
-        )
+        if any((item / "__init__.py").exists() for item in src_dir.iterdir() if item.is_dir()):
+            return src_dir
     except OSError:
         return None
-    return src_dir if has_package else None
+    for name in _project_names(root):
+        own = src_dir / name
+        if own.is_dir() and dir_shallow_qualifies(own):
+            return src_dir
+    return None

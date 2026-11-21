@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import Any
 
 from .path_utils import absolute_path, normalize_path, relative_within, repo_path_refusal
-from .project_layout import detect_src_layout
+from .project_layout import detect_src_layout, read_pyproject
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ def declared_path_dependencies(project_root: Path) -> list[tuple[str, str]]:
     :func:`_import_root`); the list is in declaration order, deduplicated. ``[]`` with no ``pyproject.toml``, or one that can't be read
     (the config loader reports that one when it is the config file).
     """
-    data = _pyproject(project_root)
+    data = read_pyproject(project_root)
     if not data:
         return []
     found: dict[str, str] = {}
@@ -75,20 +75,6 @@ def declared_path_dependencies(project_root: Path) -> list[tuple[str, str]]:
         else:
             logger.debug(f"Skipping declared dependency {directory.as_posix()}: not a directory")
     return list(found.items())
-
-
-def _pyproject(project_root: Path) -> dict[str, Any]:
-    path = project_root / "pyproject.toml"
-    if not path.is_file():
-        return {}
-    import tomllib
-
-    try:
-        with open(path, "rb") as handle:
-            return tomllib.load(handle)
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        logger.debug(f"Not reading declared dependencies from {path.as_posix()}: {error}")
-        return {}
 
 
 def _import_root(directory: Path) -> str:
