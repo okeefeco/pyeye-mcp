@@ -29,7 +29,14 @@ from ..project_layout import (
     layout_key,
     module_name_for_file,
 )
-from ..resolver import Resolved, base_class_target, resolve_item
+from ..resolver import (
+    Resolved,
+    base_class_target,
+    handle_for_anchor,
+    local_definition_handle,
+    local_member_full_name,
+    resolve_item,
+)
 from ..scope_utils import (
     ScopedCache,
     ScopeLayout,
@@ -1486,13 +1493,32 @@ class JediAnalyzer:
             except Exception:
                 script = None  # as before: a file Jedi can't load keys no base
             target = base_class_target(script, base) if script is not None else None
-            resolved_cache[cache_key] = getattr(target, "full_name", None) or None
+            resolved_cache[cache_key] = self._base_target_name(target)
 
         resolved = resolved_cache[cache_key]
         if resolved is None:
             return None
         canonical = self._canonical_cached(resolved, canonical_cache)
         return str(canonical) if canonical is not None else resolved
+
+    def _base_target_name(self, target: Any) -> str | None:
+        """The name a resolved base is keyed by, named as the edges name it (#1071).
+
+        A class nested in a function-local class has no Jedi ``full_name``, and
+        is named after its class as ``resolve`` names it (#1025). A
+        function-local class keeps its name only when ``resolve`` places it
+        back at that class: a name the function binds twice has no key, as
+        ``superclasses`` gives it no stub.
+        """
+        if target is None:
+            return None
+        name = local_member_full_name(target)
+        if not name:
+            return None
+        placed = handle_for_anchor(target, name, self)
+        if placed is None:
+            return None
+        return local_definition_handle(target, placed, self)
 
     def _target_index_key(
         self,

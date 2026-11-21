@@ -73,6 +73,16 @@ def f():
         pass
 
     return LocalMember
+
+
+def g(X):
+    class X:
+        pass
+
+    class LocalParam(X):
+        pass
+
+    return LocalParam
 """
 
 FILES = {
@@ -108,8 +118,9 @@ class TestEachReason:
             ("NotAClass", "func", "not_a_class"),
             # Jedi sees no definition of a C module's class in pyeye's environment.
             ("CModule", "_thread._local", "unresolvable"),
-            # Found, but Jedi gives a class in a local class no dotted name (#1025).
-            ("f.LocalMember", "Outer.Inner", "no_handle"),
+            # Found, but the parameter binds X too, so the class has no unique
+            # handle (#1049, #1071). A class in a local class is named (#1025).
+            ("g.LocalParam", "X", "no_handle"),
         ],
     )
     async def test_the_reason(

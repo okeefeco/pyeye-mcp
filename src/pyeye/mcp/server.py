@@ -1263,7 +1263,8 @@ async def expand(
     says why each base didn't resolve (#1065): ``{base, reason}``, ``reason`` one of
     ``not_a_name`` (a call or other expression), ``unresolvable`` (no definition
     found), ``ambiguous`` (bound to several classes, e.g. a try/except import shim),
-    ``not_a_class``, ``restricted`` or ``no_handle``. An ``ambiguous`` one adds
+    ``not_a_class``, ``restricted`` or ``no_handle`` (found, but no handle names
+    it uniquely, e.g. a name its function binds twice, #1071). An ``ambiguous`` one adds
     ``candidates`` (handles, sorted) and ``candidate_count``; a count above
     ``len(candidates)`` means some can't be shown.
 
