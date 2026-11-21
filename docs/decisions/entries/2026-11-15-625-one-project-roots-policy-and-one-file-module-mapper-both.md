@@ -6,7 +6,7 @@ anchors: ["pyeye.project_layout.project_roots", "RootsBoundary", "module_name_fo
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md", "2026-11-20-1047-a-module-name-matches-its-file-in-exact-case.md", "2026-11-21-1041-a-standalone-script-is-named-from-its-dir-unless-shadowed.md"]
+amended_by: ["2026-11-19-858-every-configured-package-is-on-jedis-sys-path-in-one-root-order.md", "2026-11-20-1047-a-module-name-matches-its-file-in-exact-case.md", "2026-11-21-1041-a-standalone-script-is-named-from-its-dir-unless-shadowed.md", "2026-11-22-1078-src-is-a-root-when-it-holds-the-projects-own-package.md"]
 superseded_by: []
 ---
 
