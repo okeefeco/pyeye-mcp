@@ -88,6 +88,73 @@ def _is_stdlib_entry(entry: str) -> bool:
         return False
 
 
+#: Whether Jedi still has the private hook :func:`_filter_walk` wraps (#1079).
+#: Verified against Jedi 0.20.1; without it, the walk is left as is, with a warning.
+_HAS_SYS_PATH_HOOK = callable(getattr(jedi.Project, "_get_sys_path", None))
+
+
+def _filter_walk(project: Any) -> None:
+    """Make *project*'s smart sys-path walk never add a directory inside an import root (#1079).
+
+    Jedi's ``smart_sys_path`` (``jedi.Project._get_sys_path``) walks up from the
+    analysed file, skipping directories with an ``__init__.py``, and appends the
+    first one without. Inside a PEP 420 namespace under ``src`` that is the
+    namespace directory itself (``src/poetry``). On ``sys.path`` it makes every
+    module in it a top-level one: ``src/poetry/poetry.py`` then answers ``import
+    poetry`` as a regular module, which beats the namespace package in ``src``,
+    so no ``poetry.*`` import resolves from a file in the namespace.
+
+    A directory strictly inside one of the project's import roots (its
+    ``added_sys_path``: ``src``, configured packages, namespace roots) is part of
+    a package, never an import root of its own, so such a walk entry is dropped
+    (:func:`_without_inner_walk_entries`). A flat layout, whose import root is
+    the project itself, is unchanged.
+
+    Installed on the instance, wrapping the class's own method, so Jedi's
+    per-inference-state cache still runs and a ``jedi.Project`` patched in tests
+    stays patchable. Marked ``__pyeye_import_roots__`` for the tests that pin it.
+    """
+    original = getattr(type(project), "_get_sys_path", None)
+    if not callable(original):
+        return  # a test double, or a Jedi without the hook (warned at import)
+
+    def _get_sys_path(  # type: ignore[no-untyped-def]
+        inference_state, add_parent_paths=True, add_init_paths=False
+    ):
+        paths = original(
+            project,
+            inference_state,
+            add_parent_paths=add_parent_paths,
+            add_init_paths=add_init_paths,
+        )
+        return _without_inner_walk_entries(paths, project)
+
+    _get_sys_path.__pyeye_import_roots__ = True  # type: ignore[attr-defined]
+    project._get_sys_path = _get_sys_path
+
+
+def _without_inner_walk_entries(paths: list[str], project: Any) -> list[str]:
+    """*paths* minus the walk entries strictly inside one of *project*'s import roots (#1079)."""
+    root = Path(project.path)
+    added = [Path(p) for p in project.added_sys_path]
+    roots = [r for r in added if relative_within(r, root) != Path(".")]
+    if not roots:
+        return paths
+    explicit = {Path(p) for p in (getattr(project, "_sys_path", None) or [])}
+    explicit.update(added)
+    explicit.add(root)
+    kept = []
+    for entry in paths:
+        candidate = Path(entry)
+        if candidate not in explicit and any(
+            (inside := relative_within(candidate, r)) is not None and inside.parts for r in roots
+        ):
+            logger.debug("Jedi sys.path: dropping %s, inside an import root (#1079)", entry)
+            continue
+        kept.append(entry)
+    return kept
+
+
 def make_project(
     path: str | Path,
     added_sys_path: Iterable[str] = (),
@@ -103,7 +170,9 @@ def make_project(
             (``ProjectEnvironment.site_paths``, #993), after the standard library.
 
     Returns:
-        The project, built with one ``jedi.Project`` call. Its base path is the
+        The project, built with one ``jedi.Project`` call, whose smart
+        sys-path walk never adds a directory inside an import root
+        (:func:`_filter_walk`, #1079). Its base path is the
         interpreter's standard library (minus Jedi's own directory, #722), then
         *environment_paths*; pyeye's own ``site-packages`` is never on it. If the
         interpreter's path can't be read, the base is *environment_paths* alone
@@ -125,6 +194,13 @@ def make_project(
     stdlib = [p for p in base if p and not is_jedi_private_path(p) and _is_stdlib_entry(p)]
     kwargs["sys_path"] = list(dict.fromkeys([*stdlib, *environment_paths]))
     project = jedi.Project(**kwargs)
+    if _HAS_SYS_PATH_HOOK:
+        _filter_walk(project)
+    else:
+        logger.warning(
+            "jedi.Project._get_sys_path is gone: Jedi's smart sys.path walk is not filtered, "
+            "so a module named like its own namespace can hide it (#1079)"
+        )
     # The interpreter Jedi runs: pyeye's own, never Jedi's VIRTUAL_ENV-driven
     # default. get_environment() returns this cached attribute when it's set.
     project._environment = environment
