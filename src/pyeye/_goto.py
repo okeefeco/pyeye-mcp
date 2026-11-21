@@ -26,26 +26,40 @@ This is a lower layer: it must not import ``pyeye.mcp``
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import PurePath
 from typing import Any
 
 
-def pick_target(defs: Iterable[Any], *, prefer: str | None = None) -> Any | None:
+def full_name_of(d: Any) -> str | None:
+    """Jedi's dotted name for *d*, the default naming :func:`pick_target` groups by."""
+    full_name = getattr(d, "full_name", None)
+    return full_name if isinstance(full_name, str) and full_name else None
+
+
+def pick_target(
+    defs: Iterable[Any],
+    *,
+    prefer: str | None = None,
+    name_of: Callable[[Any], str | None] = full_name_of,
+) -> Any | None:
     """Return the one definition *defs* name, or ``None`` if they don't name exactly one.
 
     Args:
         defs: Jedi ``Name`` results of a ``goto``.
         prefer: A Jedi ``type`` (e.g. ``"class"``) to narrow a tie with. It is
             consulted only when there are several distinct targets.
+        name_of: How a result is named, ``None`` for unnamed (ignored). Jedi's
+            ``full_name`` by default; the resolver passes its own rule, which
+            also names a member of a function-local class (#1025, #1071).
 
     Returns:
-        The first ``Name`` for the single distinct ``full_name``, or ``None``
-        when there are none or several.
+        The first ``Name`` for the single distinct name, or ``None`` when there
+        are none or several.
     """
     grouped: dict[str, list[Any]] = {}
     for d in defs:
-        full_name = getattr(d, "full_name", None)
+        full_name = name_of(d)
         if full_name:
             grouped.setdefault(full_name, []).append(d)
     by_name = {name: _representative(group, prefer) for name, group in grouped.items()}

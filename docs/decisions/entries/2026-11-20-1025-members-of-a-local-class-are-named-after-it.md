@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "Members of a function-local class are measured and named after it (#1025)"
 issues: [1025, 1022, 1011, 1026, 392]
 anchors: ["pyeye.resolver.local_member_full_name", "pyeye.resolver._local_class_member", "pyeye.mcp.operations.edges._class_members", "tests/unit/mcp/operations/test_local_class_members.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-20-1022-a-name-shared-by-local-definitions-is-ambiguous-never-the-first.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-21-1071-edge-stub-handles-round-trip-through-resolve.md"]
 superseded_by: []
 ---
 

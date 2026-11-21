@@ -3,10 +3,10 @@ date: "2026-11-21"
 title: "superclasses says why each unresolved base didn't resolve: unresolved_superclass_details (#1065)"
 issues: [1065, 1057, 1006, 624, 999]
 anchors: ["pyeye.resolver.base_class_lookup", "pyeye.resolver.BaseLookup", "pyeye.mcp.operations.edges.superclass_bases", "pyeye.mcp.operations.edges.resolve_superclasses", "tests/unit/mcp/operations/test_unresolved_superclass_details.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-21-1071-edge-stub-handles-round-trip-through-resolve.md"]
 superseded_by: []
 ---
 

@@ -96,6 +96,7 @@ from pyeye.resolver import (
     handle_for_anchor,
     in_restricted_dir,
     is_function_local,
+    local_definition_handle,
     local_member_full_name,
     resolve_external_item,
 )
@@ -613,7 +614,7 @@ def _own_source(jedi_name: Any) -> Path | None:
 
 
 def _handle_for_name(
-    name: Any, analyzer: JediAnalyzer, full_name: str | None = None
+    name: Any, analyzer: JediAnalyzer, full_name: str | None = None, *, check_local: bool = True
 ) -> Handle | None:
     """The ONE builder for an edge handle from a Jedi ``Name`` (#544).
 
@@ -629,9 +630,19 @@ def _handle_for_name(
     (:func:`pyeye.resolver.handle_for_anchor`, #714): a file the mapper can name
     gives the module part, and a definition it can't place (Jedi's
     ``__main__.*``) has no handle, so ``None``.
+
+    Naming follows ``resolve`` (#1071): a member of a function-local class is
+    named after its class (:func:`pyeye.resolver.local_member_full_name`,
+    #1025), and a function-local definition keeps its handle only when
+    ``resolve`` places that handle back at it
+    (:func:`pyeye.resolver.local_definition_handle`). A name bound twice in its
+    function has no handle, so every stub handle round-trips. *check_local*
+    ``False`` skips that check, for a name that came from ``resolve`` itself.
     """
     if full_name is None:
-        full_name = getattr(name, "full_name", None)
+        # Jedi leaves a member of a function-local class unnamed; resolve names
+        # it after its class (#1025), so the edges do too (#1071).
+        full_name = local_member_full_name(name)
     if not full_name:
         return None
     module_path = getattr(name, "module_path", None)
@@ -641,7 +652,11 @@ def _handle_for_name(
         placed = handle_for_anchor(name, full_name, analyzer)
         if placed is None:
             return None
-        full_name = placed
+        # A function-local name bound twice has no unique handle (#1071).
+        local = local_definition_handle(name, placed, analyzer) if check_local else placed
+        if local is None:
+            return None
+        full_name = local
     return _try_handle(full_name)
 
 
@@ -1212,7 +1227,9 @@ async def resolve_subclasses(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
         or ``EdgeResult([])`` for any non-class target.  ``unresolved_call_sites``
         is always ``None`` — that notion is callees-only.
     """
-    handle = getattr(jedi_name, "full_name", None)
+    # Named as resolve names it: a class in a function-local class has no Jedi
+    # full_name, but a handle all the same (#1025, #1071).
+    handle = local_member_full_name(jedi_name)
     if not handle:
         return EdgeResult(adjacents=[], unparseable_files=[])
 
@@ -1942,7 +1959,9 @@ async def resolve_re_exports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResu
     parse. The paths found in every other file are still returned. ``[]`` when
     every file parsed.
     """
-    handle = _handle_for_name(jedi_name, analyzer)
+    # The source came from resolve, so its handle is already unique: skip the
+    # function-local check, which would cost a Jedi lookup on this ast-tier edge (#452).
+    handle = _handle_for_name(jedi_name, analyzer, check_local=False)
     if handle is None:
         return EdgeResult(adjacents=[], unparseable_files=[], stub_extras={})
     scan = await re_export_scan(handle, analyzer)

@@ -232,19 +232,22 @@ def base_class_lookup(script: Any, base: ast.expr) -> BaseLookup:
         defs = list(script.goto(line, col, follow_imports=True))
     except Exception:
         return BaseLookup(None, BASE_UNRESOLVABLE)  # as goto_target: any Jedi error is no answer
-    d = pick_target(defs, prefer="class")
+    # Named as ``resolve`` names them: a class nested in a function-local class
+    # has no Jedi full_name but a handle all the same (#1025, #1071).
+    d = pick_target(defs, prefer="class", name_of=local_member_full_name)
     if d is None:
         distinct = _distinct_targets(defs)
         if len(distinct) > 1:
             return BaseLookup(None, BASE_AMBIGUOUS, _listable(distinct), len(distinct))
-        # Found, but with no dotted name (a class in a local class, #1025).
+        # Found, but with no name resolve could give it (a nested function's class).
         return BaseLookup(None, BASE_NO_HANDLE if defs else BASE_UNRESOLVABLE)
     if getattr(d, "type", None) != "class":
         return BaseLookup(None, BASE_NOT_A_CLASS)
     if in_restricted_dir(d):
         return BaseLookup(None, BASE_RESTRICTED)
-    if _rebound(defs, d.full_name):
-        bindings = [x for x in defs if getattr(x, "full_name", None) == d.full_name]
+    name = local_member_full_name(d)
+    if name and _rebound(defs, name):
+        bindings = [x for x in defs if local_member_full_name(x) == name]
         return BaseLookup(None, BASE_AMBIGUOUS, _listable(bindings), len(_sites(bindings)))
     return BaseLookup(d)
 
@@ -258,7 +261,7 @@ def _distinct_targets(defs: list[Any]) -> list[Any]:
     """One ``Name`` per distinct ``full_name`` among *defs*, as :func:`pick_target` counts them."""
     by_name: dict[str, Any] = {}
     for d in defs:
-        full_name = getattr(d, "full_name", None)
+        full_name = local_member_full_name(d)
         if full_name and full_name not in by_name:
             by_name[full_name] = d
     return list(by_name.values())
@@ -288,7 +291,7 @@ def _rebound(defs: list[Any], full_name: str) -> bool:
     sites: dict[str, set[tuple[int, int]]] = {}
     for d in defs:
         module_path = getattr(d, "module_path", None)
-        if getattr(d, "full_name", None) != full_name or module_path is None:
+        if local_member_full_name(d) != full_name or module_path is None:
             continue
         position = (getattr(d, "line", None) or 0, getattr(d, "column", None) or 0)
         sites.setdefault(Path(module_path).as_posix(), set()).add(position)
@@ -813,6 +816,33 @@ def is_function_local(name: Any) -> bool:
             return True
         scope = scope.parent()
     return False
+
+
+def local_definition_handle(name: Any, handle: str, analyzer: JediAnalyzer) -> str | None:
+    """*handle* for the definition *name*, if ``resolve`` places it back there (#1071).
+
+    An edge names its stubs from Jedi's names, and the class graph keys bases
+    the same way. A function-local name can be bound more than once in its
+    function: by a parameter as well as a ``class`` (#1049), or by two ``class``
+    statements (#1022). Jedi still gives it one dotted name, which ``resolve``
+    answers as ambiguous. Emitting that would break the round trip, so a
+    function-local definition keeps *handle* only when ``resolve`` answers it
+    with that same handle at *name*'s own definition site. Otherwise ``None``,
+    which callers report as an honest loss. A definition outside any function
+    isn't checked: module and class scopes keep #857's binding rules.
+    """
+    if not is_function_local(name):
+        return handle
+    resolved = resolve_item(handle, analyzer)
+    if not isinstance(resolved, Resolved) or resolved.handle != handle:
+        return None
+    anchor = resolved.anchor
+    same_file = paths_equal(
+        getattr(anchor, "module_path", None) or "", getattr(name, "module_path", None) or ""
+    )
+    if not same_file or getattr(anchor, "line", None) != getattr(name, "line", None):
+        return None
+    return handle
 
 
 def local_member_full_name(name: Any) -> str | None:
