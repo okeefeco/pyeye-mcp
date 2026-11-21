@@ -51,6 +51,21 @@ def find_function_def_at_line(
     return None
 
 
+def find_class_def_at_line(file_path: Path, line: int) -> ast.ClassDef | None:
+    """Return the ClassDef whose ``lineno`` equals *line* (the ``class`` line), or ``None``.
+
+    Uses the cached file AST, like :func:`find_function_def_at_line`.
+    """
+    try:
+        tree = file_artifact_cache.get_ast(file_path)
+    except Exception:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.lineno == line:
+            return node
+    return None
+
+
 def unsubscripted(node: Any) -> Any:
     """*node* with any subscripts removed: ``Box[int][str]`` -> ``Box`` (#921).
 

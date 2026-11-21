@@ -34,6 +34,17 @@ Design notes
   ``"var_positional"``, ``"var_keyword"``).
 - ``default`` on params/attributes: simple literals only; complex expressions
   are omitted entirely (gated by ``ast.literal_eval``).
+- ``deprecation`` (function, method, class; #1082): static evidence only, a
+  list of ``{kind, via, line}`` from :mod:`pyeye.deprecation`. ``[]`` = the
+  definition was read and nothing found; ABSENT = it couldn't be read (no
+  file, compiled, unparseable) or the kind doesn't apply. ``"unconditional"``
+  says the symbol is deprecated; ``"conditional"`` (a warn under a branch)
+  does not. A category counts when its name ends in ``DeprecationWarning`` or
+  its class statically subclasses one (followed through
+  :func:`file_for_module`, ``class`` statements and module-level aliases);
+  ``FutureWarning`` and unresolvable categories don't. The ceiling: a warn
+  in a helper (Django's ``warn_about_external_use``), a runtime-built
+  category or an unrecognised decorator name isn't seen.
 - No source content anywhere — ``location`` is a pointer-only dict.
 - Per-measurement time budget (default 2 s): edges that exceed the budget are
   OMITTED from edge_counts — consistent with the absence-vs-zero invariant.
@@ -49,15 +60,18 @@ from collections.abc import Awaitable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from pyeye import file_artifact_cache
+from pyeye import deprecation, file_artifact_cache
 from pyeye._ast_targets import (
+    find_class_def_at_line as _find_class_def_at_line,
     find_function_def_at_line as _find_function_def_at_line,
 )
 from pyeye._jedi_location import location_from_name
+from pyeye._module_scope import build_import_table
 from pyeye.canonicalization import collect_re_exports
 from pyeye.declared_deps import not_found_note as undeclared_not_found_note
 from pyeye.environment import not_found_note as environment_not_found_note
 from pyeye.handle import Handle
+from pyeye.import_analyzer import resolve_relative_import
 from pyeye.mcp.operations.edges import (
     UnparseableSource,
     _enumerate_submodule_paths,
@@ -69,7 +83,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
-from pyeye.project_layout import mark_stub, package_kind
+from pyeye.project_layout import file_for_module, mark_stub, module_name_for_file, package_kind
 from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
 if TYPE_CHECKING:
@@ -784,6 +798,119 @@ async def _build_edge_counts(
 # ---------------------------------------------------------------------------
 
 
+#: The kinds ``deprecation`` applies to (#1082).
+_DEPRECATION_KINDS = frozenset({"function", "method", "class"})
+#: How far a category's base classes are followed looking for a deprecation warning.
+_CATEGORY_DEPTH = 8
+
+
+def _deprecation_evidence(
+    file_path: Path, line: int | None, kind: str, analyzer: JediAnalyzer
+) -> list[dict[str, Any]] | None:
+    """``deprecation`` for the definition at *line* in *file_path*, or ``None`` if unread (#1082).
+
+    ``None`` (the field is absent) when the definition's AST can't be read: no
+    line, an unparseable file, or no ``def``/``class`` there. Otherwise the
+    evidence list, ``[]`` when there is none (:mod:`pyeye.deprecation`).
+    """
+    if line is None:
+        return None
+    definition: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef | None = (
+        _find_class_def_at_line(file_path, line)
+        if kind == "class"
+        else _find_function_def_at_line(file_path, line)
+    )
+    if definition is None:
+        return None
+    try:
+        tree = file_artifact_cache.get_ast(file_path)
+    except Exception:
+        return None
+    module = module_name_for_file(analyzer, file_path) or ""
+    table = build_import_table(
+        tree, module, resolve_relative_import, file_path.name in ("__init__.py", "__init__.pyi")
+    )
+    return deprecation.evidence(
+        definition, table, lambda name: _is_deprecation_category(name, module, analyzer)
+    )
+
+
+def _is_deprecation_category(name: str, module: str, analyzer: JediAnalyzer) -> bool:
+    """Whether *name* is a deprecation warning category, read statically (#1082).
+
+    Its name ends in ``DeprecationWarning`` (``DeprecationWarning``,
+    ``PendingDeprecationWarning``, a custom ``*DeprecationWarning``), or its
+    class, found through the one module mapper, has such a base, followed up
+    to :data:`_CATEGORY_DEPTH` classes (Django's ``RemovedInDjango60Warning``).
+    A name in *module* itself counts too. ``FutureWarning`` doesn't: it also
+    marks behaviour changes. A class pyeye can't find isn't counted.
+    """
+    seen: set[str] = set()
+
+    def check(qualified: str, home: str, depth: int) -> bool:
+        if qualified.rsplit(".", 1)[-1].endswith("DeprecationWarning"):
+            return True
+        if depth >= _CATEGORY_DEPTH:
+            return False
+        candidates = [qualified] + ([f"{home}.{qualified}"] if home else [])
+        for candidate in candidates:
+            if candidate in seen:
+                continue
+            seen.add(candidate)
+            owner, _, class_name = candidate.rpartition(".")
+            class_def, table, alias = _top_level_class(owner, class_name, analyzer)
+            if alias is not None and check(deprecation.qualify(alias, table), owner, depth + 1):
+                return True  # ``RemovedInNextVersionWarning = RemovedInDjango70Warning``
+            if class_def is None:
+                continue
+            for base in class_def.bases:
+                base_name = deprecation.dotted_name(base)
+                if base_name is not None and check(
+                    deprecation.qualify(base_name, table), owner, depth + 1
+                ):
+                    return True
+        return False
+
+    return check(name, module, 0)
+
+
+def _top_level_class(
+    module: str, class_name: str, analyzer: JediAnalyzer
+) -> tuple[ast.ClassDef | None, dict[str, str], str | None]:
+    """Module *module*'s top-level ``class class_name``, its import table, and an alias.
+
+    The alias is the dotted name a top-level ``class_name = <name>`` assigns,
+    when the module binds *class_name* that way instead of with ``class``.
+    """
+    if not module:
+        return None, {}, None
+    module_file = file_for_module(analyzer, module)
+    if module_file is None:
+        return None, {}, None
+    try:
+        tree = file_artifact_cache.get_ast(module_file)
+    except Exception:
+        return None, {}, None
+    class_def = next(
+        (n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == class_name), None
+    )
+    alias = next(
+        (
+            deprecation.dotted_name(n.value)
+            for n in tree.body
+            if isinstance(n, ast.Assign)
+            and len(n.targets) == 1
+            and isinstance(n.targets[0], ast.Name)
+            and n.targets[0].id == class_name
+        ),
+        None,
+    )
+    table = build_import_table(
+        tree, module, resolve_relative_import, module_file.name in ("__init__.py", "__init__.pyi")
+    )
+    return class_def, table, alias
+
+
 async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     """Return a structural Node for a canonical handle.
 
@@ -904,6 +1031,11 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     }
     mark_stub(node, location.get("file") if isinstance(location, dict) else None)  # #933
     node.update(kind_fields)
+    # #1082: static deprecation evidence; [] = checked, none; absent = not checked.
+    if kind in _DEPRECATION_KINDS and file_path is not None:
+        evidence = _deprecation_evidence(Path(file_path), jedi_name.line, kind, analyzer)
+        if evidence is not None:
+            node["deprecation"] = evidence
     # Phase 4: edge_counts populated with per-measurement budgeted counts.
     # `superclasses` is passed for call-site stability but is unused by
     # `_count_superclasses` (which derives the count from `resolve_superclasses`).

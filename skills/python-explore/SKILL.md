@@ -314,6 +314,13 @@ anything it doesn't return, or can't resolve, is unknown, not absent.** That cov
 (complete only over their stated scope, see the static-surface ceiling above), and
 optional fields (absent means not measured).
 
+`inspect`'s `deprecation` (functions, methods, classes) follows the same rule: `[]`
+means pyeye read the definition and found no deprecation evidence, and an absent key
+means it couldn't read it. Only an entry with `kind: "unconditional"` says the symbol
+is deprecated; a `"conditional"` entry is a deprecation warning under a branch, which
+usually deprecates one argument or path. The evidence is static: a warning raised
+through a helper function isn't seen.
+
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A
 present `superclasses: 0` means measured-and-none (the class has no bases). An *absent*
 `callers` key means pyeye didn't measure it — don't read that as "no callers."
