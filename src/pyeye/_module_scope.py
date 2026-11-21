@@ -53,15 +53,83 @@ def iter_module_scope_imports(
         Each :class:`ast.Import` / :class:`ast.ImportFrom` node at module scope,
         in source order.
     """
+    for node, _type_only in iter_module_scope_imports_guarded(
+        tree, include_guarded=include_guarded
+    ):
+        yield node
 
-    def _walk(nodes: Iterable[ast.AST]) -> Iterator[ast.Import | ast.ImportFrom]:
+
+#: Modules whose ``TYPE_CHECKING`` constant is the type-checking guard (#1081).
+_TYPING_MODULES = ("typing", "typing_extensions")
+
+
+def iter_module_scope_imports_guarded(
+    tree: ast.Module, *, include_guarded: bool = True
+) -> Iterator[tuple[ast.Import | ast.ImportFrom, bool]]:
+    """THE module-scope import walk (#360), each import with whether it is type-only (#1081).
+
+    :func:`iter_module_scope_imports` is this walk without the flag, so
+    ``members`` and ``imports`` still share one walk; *include_guarded* is as
+    documented there. An
+    import is type-only when it sits in the BODY of an ``if`` whose test is the
+    ``TYPE_CHECKING`` guard, at any depth below it (a nested ``if``, a ``try``).
+    The ``else``/``elif`` branch runs at runtime; ``if not TYPE_CHECKING:``
+    reverses the two. The guard is recognised as the bare name
+    ``TYPE_CHECKING``, any alias of it imported from ``typing`` or
+    ``typing_extensions`` (``from typing import TYPE_CHECKING as TC``), and
+    ``<module>.TYPE_CHECKING`` for any name those modules are imported as
+    (``import typing as t``). Not recognised: a module that defines its own
+    ``TYPE_CHECKING = False``.
+
+    Yields:
+        ``(import node, type_only)`` in source order.
+    """
+    names, modules = _type_checking_spellings(tree)
+
+    def guard(test: ast.expr) -> bool | None:
+        """``True`` for the guard, ``False`` for ``not`` the guard, else ``None``."""
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            inner = guard(test.operand)
+            return None if inner is None else not inner
+        if isinstance(test, ast.Name) and test.id in names:
+            return True
+        if (
+            isinstance(test, ast.Attribute)
+            and test.attr == "TYPE_CHECKING"
+            and isinstance(test.value, ast.Name)
+            and test.value.id in modules
+        ):
+            return True
+        return None
+
+    def walk(
+        nodes: Iterable[ast.AST], type_only: bool
+    ) -> Iterator[tuple[ast.Import | ast.ImportFrom, bool]]:
         for node in nodes:
             if isinstance(node, (ast.Import, ast.ImportFrom)):
-                yield node
-            elif include_guarded and not isinstance(node, SCOPE_BOUNDARY_NODES):
-                yield from _walk(ast.iter_child_nodes(node))
+                yield node, type_only
+            elif isinstance(node, ast.If) and (kind := guard(node.test)) is not None:
+                yield from walk(node.body, type_only or kind)
+                yield from walk(node.orelse, type_only or not kind)
+            elif not isinstance(node, SCOPE_BOUNDARY_NODES):
+                yield from walk(ast.iter_child_nodes(node), type_only)
 
-    yield from _walk(tree.body)
+    if not include_guarded:  # only the statements directly in the module body
+        yield from ((n, False) for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom)))
+        return
+    yield from walk(tree.body, False)
+
+
+def _type_checking_spellings(tree: ast.Module) -> tuple[set[str], set[str]]:
+    """The names bound to ``TYPE_CHECKING``, and to a typing module, by *tree*'s imports."""
+    names: set[str] = {"TYPE_CHECKING"}
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module in _TYPING_MODULES:
+            names.update(a.asname or a.name for a in node.names if a.name == "TYPE_CHECKING")
+        elif isinstance(node, ast.Import):
+            modules.update(a.asname or a.name for a in node.names if a.name in _TYPING_MODULES)
+    return names, modules
 
 
 def build_import_table(

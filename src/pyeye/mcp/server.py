@@ -1175,7 +1175,10 @@ async def expand(
         by static AST + forward ``goto``.  Counts the imports that bind a
         module-scope name (guarded ones included; imports inside a function or
         class body are not), and reports each imported symbol at its canonical
-        definition site.  ``stubs: []`` is measured-none.  A
+        definition site.  A stub imported only under ``if TYPE_CHECKING:``
+        (``typing.TYPE_CHECKING`` or an alias of it) carries ``type_only:
+        true``; it's absent for a runtime import, and a target imported both
+        ways isn't type-only (#1081).  ``stubs: []`` is measured-none.  A
         non-module handle returns the unsupported branch with
         ``reason: "not_applicable"`` (mirrors ``imported_by``).  Ceiling:
         <<fact:edge.imports:ceiling>>.
@@ -1371,6 +1374,8 @@ async def trace(
 
         { "nodes": { handle: Stub, ... },        # deduped by canonical handle
           "edges": [ {"from": h, "to": h, "kind": edge}, ... ],
+                 # an "imports" edge adds "type_only": true for a TYPE_CHECKING-only
+                 # import (#1081): on the edge, never the node, since nodes are shared
           "truncated": bool,                     # a cap cut off reachable nodes
           "truncation_reasons": ["max_depth"?, "max_nodes"?],  # which cap(s) fired
           "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],

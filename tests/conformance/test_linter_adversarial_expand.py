@@ -1284,3 +1284,34 @@ class TestExpandUnreadableDefinitionsRule:
         bad["unreadable_definitions"] = [dict(self._ENTRY, line=9), dict(self._ENTRY, line=3)]
         with pytest.raises(ConformanceViolation, match="sorted"):
             lint_response(bad, "expand")
+
+
+# ---------------------------------------------------------------------------
+# E.12 — type_only on imports stubs (#1081)
+# ---------------------------------------------------------------------------
+
+
+class TestE12TypeOnly:
+    """E.12 (#1081) — ``type_only`` only on ``imports`` stubs, and only ``true``."""
+
+    @staticmethod
+    def _with_flag(value: object, edge_response: dict = _VALID_EXPAND_IMPORTS) -> dict:
+        response = _clone(edge_response)
+        response["stubs"][0]["type_only"] = value
+        return response
+
+    def test_true_on_imports_passes(self) -> None:
+        lint_response(self._with_flag(True), "expand")
+
+    def test_absent_passes(self) -> None:
+        lint_response(_clone(_VALID_EXPAND_IMPORTS), "expand")
+
+    @pytest.mark.parametrize("value", [False, 1, "true", None])
+    def test_anything_but_true_rejected(self, value: object) -> None:
+        """Absent-not-false (O.2's convention): ``type_only: false`` is never sent."""
+        with pytest.raises(ConformanceViolation, match="E.12 type_only"):
+            lint_response(self._with_flag(value), "expand")
+
+    def test_on_another_edge_rejected(self) -> None:
+        with pytest.raises(ConformanceViolation, match="E.12 type_only placement"):
+            lint_response(self._with_flag(True, _VALID_EXPAND_MEMBERS), "expand")

@@ -512,3 +512,47 @@ class TestTraceUnreadableDefinitionCounts:
         bad["unreadable_definition_counts"] = {"pkg.m": 0}
         with pytest.raises(ConformanceViolation, match="T.13"):
             lint_response(bad, "trace")
+
+
+class TestT14TypeOnlyEdges:
+    """T.14 (#1081) — ``type_only`` sits on an ``imports`` EDGE, never on a node.
+
+    Nodes are deduped by handle, and one module can be imported type-only by
+    one node and at runtime by another, so the flag belongs to the import edge.
+    """
+
+    @staticmethod
+    def _imports_edge(**extra: object) -> dict:
+        good = _clone()
+        good["edges"].append(
+            {
+                "from": "mypackage._core.widgets.Widget",
+                "to": "mypackage._core.widgets.Widget.render",
+                "kind": "imports",
+                **extra,
+            }
+        )
+        return good
+
+    def test_true_on_an_imports_edge_passes(self) -> None:
+        lint_response(self._imports_edge(type_only=True), "trace")
+
+    def test_absent_passes(self) -> None:
+        lint_response(self._imports_edge(), "trace")
+
+    @pytest.mark.parametrize("value", [False, 1, "true"])
+    def test_anything_but_true_rejected(self, value: object) -> None:
+        with pytest.raises(ConformanceViolation, match="T.14 type_only"):
+            lint_response(self._imports_edge(type_only=value), "trace")
+
+    def test_on_a_non_imports_edge_rejected(self) -> None:
+        bad = _clone()
+        bad["edges"][0]["type_only"] = True  # a members edge
+        with pytest.raises(ConformanceViolation, match="T.14 type_only placement"):
+            lint_response(bad, "trace")
+
+    def test_on_a_node_rejected(self) -> None:
+        bad = _clone()
+        bad["nodes"]["mypackage._core.widgets.Widget"]["type_only"] = True
+        with pytest.raises(ConformanceViolation, match="T.14 type_only on a node"):
+            lint_response(bad, "trace")
