@@ -49,11 +49,23 @@ def _write(root: Path, files: dict[str, str]) -> None:
         (root / rel).write_text(text, encoding="utf-8")
 
 
-@pytest.fixture
-def shadowed(tmp_path: Path) -> JediAnalyzer:
+@pytest.fixture(params=["configured", "declared"])
+def shadowed(request: pytest.FixtureRequest, tmp_path: Path) -> JediAnalyzer:
+    """The layout two ways: ``packages: ["src"]``, or no config and the project's declared name.
+
+    The second is #1078's rule: ``src/`` is a source root when it holds the
+    package ``pyproject.toml`` names, here a namespace (``src/pkg``, no
+    ``__init__.py``), as Poetry's is.
+    """
     _write(tmp_path, FILES)
-    (tmp_path / ".pyeye.json").write_text(json.dumps({"packages": ["src"]}), encoding="utf-8")
-    return JediAnalyzer(tmp_path.as_posix(), config=ProjectConfig(tmp_path.as_posix()))
+    if request.param == "configured":
+        config_file = tmp_path / ".pyeye.json"
+        config_file.write_text(json.dumps({"packages": ["src"]}), encoding="utf-8")
+        return JediAnalyzer(tmp_path.as_posix(), config=ProjectConfig(tmp_path.as_posix()))
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "pkg"\nversion = "0"\n', encoding="utf-8"
+    )
+    return JediAnalyzer(tmp_path.as_posix())
 
 
 def _handles(result: dict[str, Any]) -> list[str]:
