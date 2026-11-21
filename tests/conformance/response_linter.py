@@ -39,6 +39,11 @@ B.3 Phase 4 cross-check — for ``inspect`` responses, measured edges must be
 B.5 ``unreadable_definition_count`` (#1074) on ``inspect`` — present exactly when
     ``edge_counts`` has ``members`` (it says what that count leaves out), a
     plain int >= 0.
+B.6 ``deprecation`` (#1082) on ``inspect`` — only on a ``function``, ``method``
+    or ``class`` node, and when present a list (never null): ``[]`` = checked,
+    no evidence. Each entry is exactly ``{"kind", "via", "line"}`` with kind in
+    {``unconditional``, ``conditional``}, via in {``decorator``, ``warn``} and
+    line a plain int >= 1; a ``conditional`` entry is always via ``warn``.
 B.4 Nullable optional fields — ``re_exports``, ``highlights``, ``tags``,
     ``properties`` may be absent or present-with-typed-value; present-with-None
     is invalid.
@@ -797,6 +802,7 @@ def _check_absence_vs_zero(
         if isinstance(kind, str):
             _check_b3_phase4_cross_check(edge_counts, kind, violations)
         _check_b5_unreadable_count(response, edge_counts, violations)
+        _check_b6_deprecation(response, violations)
 
 
 def _check_b5_unreadable_count(
@@ -816,6 +822,50 @@ def _check_b5_unreadable_count(
         violations.append(
             f"[B.5 {key} type] must be a plain int >= 0; got {_truncate(response[key])}."
         )
+
+
+#: B.6 (#1082): the node kinds ``deprecation`` applies to, and its entry vocabulary.
+_DEPRECATION_KINDS = frozenset({"function", "method", "class"})
+_DEPRECATION_ENTRY_KINDS = frozenset({"unconditional", "conditional"})
+_DEPRECATION_VIA = frozenset({"decorator", "warn"})
+
+
+def _check_b6_deprecation(response: dict[str, Any], violations: list[str]) -> None:
+    """B.6 (#1082) — placement on function/method/class, and a well-formed list."""
+    if "deprecation" not in response:
+        return
+    value = response["deprecation"]
+    if response.get("kind") not in _DEPRECATION_KINDS:
+        violations.append(
+            f"[B.6 deprecation placement] only function, method and class nodes carry "
+            f"'deprecation'; this node's kind is {response.get('kind')!r}."
+        )
+        return
+    if not isinstance(value, list):
+        violations.append(
+            f"[B.6 deprecation type] must be a list ([] = checked, no evidence; absent = "
+            f"not checked), never null; got {_truncate(value)}."
+        )
+        return
+    for entry in value:
+        problem = _deprecation_entry_problem(entry)
+        if problem:
+            violations.append(f"[B.6 deprecation entry] {problem}: {_truncate(entry)}.")
+
+
+def _deprecation_entry_problem(entry: Any) -> str | None:
+    """What is wrong with one B.6 entry, or ``None``."""
+    if not isinstance(entry, dict) or set(entry) != {"kind", "via", "line"}:
+        return "an entry is exactly {kind, via, line}"
+    if entry["kind"] not in _DEPRECATION_ENTRY_KINDS:
+        return f"kind must be one of {sorted(_DEPRECATION_ENTRY_KINDS)}"
+    if entry["via"] not in _DEPRECATION_VIA:
+        return f"via must be one of {sorted(_DEPRECATION_VIA)}"
+    if entry["kind"] == "conditional" and entry["via"] != "warn":
+        return "a conditional entry is always via 'warn'"
+    if not _is_plain_int(entry["line"]) or entry["line"] < 1:
+        return "line must be a plain int >= 1"
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -1047,6 +1047,16 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings;
           omitted when the class's file can't be parsed, never a measured ``[]``)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
+        - function/method/class: ``deprecation``, the static evidence that it is
+          deprecated (#1082): a list of ``{kind, via, line}``. ``kind:
+          "unconditional"`` (a ``@deprecated`` decorator, or a
+          ``warnings.warn(..., <deprecation category>)`` that runs on every
+          call; for a class, in ``__init__``) means it is deprecated;
+          ``"conditional"`` is such a warn under a branch, which usually
+          deprecates one argument or path, NOT the symbol. ``[]`` means checked,
+          none found; absent means its definition couldn't be read. Static only:
+          a warn in a helper function or a category built at runtime isn't
+          seen, and ``FutureWarning`` isn't counted.
         - module: is_package, package?
         - attribute/property/variable/enum_member: type?, default? (simple literals only).
           A class-body binding is ``attribute``; a member of an ``enum.Enum``
