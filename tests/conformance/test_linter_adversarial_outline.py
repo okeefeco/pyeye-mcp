@@ -559,3 +559,20 @@ class TestOutlineSummary:
         tree["children"][0]["truncation_reasons"] = ["max_depth"]
         with pytest.raises(ConformanceViolation, match="O.7 outline summary placement"):
             lint_response(tree, "outline")
+
+
+class TestOutlineUnreadableDefinitions:
+    """O.7 (#1074): a node's unreadable_definitions list, when present, is E.11-shaped."""
+
+    def test_entries_pass(self) -> None:
+        good = copy.deepcopy(_VALID_OUTLINE)
+        good["unreadable_definitions"] = [
+            {"name": "Box", "kind": "class", "line": 4, "reason": "parser_unsupported_syntax"}
+        ]
+        lint_response(good, "outline")
+
+    def test_malformed_rejected(self) -> None:
+        bad = copy.deepcopy(_VALID_OUTLINE)
+        bad["unreadable_definitions"] = [{"name": "Box", "line": 4}]
+        with pytest.raises(ConformanceViolation, match="O.7"):
+            lint_response(bad, "outline")

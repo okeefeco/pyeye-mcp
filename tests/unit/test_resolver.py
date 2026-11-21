@@ -149,6 +149,9 @@ def test_definition_found_by_name_when_full_name_match_flakes(
         def get_names(self, **kwargs: Any) -> list[Any]:
             return [_NoFullName(n) for n in self._script.get_names(**kwargs)]
 
+        def get_syntax_errors(self) -> list[Any]:  # the parser-gap check (#1074)
+            return self._script.get_syntax_errors()
+
     def flaky(path: Path, jedi_project: Any) -> Any:
         script = real_get_script(path, jedi_project)
         return _FlakyScript(script) if path.name == "plain.py" else script

@@ -21,6 +21,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
       "unresolved_importers": { handle: [file, ...], ... },  # #668 — present iff imported_by walked
       "unparseable_files": { handle: [file, ...], ... },  # #729 — present iff an UNPARSEABLE_FILE_EDGES edge was walked
       "handleless_subclass_counts": { handle: count, ... },  # #1006 — present iff subclasses walked
+      "unreadable_definition_counts": { handle: count, ... },  # #1074 — present iff members walked
       "report_issues": url }   # #458 — present ONLY when unsupported_edges is non-empty
 
 ``truncation_reasons`` (#352) distinguishes the two causes so the agent knows
@@ -179,6 +180,7 @@ def _record_hop_losses(
     unresolved_importers: dict[str, list[str]],
     unparseable_files: dict[str, list[str]],
     handleless_subclass_counts: dict[str, int],
+    unreadable_definition_counts: dict[str, int],
 ) -> None:
     """Carry a walked hop's unresolved call sites / imports onto the Subgraph maps.
 
@@ -197,6 +199,8 @@ def _record_hop_losses(
         unparseable_files[handle] = sorted(merged)
     if hop.get("handleless_subclass_count"):  # #1006: subclasses no handle can name
         handleless_subclass_counts[handle] = hop["handleless_subclass_count"]
+    if hop.get("unreadable_definitions"):  # #1074: definitions pyeye's parser can't read
+        unreadable_definition_counts[handle] = len(hop["unreadable_definitions"])
 
 
 def _partition_hop(
@@ -292,6 +296,7 @@ async def trace(
     unresolved_importers: dict[str, list[str]] = {}  # #668
     unparseable_files: dict[str, list[str]] = {}  # #729
     handleless_subclass_counts: dict[str, int] = {}  # #1006
+    unreadable_definition_counts: dict[str, int] = {}  # #1074
     walked_edges: set[str] = set()
 
     # #488: a root that fails to resolve is recorded here, not silently dropped.
@@ -348,6 +353,7 @@ async def trace(
                 unresolved_importers,
                 unparseable_files,
                 handleless_subclass_counts,
+                unreadable_definition_counts,
             )
             known, new = _partition_hop(hop["stubs"], nodes, stop_when)
 
@@ -396,6 +402,8 @@ async def trace(
         result["unparseable_files"] = unparseable_files
     if "subclasses" in walked_edges:  # #1006: {} when every subclass had a handle
         result["handleless_subclass_counts"] = handleless_subclass_counts
+    if "members" in walked_edges:  # #1074: {} when pyeye's parser read every container
+        result["unreadable_definition_counts"] = unreadable_definition_counts
     # #458: when a requested edge was unsupported, point at where to report it.
     # Top-level and conditional — not duplicated onto every unsupported entry,
     # and absent entirely when nothing was unsupported (no noise on clean traces).

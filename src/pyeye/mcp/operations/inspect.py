@@ -65,6 +65,7 @@ from pyeye.mcp.operations.edges import (
     resolve_members,
     resolve_superclasses,
     superclass_bases,
+    unreadable_definition_count,
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
@@ -909,6 +910,10 @@ async def inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]:
     node["edge_counts"] = await _build_edge_counts(
         handle, kind, jedi_name, analyzer, superclasses=superclasses
     )
+    # #1074: the definitions pyeye's parser couldn't read, which edge_counts.members
+    # and the members edge leave out. Present exactly where members was measured.
+    if "members" in node["edge_counts"]:
+        node["unreadable_definition_count"] = unreadable_definition_count(jedi_name, analyzer)
 
     # Phase 6: re_exports — always present (possibly []) for non-module kinds.
     # Per the absence-vs-zero invariant (spec):

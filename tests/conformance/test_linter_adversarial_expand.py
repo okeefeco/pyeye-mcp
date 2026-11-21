@@ -82,6 +82,7 @@ _VALID_EXPAND_MEMBERS: dict = {
             "line_end": 25,
         }
     ],
+    "unreadable_definitions": [],  # E.11 (#1074)
 }
 
 # A well-formed supported callees ExpandResult (with unresolved_call_sites)
@@ -722,6 +723,7 @@ class TestExpandUnresolvedSuperclassesRule:
     def _superclasses() -> dict:
         good = _clone(_VALID_EXPAND_MEMBERS)
         good["edge"] = "superclasses"
+        del good["unreadable_definitions"]  # members only (E.11, #1074)
         good["unresolved_superclasses"] = []
         good["unresolved_superclass_details"] = []  # always together since #1065 (E.10)
         return good
@@ -1232,4 +1234,53 @@ class TestE10UnresolvedSuperclassDetails:
         bad = _clone(_VALID_EXPAND_SUPERCLASSES_DETAILED)
         bad["unresolved_superclass_details"][0]["candidates"].append("pkg._z.Local")
         with pytest.raises(ConformanceViolation, match="E.10 .*entry"):
+            lint_response(bad, "expand")
+
+
+class TestExpandUnreadableDefinitionsRule:
+    """E.11 (#1074): members-only, required there, well-formed entries."""
+
+    _ENTRY = {
+        "name": "call_later",
+        "kind": "function",
+        "line": 3,
+        "reason": "parser_unsupported_syntax",
+    }
+
+    def test_entries_pass(self) -> None:
+        good = _clone(_VALID_EXPAND_MEMBERS)
+        good["unreadable_definitions"] = [self._ENTRY]
+        lint_response(good, "expand")
+
+    def test_missing_on_members_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        del bad["unreadable_definitions"]
+        with pytest.raises(ConformanceViolation, match="E.11 unreadable_definitions required"):
+            lint_response(bad, "expand")
+
+    def test_other_edge_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_CALLEES)
+        bad["unreadable_definitions"] = []
+        with pytest.raises(ConformanceViolation, match="E.11 unreadable_definitions placement"):
+            lint_response(bad, "expand")
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            {"name": "f", "kind": "lambda", "line": 3, "reason": "parser_unsupported_syntax"},
+            {"name": "f", "kind": "function", "line": 0, "reason": "parser_unsupported_syntax"},
+            {"name": "f", "kind": "function", "line": 3, "reason": "broken"},
+            {"name": "f", "kind": "function", "line": 3},
+        ],
+    )
+    def test_malformed_entry_rejected(self, entry: dict) -> None:
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["unreadable_definitions"] = [entry]
+        with pytest.raises(ConformanceViolation, match="E.11 unreadable_definitions entry"):
+            lint_response(bad, "expand")
+
+    def test_unsorted_rejected(self) -> None:
+        bad = _clone(_VALID_EXPAND_MEMBERS)
+        bad["unreadable_definitions"] = [dict(self._ENTRY, line=9), dict(self._ENTRY, line=3)]
+        with pytest.raises(ConformanceViolation, match="sorted"):
             lint_response(bad, "expand")

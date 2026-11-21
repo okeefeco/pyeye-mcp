@@ -40,6 +40,7 @@ _VALID_CLASS: dict = {
         "members": 0,
         "superclasses": 0,
     },
+    "unreadable_definition_count": 0,  # B.5 (#1074)
     "re_exports": [],
 }
 
@@ -71,6 +72,7 @@ _VALID_MODULE: dict = {
     "docstring": None,
     "is_package": True,
     "edge_counts": {"members": 5},
+    "unreadable_definition_count": 0,  # B.5 (#1074)
 }
 
 # ---------------------------------------------------------------------------
@@ -640,6 +642,7 @@ class TestLinterAcceptsValidResponses:
                 "members": 3,
                 "superclasses": 0,
             },
+            "unreadable_definition_count": 0,
             "re_exports": ["pkg.X"],
         }
         lint_response(good, "inspect")  # must not raise
@@ -803,3 +806,25 @@ class TestLinterAcceptsValidResponses:
         good = _clone(_VALID_FUNCTION)
         good["parameters"][0].pop("default", None)
         lint_response(good, "inspect")  # must not raise
+
+
+class TestUnreadableDefinitionCount:
+    """B.5 (#1074): inspect's count is present exactly when edge_counts.members is."""
+
+    def test_missing_beside_members_rejected(self) -> None:
+        bad = _clone(_VALID_CLASS)
+        del bad["unreadable_definition_count"]
+        with pytest.raises(ConformanceViolation, match="B.5"):
+            lint_response(bad, "inspect")
+
+    def test_without_members_rejected(self) -> None:
+        bad = _clone(_VALID_FUNCTION)
+        bad["unreadable_definition_count"] = 0
+        with pytest.raises(ConformanceViolation, match="B.5"):
+            lint_response(bad, "inspect")
+
+    def test_negative_rejected(self) -> None:
+        bad = _clone(_VALID_MODULE)
+        bad["unreadable_definition_count"] = -1
+        with pytest.raises(ConformanceViolation, match="B.5"):
+            lint_response(bad, "inspect")

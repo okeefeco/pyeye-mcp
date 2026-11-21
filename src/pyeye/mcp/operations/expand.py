@@ -32,7 +32,8 @@ is then supported or unsupported, distinguished by the presence of
       "unresolved_importers": [file, ...],   # imported_by ONLY (#668) — ABSENT otherwise
       "unparseable_files": [file, ...],      # edges.UNPARSEABLE_FILE_EDGES ONLY (#729) — ABSENT otherwise
       "handleless_subclass_count": int,      # subclasses ONLY (#1006) — ABSENT otherwise
-      "handleless_subclasses": [entry, ...] }  # subclasses ONLY (#1006) — ABSENT otherwise
+      "handleless_subclasses": [entry, ...],  # subclasses ONLY (#1006) — ABSENT otherwise
+      "unreadable_definitions": [entry, ...] }  # members ONLY (#1074) — ABSENT otherwise
 
 **Not-supported edge** (the edge is recognised-but-unbuilt, a deferred
 reference edge, an unknown name, or ``not_applicable``: an implemented edge that
@@ -383,6 +384,11 @@ async def expand_resolved(
         result["handleless_subclasses"] = (
             handleless if max_stubs is None else handleless[:max_stubs]
         )
+    # unreadable_definitions (#1074): members ONLY — the container's definitions
+    # pyeye's parser couldn't read, so they aren't listed; [] when it read them
+    # all. Python parses the file: this is pyeye's limit, not broken code.
+    if edge_result.unreadable_definitions is not None:
+        result["unreadable_definitions"] = edge_result.unreadable_definitions
     # subclasses is direct-only (#422); its (class-only, #626) result carries a
     # static pointer to the trace route for the full closure.
     if edge == "subclasses":

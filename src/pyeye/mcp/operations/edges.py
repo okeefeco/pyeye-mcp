@@ -73,6 +73,7 @@ from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
+from pyeye._parse_gaps import bound_in, unreadable_definitions
 from pyeye._stdlib_static import is_stdlib, public_handle
 from pyeye.analyzers.project_graph import UNNAMED_NOT_A_HANDLE
 from pyeye.canonicalization import re_export_scan
@@ -164,6 +165,11 @@ class EdgeResult:
             sorted by file then line, complete (``expand`` caps the list it
             returns). Found and resolved as subclasses, so not ``unresolved_*``.
             ``[]`` when every subclass has a handle; ``None`` for every other edge.
+        unreadable_definitions: For ``members`` (#1074), the container's
+            definitions pyeye's parser (parso) couldn't read, so they aren't
+            members it can list: ``{name, kind, line, reason}``, ``reason``
+            ``parser_unsupported_syntax``, sorted by line. ``[]`` when parso read
+            the file cleanly; ``None`` for every other edge.
     """
 
     adjacents: list[tuple[Handle, Any]]
@@ -174,6 +180,7 @@ class EdgeResult:
     unresolved_importers: list[str] | None = None
     unparseable_files: list[str] | None = None
     handleless_subclasses: list[dict[str, Any]] | None = None
+    unreadable_definitions: list[dict[str, Any]] | None = None
     #: Extra stub fields per adjacent handle, merged into the stub by ``expand``.
     #: ``re_exports`` (#393) uses it for ``bindings``; ``None`` for other edges.
     stub_extras: dict[str, dict[str, Any]] | None = None
@@ -595,8 +602,10 @@ def resolve_members(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     # Dispatch, not a gate: callers check edge_applies("members", …) first (#626).
     if edge_kind(jedi_name) == "class":
-        return EdgeResult(adjacents=_class_members(jedi_name, handle, analyzer))
-    return EdgeResult(adjacents=_module_members(jedi_name, handle, analyzer))
+        members, lost = _class_members(jedi_name, handle, analyzer)
+    else:
+        members, lost = _module_members(jedi_name, handle, analyzer)
+    return EdgeResult(adjacents=members, unreadable_definitions=lost)
 
 
 def _own_source(jedi_name: Any) -> Path | None:
@@ -680,7 +689,24 @@ def _try_handle(s: str) -> Handle | None:
         return None
 
 
-def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[tuple[Handle, Any]]:
+def unreadable_definition_count(jedi_name: Any, analyzer: JediAnalyzer) -> int:
+    """How many of a container's definitions pyeye's parser couldn't read (#1074).
+
+    ``inspect`` reports it beside ``edge_counts.members``, so its member count is
+    never a silent undercount. A file Jedi's parser read cleanly costs only that
+    cached check: ``0`` without enumerating the members again.
+    """
+    file_path = _own_source(jedi_name)
+    if file_path is not None and file_path.suffix == ".py":
+        script = file_artifact_cache.get_script(file_path, analyzer.project)
+        if not file_artifact_cache.has_syntax_errors(script):
+            return 0
+    return len(resolve_members(jedi_name, analyzer).unreadable_definitions or [])
+
+
+def _class_members(
+    jedi_name: Any, handle: str, analyzer: JediAnalyzer
+) -> tuple[list[tuple[Handle, Any]], list[dict[str, Any]]]:
     """Enumerate direct class members via Jedi prefix + exact-depth filtering.
 
     Each kept member is paired with the Jedi ``Name`` that produced it, so a
@@ -693,42 +719,81 @@ def _class_members(jedi_name: Any, handle: str, analyzer: JediAnalyzer) -> list[
         analyzer: Active analyzer (for the Jedi project).
 
     Returns:
-        A list of ``(canonical Handle, Jedi Name)`` pairs for direct members.
+        ``(members, lost)``: the ``(canonical Handle, Jedi Name)`` pairs for
+        direct members, and the definitions Jedi's parser couldn't read (#1074).
     """
     file_path = _own_source(jedi_name)
     if file_path is None:
-        return []
+        return [], []
+
+    script = file_artifact_cache.get_script(file_path, analyzer.project)
+    class_scope = _class_scope(jedi_name, script, file_path)
 
     if is_function_local(jedi_name):
         # Jedi leaves a function-local class's members unnamed, so the full_name
         # filter below would find none: a false zero (#1025). Its own scope
         # lists them; they are named after the class, as the resolver names them.
-        own = (
-            (name, f"{handle}.{name.name}")
-            for name in jedi_name.defined_names()
-            if not is_attribute_target(name)
-        )
-        return _collect_members(own, analyzer)
+        kept = _bound_by_ast(jedi_name.defined_names(), script, class_scope)
+        own = ((name, f"{handle}.{name.name}") for name in kept if not is_attribute_target(name))
+        return _collect_members(own, analyzer), _lost_in(class_scope, kept)
 
     prefix = handle + "."
     handle_depth = len(handle.split("."))
     # Jedi recovers from syntax errors, so a failure here is internal: it
     # propagates, never a measured empty (#704).
-    names = file_artifact_cache.get_all_scope_names(file_path, analyzer.project)
+    names = file_artifact_cache.all_scope_names(script)
 
-    selected = (
+    direct = [
         (name, full_name)
-        for name in names
+        for name in _bound_by_ast(names, script, class_scope)
         if (full_name := name.full_name or "").startswith(prefix)
-        and not is_attribute_target(name)
         and len(full_name.split(".")) == handle_depth + 1
+    ]
+    selected = [(name, full) for name, full in direct if not is_attribute_target(name)]
+    return _collect_members(selected, analyzer), _lost_in(class_scope, [n for n, _ in direct])
+
+
+def _class_scope(jedi_name: Any, script: Any, file_path: Path) -> ast.AST | None:
+    """The class's ``ast`` node, if Jedi's parser error-recovered in its file (#1074)."""
+    if not file_artifact_cache.has_syntax_errors(script):
+        return None
+    line = getattr(jedi_name, "line", None)
+    tree = parse_own_source(file_path)
+    return next(
+        (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef) and n.lineno == line),
+        None,
     )
-    return _collect_members(selected, analyzer)
+
+
+def _bound_by_ast(names: Iterable[Any], script: Any, scope: ast.AST | None) -> list[Any]:
+    """*names* that ``ast`` binds in *scope*, when Jedi's parser error-recovered (#1074).
+
+    parso drops a definition whose header uses syntax it doesn't know, and
+    lists that definition's body names in the enclosing scope. In such a file
+    a name is kept only if ``ast`` binds it in *scope* at the same line. A file
+    parso read cleanly, or a *scope* of ``None``, keeps every name.
+    """
+    names = list(names)
+    if scope is None or not file_artifact_cache.has_syntax_errors(script):
+        return names
+    bound = bound_in(scope)
+    return [name for name in names if (name.name, name.line) in bound]
+
+
+def _lost_in(scope: ast.AST | None, seen: Iterable[Any]) -> list[dict[str, Any]]:
+    """The definitions *scope* makes that Jedi didn't list among *seen* (#1074).
+
+    *scope* is ``None`` when Jedi's parser read the file cleanly: then nothing
+    was lost, a measured ``[]``.
+    """
+    if scope is None:
+        return []
+    return unreadable_definitions(scope, {(name.name, name.line) for name in seen})
 
 
 def _module_members(
     jedi_name: Any, handle: str, analyzer: JediAnalyzer
-) -> list[tuple[Handle, Any]]:
+) -> tuple[list[tuple[Handle, Any]], list[dict[str, Any]]]:
     """Enumerate top-level module members via Jedi ``get_names`` minus imports.
 
     Uses the same Jedi enumeration as the legacy ``inspect._count_module_members``
@@ -763,7 +828,8 @@ def _module_members(
         top-level definitions, with all import-bound names removed.  Each member
         is paired with its producing ``Name`` so ``expand`` can build the stub
         without re-resolving.  Dedup is by handle string, keeping the first
-        ``Name``.
+        ``Name``.  Second, the top-level definitions Jedi's parser couldn't
+        read (#1074), ``[]`` when it read them all.
     """
     file_path = _own_source(jedi_name)
     if file_path is None:
@@ -771,21 +837,24 @@ def _module_members(
         # __init__.pyi declare its members, as Jedi merges them (#1004). The
         # first portion's declaration of a name wins (_collect_members keeps
         # the first per handle), as sys.path order does.
-        return _collect_members(
-            (
-                pair
-                for init in namespace_stub_inits(handle, analyzer)
-                for pair in _module_member_names(init, handle, analyzer)
-            ),
-            analyzer,
-        )
-    return _collect_members(_module_member_names(file_path, handle, analyzer), analyzer)
+        pairs: list[tuple[Any, str]] = []
+        lost: list[dict[str, Any]] = []
+        for init in namespace_stub_inits(handle, analyzer):
+            init_pairs, init_lost = _module_member_names(init, handle, analyzer)
+            pairs += init_pairs
+            lost += init_lost
+        return _collect_members(pairs, analyzer), lost
+    pairs, lost = _module_member_names(file_path, handle, analyzer)
+    return _collect_members(pairs, analyzer), lost
 
 
 def _module_member_names(
     file_path: Path, handle: str, analyzer: JediAnalyzer
-) -> list[tuple[Any, str]]:
-    """``(Jedi Name, full_name)`` for each top-level definition in *file_path*, imports excluded."""
+) -> tuple[list[tuple[Any, str]], list[dict[str, Any]]]:
+    """``(Jedi Name, full_name)`` for each top-level definition in *file_path*, imports excluded.
+
+    Also returns the top-level definitions Jedi's parser couldn't read (#1074).
+    """
     # A module whose own file doesn't parse has unknown members, not none:
     # raised, never swallowed into [] (#703).  Parse first, so Jedi's error
     # recovery can't produce a partial list for a file Python rejects. Any other
@@ -796,6 +865,11 @@ def _module_member_names(
     # all definition forms (tuple-unpacking, guarded defs, annotated vars…).
     script = file_artifact_cache.get_script(file_path, analyzer.project)
     names = script.get_names(all_scopes=False, definitions=True, references=False)
+    # Where Jedi's parser dropped a definition, its body's names are listed here
+    # as module-level: keep only what ``ast`` binds at module level (#1074).
+    names = _bound_by_ast(names, script, tree)
+    damaged = file_artifact_cache.has_syntax_errors(script)
+    lost = _lost_in(tree if damaged else None, names)
 
     # Step 2: the names bound by module-scope import statements (guarded ones
     # included — see _iter_module_scope_imports, #360) come from *tree*.
@@ -816,11 +890,12 @@ def _module_member_names(
 
     # Step 3: emit (handle, name) pairs for every non-import top-level name.
     # ``obj.attr = …`` reads as a module member but binds nothing here (#567).
-    return [
+    pairs = [
         (name, name.full_name or f"{handle}.{name.name}")
         for name in names
         if name.name not in import_bound_names and not is_attribute_target(name)
     ]
+    return pairs, lost
 
 
 def _collect_members(
