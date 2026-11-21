@@ -18,6 +18,7 @@ from pyeye.scope_utils import (
 from tests.utils.performance import (
     PerformanceThresholds,
     assert_performance_threshold,
+    warm_median_ms,
 )
 
 
@@ -93,6 +94,13 @@ class TestScopedCachePerformance:
         assert cache.get("key", "main") is None
 
 
+#: The most parallel/sequential time a parallel search may take (#1073): a
+#: ratio, not milliseconds. Below 0.5 means at least a 2x speed-up.
+PARALLEL_SPEEDUP_RATIO = PerformanceThresholds(
+    base=0.5, linux_ci=0.5, macos_ci=0.75, windows_ci=0.75
+)
+
+
 @pytest.mark.asyncio
 class TestParallelSearchPerformance:
     """Test parallel search performance."""
@@ -113,27 +121,35 @@ class TestParallelSearchPerformance:
             await asyncio.sleep(0.1)  # Simulate I/O delay
             return list(path.glob(pattern))
 
-        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
-            # Measure parallel search
-            start = time.time()
-            parallel_results = await parallel_search("*.py", paths, max_concurrent=5)
-            parallel_time = time.time() - start
-
-            # Measure sequential search (simulated)
-            start = time.time()
-            sequential_results = []
+        async def sequential() -> list[Path]:
+            results: list[Path] = []
             for path in paths:
-                results = await mock_rglob("*.py", path)
-                sequential_results.extend(results)
-            sequential_time = time.time() - start
+                results.extend(await mock_rglob("*.py", path))
+            return results
 
-            # Parallel should be significantly faster
-            assert (
-                parallel_time < sequential_time * 0.5
-            ), f"Parallel ({parallel_time:.3f}s) not faster than sequential ({sequential_time:.3f}s)"
-
+        with patch("pyeye.scope_utils.rglob_async", mock_rglob):
             # Results should be the same (unordered)
-            assert len(parallel_results) == len(sequential_results)
+            parallel_results = await parallel_search("*.py", paths, max_concurrent=5)
+            assert len(parallel_results) == len(await sequential())
+
+            # A median per run, then the best run, on each side (#1073): one
+            # wall-clock sample each flaked on macOS CI (1.75x and 1.89x).
+            parallel_ms = await warm_median_ms(
+                lambda: parallel_search("*.py", paths, max_concurrent=5), calls=3, repeats=2
+            )
+            sequential_ms = await warm_median_ms(sequential, calls=3, repeats=2)
+
+        # Five 100 ms waits: ~500 ms in sequence, ~100 ms in parallel (5x). A
+        # parallel search must take well under the sequential time to show it
+        # really runs concurrently: half locally and on Linux CI (2x); three
+        # quarters on the slower, noisier macOS and Windows runners (1.33x), still
+        # far from the ~1x a serialised search would give.
+        assert_performance_threshold(
+            parallel_ms / sequential_ms,
+            PARALLEL_SPEEDUP_RATIO,
+            f"parallel/sequential ({parallel_ms:.0f} ms / {sequential_ms:.0f} ms)",
+            unit="",
+        )
 
     async def test_parallel_search_concurrency_limit(self):
         """Test that parallel search respects concurrency limit."""
