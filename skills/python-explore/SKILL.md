@@ -157,7 +157,7 @@ reliably today:
 | `callees` | function → what it calls | forward call targets resolved from the body |
 | `subclasses` | class → its direct subclasses | project classes that **directly** extend this class (one hop; full closure via `trace`) |
 | `superclasses` | class → its bases | the class's direct base classes, in declaration order; bases that don't resolve are listed in `unresolved_superclasses`, and `unresolved_superclass_details` says why for each (`ambiguous` ones list their `candidates`) |
-| `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports |
+| `imports` | module → what it imports | every import that binds a module-scope name — including ones under `if TYPE_CHECKING:` or a `try`/`except ImportError` shim (both branches); imports inside a `def`/`class` body are not module imports. A target imported only under `TYPE_CHECKING` carries `type_only: true` (absent for runtime imports): filter on it when you mean runtime dependencies. In `trace` it's on the `imports` edge, not the node |
 | `imported_by` | module → its importers | project modules that import this module, wherever the import sits (inside a `def`/`class` body too: a lazy import is still a dependency) |
 | `re_exports` | symbol → the public modules that re-export it | each stub is the re-exporting **module**; its `bindings` lists the public paths it provides (`["pkg.Foo"]`). Public = a package `__init__`, a name in `__all__`, or a public module importing from a `_private` one. Not counted in `edge_counts`; unparseable package files are listed in `unparseable_files` |
 

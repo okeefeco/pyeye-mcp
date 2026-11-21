@@ -71,7 +71,10 @@ from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, find_function_def_at_line
 from pyeye._goto import goto_target
 from pyeye._jedi_names import is_attribute_target
-from pyeye._module_scope import iter_module_scope_imports as _iter_module_scope_imports
+from pyeye._module_scope import (
+    iter_module_scope_imports as _iter_module_scope_imports,
+    iter_module_scope_imports_guarded,
+)
 from pyeye._module_sentinel import ClassSentinel, ModuleSentinel
 from pyeye._parse_gaps import bound_in, unreadable_definitions
 from pyeye._stdlib_static import is_stdlib, public_handle
@@ -1121,8 +1124,11 @@ def _stdlib_import_target(
 
 
 def _canonical_import_targets(
-    adjacents: list[tuple[Handle, Any]], source: str | None, analyzer: JediAnalyzer
-) -> list[tuple[Handle, Any]]:
+    adjacents: list[tuple[Handle, Any]],
+    source: str | None,
+    analyzer: JediAnalyzer,
+    runtime: set[str],
+) -> tuple[list[tuple[Handle, Any]], set[str]]:
     """Emit each EXTERNAL import target under its canonical handle (#623, #602).
 
     ``goto`` on an import lands where typeshed says the name lives, which is
@@ -1140,21 +1146,29 @@ def _canonical_import_targets(
     project definition), which ``tests/test_cross_tool_invariants.py``'s
     round-trip test enforces for every edge.  ``imports`` is also not an
     ``inspect.edge_counts`` edge, so this can't break count == expand (#599).
+
+    *runtime* holds the goto handles imported outside a ``TYPE_CHECKING``
+    guard; it is returned keyed by the emitted handles, a collapsed target
+    being runtime if any import of it was (#1081).
     """
     out: list[tuple[Handle, Any]] = []
     seen: set[str] = set()
+    canonical_runtime: set[str] = set()
     for handle, name in adjacents:
+        was_runtime = str(handle) in runtime
         module_path = getattr(name, "module_path", None)
         if module_path is None or classify_scope(module_path.as_posix(), analyzer) == "external":
             resolved = resolve_external_item(str(handle), analyzer)  # per import (#704, #925)
             if isinstance(resolved, Resolved) and resolved.handle != str(handle):
                 handle, name = Handle(resolved.handle), resolved.anchor
         key = str(handle)
+        if was_runtime:
+            canonical_runtime.add(key)
         if key == source or key in seen:
             continue
         seen.add(key)
         out.append((handle, name))
-    return out
+    return out, canonical_runtime
 
 
 async def resolve_imported_by(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
@@ -1646,16 +1660,27 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     seen: set[str] = set()
     adjacents: list[tuple[Handle, Any]] = []
+    # #1081: the goto handles imported at least once outside a TYPE_CHECKING guard.
+    runtime: set[str] = set()
     # #494: statically-present imports whose forward goto could not be resolved.
     # Dropping them silently is a false-negative (the dependency reads as absent);
     # they are surfaced here by their intended dotted path instead.
     unresolved: set[str] = set()
 
+    def add(pair: tuple[Handle, Any], type_only: bool) -> None:
+        """Record one resolved import target, deduped by handle."""
+        key = str(pair[0])
+        if not type_only:
+            runtime.add(key)  # any runtime import wins (#1081)
+        if key not in seen:
+            seen.add(key)
+            adjacents.append(pair)
+
     # ``_resolve_call_target`` (shared with ``resolve_callees``) is a
     # domain-neutral ``goto(follow_imports=True)`` → ``(Handle, Name)`` wrapper;
     # the goto mechanic for an import target is identical to that for a call
     # target, so it is reused here despite the callee-flavoured name.
-    for node in _iter_module_scope_imports(tree):
+    for node, type_only in iter_module_scope_imports_guarded(tree):
         if isinstance(node, ast.Import):
             # ``import foo`` / ``import foo.bar`` / ``import foo as f``
             # → goto the RIGHTMOST identifier of the dotted module name so
@@ -1667,12 +1692,7 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
                 if pair is None:
                     unresolved.add(alias.name)
                     continue
-                h, name = pair
-                key = str(h)
-                if key in seen:
-                    continue
-                seen.add(key)
-                adjacents.append((h, name))
+                add(pair, type_only)
 
         elif isinstance(node, ast.ImportFrom):
             # ``from foo import bar`` / ``from foo import bar as b``
@@ -1692,15 +1712,10 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
                 if pair is None:
                     unresolved.add(_import_from_target(node, alias.name))
                     continue
-                h, name = pair
-                key = str(h)
-                if key in seen:
-                    continue
-                seen.add(key)
-                adjacents.append((h, name))
+                add(pair, type_only)
 
-    adjacents = _canonical_import_targets(
-        adjacents, getattr(jedi_name, "full_name", None), analyzer
+    adjacents, runtime = _canonical_import_targets(
+        adjacents, getattr(jedi_name, "full_name", None), analyzer, runtime
     )
 
     # Sort by canonical handle string for deterministic order (mirrors
@@ -1709,7 +1724,13 @@ def resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult:
 
     # #494: always a list for a module (always measured) — ``[]`` when every
     # import resolved, the unresolvable targets otherwise. Sorted for determinism.
-    return EdgeResult(adjacents=adjacents, unresolved_imports=sorted(unresolved))
+    # #1081: ``type_only: true`` on a target only a TYPE_CHECKING guard imports;
+    # absent otherwise (always measured, so absence is a measured "no").
+    return EdgeResult(
+        adjacents=adjacents,
+        unresolved_imports=sorted(unresolved),
+        stub_extras={str(h): {"type_only": True} for h, _ in adjacents if str(h) not in runtime},
+    )
 
 
 # ---------------------------------------------------------------------------

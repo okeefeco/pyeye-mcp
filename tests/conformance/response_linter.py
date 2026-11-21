@@ -82,6 +82,9 @@ E.11 ``unreadable_definitions`` (#1074) — only on the supported branch when
     reason}`` entries (``kind`` in :data:`_UNREADABLE_KINDS`, ``reason``
     ``parser_unsupported_syntax``), sorted by ``(line, name)``. ``[]`` when
     pyeye's parser read every definition.
+E.12 ``type_only`` (#1081) on a Stub in ``stubs`` — only when ``edge ==
+    "imports"``, and only ``true`` (absent-not-false, like O.2): a target only a
+    ``TYPE_CHECKING`` guard imports.
 E.10 ``unresolved_superclass_details`` (#1065) — only on the supported branch
     when ``edge == "superclasses"``, and always together with
     ``unresolved_superclasses``: one entry per base, in the same order
@@ -131,6 +134,9 @@ T.12 ``handleless_subclass_counts`` (#1006), when present (only if ``subclasses`
     handle keys, int counts >= 1.  Optional.
 T.13 ``unreadable_definition_counts`` (#1074), when present (only if ``members``
     was traced), is a dict ``{handle: count}`` shaped like T.12.  Optional.
+T.14 ``type_only`` (#1081) on a Subgraph edge — only when ``kind ==
+    "imports"``, and only ``true``. Never on a node: nodes are deduped by handle,
+    and the flag belongs to the import, not to the module it names.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -1162,6 +1168,11 @@ def _check_expand_structural_floor(
             # E.4 — each Stub passes the Stub structural floor
             for idx, stub in enumerate(stubs_val):
                 _check_stub_structural_floor(stub, f"stubs[{idx}]", violations)
+                # E.12 (#1081) — type_only: imports stubs only, and only true.
+                if isinstance(stub, dict) and "type_only" in stub:
+                    _check_type_only(
+                        stub["type_only"], edge_val, f"stubs[{idx}]", "E.12", violations
+                    )
 
         # E.3 — unresolved_call_sites: if present, must be on callees, and be a plain int
         if "unresolved_call_sites" in response:
@@ -1510,6 +1521,20 @@ def _check_trace_loss_map(value: Any, rule: str, key: str, violations: list[str]
 # ---------------------------------------------------------------------------
 
 
+def _check_type_only(value: Any, edge: Any, path: str, rule: str, violations: list[str]) -> None:
+    """E.12 / T.14 (#1081) — ``type_only`` is an imports flag, present only as ``true``."""
+    if edge != "imports":
+        violations.append(
+            f"[{rule} type_only placement] {path}: 'type_only' is only valid on the "
+            f"imports edge; got edge {edge!r}."
+        )
+    if value is not True:
+        violations.append(
+            f"[{rule} type_only value] {path}: must be exactly true (absent otherwise, "
+            f"never false); got {_truncate(value)}."
+        )
+
+
 def _check_trace_edge(edge: Any, path: str, violations: list[str]) -> None:
     """T.3 — Validate one Subgraph edge: ``{from, to, kind}`` single-line strs."""
     if not isinstance(edge, dict):
@@ -1617,6 +1642,11 @@ def _check_trace_structural_floor(
                     f"got {type(key).__name__!r}."
                 )
             _check_stub_structural_floor(stub, node_path, violations)
+            if isinstance(stub, dict) and "type_only" in stub:
+                violations.append(
+                    f"[T.14 type_only on a node] {node_path}: 'type_only' belongs on the "
+                    "imports EDGE; nodes are deduped by handle (#1081)."
+                )
             if isinstance(key, str) and isinstance(stub, dict):
                 handle = stub.get("handle")
                 if isinstance(handle, str) and handle != key:
@@ -1636,6 +1666,11 @@ def _check_trace_structural_floor(
     else:
         for idx, edge in enumerate(edges):
             _check_trace_edge(edge, f"edges[{idx}]", violations)
+            # T.14 (#1081) — type_only: imports edges only, and only true.
+            if isinstance(edge, dict) and "type_only" in edge:
+                _check_type_only(
+                    edge["type_only"], edge.get("kind"), f"edges[{idx}]", "T.14", violations
+                )
 
     # T.1 — truncated: required bool (exactly bool, not truthy)
     truncated = response.get("truncated")

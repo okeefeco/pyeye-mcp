@@ -11,6 +11,7 @@ Return shape — ``Subgraph`` (spec §``trace``)::
 
     { "nodes": { handle: Stub, ... },               # deduped by handle
       "edges": [ {"from": h, "to": h, "kind": edge}, ... ],  # NOT deduped across kinds
+                 # an "imports" edge adds "type_only": true for a TYPE_CHECKING-only import (#1081)
       "truncated": bool,                             # caps hit before natural termination
       "truncation_reasons": ["max_depth"? , "max_nodes"?],  # WHICH cap(s) fired
       "unsupported_edges": [ {"edge", "reason", "detail"}, ... ],
@@ -222,6 +223,22 @@ def _partition_hop(
     return known, new
 
 
+def _split_type_only(stubs: list[dict[str, Any]]) -> tuple[set[str], list[dict[str, Any]]]:
+    """The handles an ``imports`` hop marks ``type_only``, and its stubs without the key (#1081)."""
+    marked = {s["handle"] for s in stubs if s.get("type_only")}
+    if not marked:
+        return marked, stubs
+    return marked, [{k: v for k, v in s.items() if k != "type_only"} for s in stubs]
+
+
+def _edge(source: str, target: str, kind: str, type_only: set[str]) -> dict[str, Any]:
+    """One Subgraph edge; ``type_only: true`` only on a TYPE_CHECKING-only import (#1081)."""
+    edge: dict[str, Any] = {"from": source, "to": target, "kind": kind}
+    if target in type_only:
+        edge["type_only"] = True
+    return edge
+
+
 async def trace(
     start: str | list[str],
     follow: list[str],
@@ -355,7 +372,10 @@ async def trace(
                 handleless_subclass_counts,
                 unreadable_definition_counts,
             )
-            known, new = _partition_hop(hop["stubs"], nodes, stop_when)
+            # #1081: type-only is a property of the import, not of the module it
+            # names: it moves onto the edge, and never onto a (deduped) node.
+            type_only, stubs = _split_type_only(hop["stubs"])
+            known, new = _partition_hop(stubs, nodes, stop_when)
 
             # #621 item 2 — a hop is recorded ALL-OR-NOTHING (reserve before
             # expand, the #358 outline rule): if any new adjacent is cut, by the
@@ -368,10 +388,10 @@ async def trace(
                 truncation_reasons.add(MAX_NODES)
                 continue
             for adj in known:
-                edges.append({"from": handle, "to": adj, "kind": edge})
+                edges.append(_edge(handle, adj, edge, type_only))
             for stub in new:
                 nodes[stub["handle"]] = stub
-                edges.append({"from": handle, "to": stub["handle"], "kind": edge})
+                edges.append(_edge(handle, stub["handle"], edge, type_only))
                 queue.append((stub["handle"], None, depth + 1))
 
     result: dict[str, Any] = {
