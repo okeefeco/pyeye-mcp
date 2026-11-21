@@ -497,3 +497,18 @@ class TestT12HandlelessSubclassCounts:
         sg["handleless_subclass_counts"] = {key: 1}
         with pytest.raises(ConformanceViolation, match="T.12 trace handleless_subclass_counts key"):
             lint_response(sg, "trace")
+
+
+class TestTraceUnreadableDefinitionCounts:
+    """T.13 (#1074): {handle: count >= 1}, like T.12."""
+
+    def test_counts_pass(self) -> None:
+        good = copy.deepcopy(_VALID_SUBGRAPH)
+        good["unreadable_definition_counts"] = {"pkg.m": 2}
+        lint_response(good, "trace")
+
+    def test_zero_rejected(self) -> None:
+        bad = copy.deepcopy(_VALID_SUBGRAPH)
+        bad["unreadable_definition_counts"] = {"pkg.m": 0}
+        with pytest.raises(ConformanceViolation, match="T.13"):
+            lint_response(bad, "trace")

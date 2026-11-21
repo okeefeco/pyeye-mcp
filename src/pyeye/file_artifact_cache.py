@@ -168,6 +168,15 @@ class FileArtifactCache:
         self._names_by_script: weakref.WeakKeyDictionary[jedi.Script, tuple[Any, ...]] = (
             weakref.WeakKeyDictionary()
         )
+        #: Whether each cached Script's parse needed error recovery (#1074).
+        #: Weak keys, for the same reason as the names above.
+        self._errors_by_script: weakref.WeakKeyDictionary[jedi.Script, bool] = (
+            weakref.WeakKeyDictionary()
+        )
+        #: The same verdict per file, keyed by the path as given and its stat
+        #: version: parse errors depend on the source alone, not the project,
+        #: and the resolver asks on every hit (#1074). One entry per file.
+        self._errors_by_file: dict[str, tuple[_Version, bool]] = {}
 
         # Stats counters
         self._hits: int = 0
@@ -302,6 +311,43 @@ class FileArtifactCache:
                 names = self._names_by_script.setdefault(script, names)
         return names
 
+    def has_syntax_errors(self, script: jedi.Script) -> bool:
+        """Whether Jedi's parser (parso) error-recovered anywhere in *script*'s file (#1074).
+
+        parso doesn't know some syntax Python accepts. In a definition's header
+        it drops the ``def`` or ``class`` and leaves its body's statements in the
+        enclosing scope, so Jedi's names are wrong there. The few callers that
+        list or resolve definitions check this first and, for such a file only,
+        cross-check Jedi's names against ``ast``. One walk per Script, cached.
+        """
+        with self._lock:
+            known = self._errors_by_script.get(script)
+        if known is None:
+            known = bool(script.get_syntax_errors())
+            with self._lock:
+                known = self._errors_by_script.setdefault(script, known)
+        return known
+
+    def file_has_syntax_errors(self, path: Path | str, project: jedi.Project) -> bool:
+        """:meth:`has_syntax_errors` for *path*, with one ``stat`` when the file is unchanged.
+
+        The resolver checks the file of every project definition it returns
+        (#1074). A full :meth:`get_script` lookup canonicalises the path and
+        the project root on each call, which cost about 9% of a ``resolve``;
+        this keys on the path as given and the file's version, and loads the
+        Script only the first time a version is seen.
+        """
+        spelled = Path(path).as_posix()
+        version = _stat_version(Path(path))
+        with self._lock:
+            known = self._errors_by_file.get(spelled)
+        if known is not None and known[0] == version:
+            return known[1]
+        verdict = self.has_syntax_errors(self.get_script(path, project))
+        with self._lock:
+            self._errors_by_file[spelled] = (version, verdict)
+        return verdict
+
     def invalidate(self, path: Path | str) -> None:
         """Evict all cached entries for *path*.
 
@@ -328,6 +374,7 @@ class FileArtifactCache:
             self._stale_evictions += cleared
             self._ast_store.clear()
             self._script_store.clear()
+            self._errors_by_file.clear()
 
     def stats(self) -> dict[str, Any]:
         """Return a snapshot of cache statistics.
@@ -454,6 +501,16 @@ def get_all_scope_names(path: Path | str, project: jedi.Project) -> tuple[Any, .
 def all_scope_names(script: jedi.Script) -> tuple[Any, ...]:
     """:func:`get_all_scope_names` for a Script already loaded with :func:`get_script` (#1044)."""
     return _default_cache.all_scope_names(script)
+
+
+def has_syntax_errors(script: jedi.Script) -> bool:
+    """:meth:`FileArtifactCache.has_syntax_errors` on the default cache (#1074)."""
+    return _default_cache.has_syntax_errors(script)
+
+
+def file_has_syntax_errors(path: Path | str, project: jedi.Project) -> bool:
+    """:meth:`FileArtifactCache.file_has_syntax_errors` on the default cache (#1074)."""
+    return _default_cache.file_has_syntax_errors(path, project)
 
 
 def invalidate(path: Path | str) -> None:

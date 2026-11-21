@@ -369,6 +369,14 @@ complete** — an empty or clean-looking subgraph can mean a resolution miss, no
   can't walk below them. `expand(handle, "subclasses")` carries `handleless_subclass_count`
   (always complete) and `handleless_subclasses: [{name, file, line, reason}, …]` to `Read`
   them; `max_stubs` caps that list on its own, so `count > len(list)` means it was cut.
+- **`unreadable_definition_counts`** (present only when you traced `members`): a
+  `{handle: count}` map of containers with definitions **pyeye's parser couldn't read**.
+  Python parses the file, but newer syntax in a definition's header (PEP 646
+  `*args: *Ts` or `Generic[*Ts]`, PEP 695 `[*Ts, **P]` or `type Pair[T] = ...`) defeats
+  Jedi's parser, so the definition isn't listed. `expand(handle, "members")` and
+  `outline` carry `unreadable_definitions: [{name, kind, line, reason}, …]` (`[]` when
+  none), and `inspect` carries `unreadable_definition_count`. Asking for such a
+  definition answers not-found with a detail naming its line: Read it there.
 
 So "no callers"-style reasoning from a `trace` result requires `unresolved_roots == []` **and**
 (for call graphs) the relevant node absent from `unresolved_call_sites`; a dependency-closure
@@ -376,7 +384,8 @@ claim from `imports` likewise requires the node absent from `unresolved_imports`
 "nothing depends on this" claim from `imported_by` requires it absent from `unresolved_importers`
 — and, for `imported_by` and `subclasses`, an empty `unparseable_files`. A "no subclasses"
 claim also needs `handleless_subclass_count == 0` (or the node absent from
-`handleless_subclass_counts`).
+`handleless_subclass_counts`). A "this is everything it defines" claim from `members`
+needs `unreadable_definitions == []`.
 
 ### Framework plugin tools — always pass `envelope=true`
 
@@ -562,8 +571,10 @@ Pick the candidate you meant, or re-resolve with the full dotted handle.
  "node": {"handle": "myapp.cache", "kind": "module", "…": "<omitted>"},
  "children": [
    {"node": {"handle": "myapp.cache.DependencyTracker", "…": "<omitted>"},
-    "truncated": true, "truncation_reason": "max_depth", "member_count": 2},
+    "truncated": true, "truncation_reason": "max_depth", "member_count": 2,
+    "unreadable_definitions": []},
    "<omitted>"],
+ "unreadable_definitions": [],
  "truncation_reasons": ["max_depth"]}
 ```
 

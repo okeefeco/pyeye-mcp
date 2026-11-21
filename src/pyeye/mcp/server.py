@@ -1041,7 +1041,9 @@ async def inspect(
         ``edge_counts`` counts only the edges cheap to measure from the
         definition itself.  An edge it didn't measure, including one that ran
         past its time budget, is ABSENT, never ``0``.  Follow an edge with
-        ``expand`` to measure it.
+        ``expand`` to measure it.  Beside ``edge_counts.members``,
+        ``unreadable_definition_count`` counts the definitions pyeye's parser
+        couldn't read, which that count leaves out (#1074; ``0`` when none).
         - class: signature (constructor), superclasses (list of Handle strings;
           omitted when the class's file can't be parsed, never a measured ``[]``)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
@@ -1094,6 +1096,12 @@ async def expand(
         <<fact:edge.members:ceiling>>.  For example, a Django ``Model`` shows
         none of its metaclass-injected ``_meta`` / ``objects`` / ``DoesNotExist``.
         A name missing from ``stubs`` is unknown outside that scope, not absent.
+        ``unreadable_definitions`` (always present on ``members``, #1074) lists
+        the definitions pyeye's parser couldn't read, so they aren't in
+        ``stubs``: ``{name, kind, line, reason}``, ``reason``
+        ``parser_unsupported_syntax`` (newer syntax in a definition's header,
+        e.g. PEP 646 ``*args: *Ts`` or ``Generic[*Ts]``). Python parses the file;
+        Read those lines. ``[]`` when pyeye read every definition.
       - ``callees``  — function/method → forward static call targets.  Includes
         project symbols and stdlib/external symbols reachable via Jedi's goto.
         Dynamic calls (un-inferable parameters, ``getattr``, lambdas, etc.) are
@@ -1519,6 +1527,10 @@ async def outline(
     members carries ``member_count`` (present only when > 0) — those members are
     not in the tree; ``expand(pkg, "members")`` lists them.  A package root with
     no submodules is outlined by its ``members`` instead.
+
+    **Definitions pyeye's parser couldn't read** (#1074): a node whose members
+    were measured carries ``unreadable_definitions``, the ``members`` edge's
+    list, ``[]`` when none; those definitions aren't among its children.
 
     **Counts are named for their edge.** ``member_count`` / ``submodule_count``
     always equal ``inspect(handle).edge_counts["members"]`` /

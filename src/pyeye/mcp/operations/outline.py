@@ -135,6 +135,9 @@ _REASON_UNPARSEABLE: str = UNPARSEABLE
 # a cap (``truncated`` + ``max_nodes``) or is simply NOT IN THIS VIEW (a walked
 # survey package, whose children are submodules) is read from the node's state.
 _MEMBER_COUNT: str = "member_count"
+#: A node's definitions pyeye's parser couldn't read (#1074): present wherever
+#: the node's members were measured, ``[]`` when none were lost.
+_UNREADABLE: str = "unreadable_definitions"
 _SUBMODULE_COUNT: str = "submodule_count"
 
 # ---------------------------------------------------------------------------
@@ -171,7 +174,10 @@ def _is_package(jedi_name: Any) -> bool:
 
 
 def _child_adjacents(
-    jedi_name: Any, analyzer: JediAnalyzer, survey_mode: bool
+    jedi_name: Any,
+    analyzer: JediAnalyzer,
+    survey_mode: bool,
+    tree_node: dict[str, Any] | None = None,
 ) -> list[tuple[Any, Any]]:
     """Return the adjacents to walk for *jedi_name* under the active mode.
 
@@ -183,7 +189,12 @@ def _child_adjacents(
     """
     if survey_mode and _is_package(jedi_name):
         return resolve_submodules(jedi_name, analyzer).adjacents
-    return resolve_members(jedi_name, analyzer).adjacents
+    members = resolve_members(jedi_name, analyzer)
+    if tree_node is not None and members.unreadable_definitions is not None:
+        # #1074: the node's definitions pyeye's parser couldn't read, so its
+        # member list (or count) leaves them out; [] when it read them all.
+        tree_node[_UNREADABLE] = members.unreadable_definitions
+    return members.adjacents
 
 
 def _has_members(jedi_name: Any, analyzer: JediAnalyzer) -> bool:
@@ -310,7 +321,7 @@ def _mark_unparseable(tree_node: dict[str, Any]) -> None:
     Contracts 1 and 2: ``children`` absent (not walked) and ``truncated: true``
     with ``truncation_reason: "unparseable"``.  No count: none was measured.
     """
-    for key in ("children", _MEMBER_COUNT, _SUBMODULE_COUNT):
+    for key in ("children", _MEMBER_COUNT, _SUBMODULE_COUNT, _UNREADABLE):
         tree_node.pop(key, None)
     tree_node["truncated"] = True
     tree_node["truncation_reason"] = _REASON_UNPARSEABLE
@@ -477,7 +488,7 @@ async def outline(
                 # signpost (#358 / spec §3) — the peek counts members but adds no
                 # nodes, so it does not "defeat" the budget.  A genuinely empty
                 # container is a leaf (children: []), never a truncation.
-                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode, tree_node)
                 if not adjacents:
                     _mark_empty_adjacents(tree_node, jedi_name, analyzer, survey_mode)
                 else:
@@ -496,7 +507,7 @@ async def outline(
             # child-adjacents resolver ONCE to distinguish genuine empty containers
             # from cut-off ones.  In survey mode the peek checks `submodules`.
             if max_depth is not None and depth >= max_depth:
-                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+                adjacents = _child_adjacents(jedi_name, analyzer, survey_mode, tree_node)
                 if not adjacents:
                     # Empty container (member mode) or a submodule-less package
                     # (survey mode — classified by its members, #596).
@@ -517,7 +528,7 @@ async def outline(
             # honest member_count and omit children (Contract 1/2).  Recovery is a
             # fresh re-outline with a larger budget or a targeted subtree.  The old
             # code broke mid-loop and assigned the partial list with no marker.
-            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode)
+            adjacents = _child_adjacents(jedi_name, analyzer, survey_mode, tree_node)
             if not adjacents:
                 # Member mode: a genuine empty container — a measured leaf.  Survey
                 # mode: a submodule-less package, classified by its members (#596).

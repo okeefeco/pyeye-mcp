@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import ast
 import errno
+import importlib.metadata as _metadata
 import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
@@ -38,6 +39,7 @@ from pyeye._ast_targets import attr_target_position, unsubscripted
 from pyeye._goto import goto_target, pick_target
 from pyeye._jedi_names import is_attribute_target
 from pyeye._module_sentinel import ModuleSentinel
+from pyeye._parse_gaps import binding_line, bound_in, scope_named, scope_path_at
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
 from pyeye.handle import Handle
 from pyeye.kinds import normalise_kind_from_name
@@ -60,6 +62,9 @@ from pyeye.scope import classify_scope
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
+
+#: The parser Jedi uses, named in the detail of a definition it lost (#1074).
+_PARSO_VERSION = _metadata.version("parso")
 
 logger = logging.getLogger(__name__)
 
@@ -100,16 +105,19 @@ class NotFound:
     #: true, so a handle-taking tool says so (*detail*), ``resolve`` answers
     #: ``ambiguous`` with these, and ``resolve_at`` picks the one at its position.
     candidates: tuple[Resolved, ...] = ()
+    #: The path names a definition Jedi's parser couldn't read (#1074), or a
+    #: name Jedi wrongly placed when it dropped one. *detail* says so.
+    parse_gap: bool = False
 
     @property
     def honest_detail(self) -> str | None:
         """*detail* when it is the honest reason to show the caller, else ``None``.
 
-        A refused restricted definition (#999) and a path naming several local
-        definitions (#1022) say why; any other miss lets the operation use its
-        own default detail.
+        A refused restricted definition (#999), a path naming several local
+        definitions (#1022) and a definition Jedi's parser lost (#1074) say why;
+        any other miss lets the operation use its own default detail.
         """
-        return self.detail if (self.restricted or self.candidates) else None
+        return self.detail if (self.restricted or self.candidates or self.parse_gap) else None
 
 
 @dataclass(frozen=True)
@@ -366,6 +374,14 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
         :class:`Resolved` with the canonical handle, or :class:`NotFound`.
     """
     found = _resolve(path, analyzer, hops=0)
+    # In a module Jedi's parser error-recovered in, ``ast`` decides what the
+    # module binds (#1074). A miss may be a definition Jedi lost; a hit through
+    # an alias may be a name Jedi misplaced (an import in a dropped body). A
+    # direct hit is checked on its anchor below, with no module lookup.
+    if found is None or found[0] != path:
+        gap = _path_gap(path, analyzer)
+        if gap is not None:
+            return gap
     if found is None:
         return NotFound(reason="unresolved", detail=f"{path!r} did not resolve to a definition.")
     canonical, anchor = found
@@ -378,11 +394,132 @@ def resolve_handle(path: str, analyzer: JediAnalyzer) -> Resolved | NotFound:
             reason="unresolved", detail=RESTRICTED_DETAIL.format(path=path), restricted=True
         )
     kind = normalise_kind_from_name(anchor)
-    return Resolved(
-        handle=canonical,
-        kind=kind,
-        scope=scope_for(anchor, canonical, kind, analyzer),
-        anchor=anchor,
+    scope = scope_for(anchor, canonical, kind, analyzer)
+    if scope == "project":
+        phantom = _misplaced(path, anchor, analyzer)
+        if phantom is not None:
+            return phantom
+    return Resolved(handle=canonical, kind=kind, scope=scope, anchor=anchor)
+
+
+def _parser_note(file: Path, line: int) -> str:
+    """The honest reason for a definition Jedi's parser lost (#1074)."""
+    return (
+        f"{file.as_posix()}:{line} uses syntax pyeye's parser can't read "
+        f"(parso {_PARSO_VERSION}); Read the file."
+    )
+
+
+def _damaged_tree(file: Path, analyzer: JediAnalyzer) -> ast.Module | None:
+    """*file*'s ``ast``, if Jedi's parser error-recovered in it (#1074), else ``None``.
+
+    ``None`` too for a file Python itself can't parse: that is #703's
+    ``unparseable``, not a parser gap.
+    """
+    if file.suffix != ".py":
+        return None  # a stub declares; a namespace package has no file
+    try:
+        if not file_artifact_cache.file_has_syntax_errors(file, analyzer.project):
+            return None
+    except OSError:
+        return None  # gone since Jedi read it: no gap to report
+    try:
+        return file_artifact_cache.get_ast(file)
+    except SyntaxError:
+        return None
+
+
+def _path_gap(path: str, analyzer: JediAnalyzer) -> NotFound | None:
+    """*path*'s answer when its module is one Jedi's parser error-recovered in (#1074).
+
+    The longest prefix of *path* that names a module file is the module; the
+    rest is checked against ``ast``, which parsed the whole file:
+
+    - a name the scope doesn't bind is not there, whatever Jedi lists: the
+      body of a dropped ``def`` leaves ``loop`` or ``asyncio`` at module level;
+    - a definition ``ast`` sees but Jedi doesn't is lost, never "not found":
+      the detail names its line and the parser.
+
+    ``None`` when the module parsed cleanly, the path is fine by ``ast`` and
+    Jedi finds it, or the path goes through something ``ast`` can't follow
+    (an import, an assignment): the resolver answers as usual.
+    """
+    parts = path.split(".")
+    for split in range(len(parts) - 1, 0, -1):
+        file = file_for_module(analyzer, ".".join(parts[:split]))
+        if file is None:
+            continue
+        tree = _damaged_tree(Path(file), analyzer)
+        if tree is None:
+            return None
+        return _qualname_gap(path, Path(file), tree, parts[split:], analyzer)
+    return None
+
+
+def _qualname_gap(
+    path: str, file: Path, tree: ast.Module, rest: list[str], analyzer: JediAnalyzer
+) -> NotFound | None:
+    """Check *rest*, the qualname of *path* in *file*, scope by scope against ``ast`` (#1074)."""
+    scope: ast.AST = tree
+    for depth, name in enumerate(rest):
+        if not any(bound == name for bound, _ in bound_in(scope)):
+            header = _dropped_header(tree, name)
+            if header is None:
+                return None  # not a parser gap: the resolver says not found as usual
+            return NotFound(
+                reason="unresolved",
+                detail=f"{path!r} is not a definition there: " + _parser_note(file, header),
+                parse_gap=True,
+            )
+        inner = scope_named(scope, [name]) if depth < len(rest) - 1 else None
+        if depth < len(rest) - 1 and inner is None:
+            return None  # through an import or an assignment: Jedi's to follow
+        if inner is not None:
+            scope = inner
+    if _resolve(path, analyzer, hops=0) is not None:
+        return None
+    line = binding_line(tree, rest)
+    return NotFound(reason="unresolved", detail=_parser_note(file, line or 1), parse_gap=True)
+
+
+def _dropped_header(tree: ast.Module, name: str) -> int | None:
+    """The header line of the definition whose body binds *name*, if one does."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            if any(bound == name for bound, _ in bound_in(node)):
+                return node.lineno
+    return None
+
+
+def _misplaced(path: str, anchor: Any, analyzer: JediAnalyzer) -> NotFound | None:
+    """A name Jedi placed in the wrong scope because its parser dropped a definition (#1074).
+
+    In a file Jedi parsed with errors, a definition is kept only when ``ast``
+    puts it in the scope Jedi does. ``loop``, bound in the body of a dropped
+    ``call_later``, is not a module-level name, whatever Jedi lists.
+    """
+    module_path = getattr(anchor, "module_path", None)
+    full_name = getattr(anchor, "full_name", None)
+    module = getattr(anchor, "module_name", None)
+    line = getattr(anchor, "line", None)
+    if module_path is None or not full_name or not module or line is None:
+        return None
+    if not full_name.startswith(module + "."):
+        return None  # a module itself, or a name Jedi can't place
+    tree = _damaged_tree(Path(module_path), analyzer)
+    if tree is None:
+        return None
+    claimed = full_name[len(module) + 1 :].split(".")[:-1]
+    actual = scope_path_at(tree, line)
+    names = [getattr(scope, "name", "") for scope in actual]
+    if names == claimed and (anchor.name, line) in bound_in(actual[-1] if actual else tree):
+        return None
+    where = actual[-1] if actual else None
+    header = getattr(where, "lineno", line)
+    return NotFound(
+        reason="unresolved",
+        detail=f"{path!r} is not a definition there: " + _parser_note(Path(module_path), header),
+        parse_gap=True,
     )
 
 

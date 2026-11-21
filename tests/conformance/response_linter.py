@@ -36,6 +36,9 @@ B.2 Known keys — every key must be in ``KNOWN_EDGE_TYPES`` or match the plugin
     edge regex ``r'^\\w+@\\w+$'``.
 B.3 Phase 4 cross-check — for ``inspect`` responses, measured edges must be
     present for the declared kind (can be 0, but cannot be absent).
+B.5 ``unreadable_definition_count`` (#1074) on ``inspect`` — present exactly when
+    ``edge_counts`` has ``members`` (it says what that count leaves out), a
+    plain int >= 0.
 B.4 Nullable optional fields — ``re_exports``, ``highlights``, ``tags``,
     ``properties`` may be absent or present-with-typed-value; present-with-None
     is invalid.
@@ -74,6 +77,11 @@ E.9 ``handleless_subclass_count`` / ``handleless_subclasses`` (#1006) — only o
     ``{name, file, line, reason}`` entries (``reason`` in
     :data:`_HANDLELESS_REASONS`), sorted by ``(file, line)``, and is no longer
     than the count (``max_stubs`` may cut it).
+E.11 ``unreadable_definitions`` (#1074) — only on the supported branch when
+    ``edge == "members"``, where it is REQUIRED: a list of ``{name, kind, line,
+    reason}`` entries (``kind`` in :data:`_UNREADABLE_KINDS`, ``reason``
+    ``parser_unsupported_syntax``), sorted by ``(line, name)``. ``[]`` when
+    pyeye's parser read every definition.
 E.10 ``unresolved_superclass_details`` (#1065) — only on the supported branch
     when ``edge == "superclasses"``, and always together with
     ``unresolved_superclasses``: one entry per base, in the same order
@@ -121,6 +129,8 @@ T.11 ``unparseable_files`` (#729), when present (only if ``subclasses``, ``re_ex
 T.12 ``handleless_subclass_counts`` (#1006), when present (only if ``subclasses``
     was traced), is a dict ``{handle: count}`` shaped like T.7: single-line
     handle keys, int counts >= 1.  Optional.
+T.13 ``unreadable_definition_counts`` (#1074), when present (only if ``members``
+    was traced), is a dict ``{handle: count}`` shaped like T.12.  Optional.
 T.9 ``unresolved_nodes`` (#621) is a REQUIRED list of non-empty single-line
     handle strings, each a key of ``nodes`` — the interior nodes ``expand``
     could not resolve, so trace never walked them.  ``[]`` when every interior
@@ -145,6 +155,8 @@ O.5 ``<edge>_count`` keys (``member_count`` ↔ ``members``, ``submodule_count``
     mode, submodules in package survey mode).  SHAPE only — the value invariant
     (``X_count == inspect(h).edge_counts[X]``) needs an analyzer and is covered by
     tests (``tests/test_outline_survey_leaf.py::TestCountInvariant``).
+O.7 ``unreadable_definitions`` (#1074), when present on a node, is a list shaped
+    like E.11. It is present where the node's members were measured.
 O.6 count placement: any other truncation (``max_depth`` / ``external`` /
     ``survey_leaf``) carries no count; a walked node may carry ``member_count``
     (members not in this view — a survey package, #596) only when > 0, and never
@@ -784,6 +796,26 @@ def _check_absence_vs_zero(
         kind = response.get("kind", "")
         if isinstance(kind, str):
             _check_b3_phase4_cross_check(edge_counts, kind, violations)
+        _check_b5_unreadable_count(response, edge_counts, violations)
+
+
+def _check_b5_unreadable_count(
+    response: dict[str, Any], edge_counts: dict[str, Any], violations: list[str]
+) -> None:
+    """B.5 (#1074) — the count is present exactly when ``edge_counts.members`` is."""
+    key = _UNREADABLE_COUNT_KEY
+    if ("members" in edge_counts) != (key in response):
+        violations.append(
+            f"[B.5 {key} placement] '{key}' must be present exactly when edge_counts "
+            f"has 'members' (it says what that count leaves out); members "
+            f"{'present' if 'members' in edge_counts else 'absent'}, {key} "
+            f"{'present' if key in response else 'absent'}."
+        )
+        return
+    if key in response and (not _is_plain_int(response[key]) or response[key] < 0):
+        violations.append(
+            f"[B.5 {key} type] must be a plain int >= 0; got {_truncate(response[key])}."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1166,6 +1198,9 @@ def _check_expand_structural_floor(
         # E.10 (#1065) — why each unresolved base didn't resolve.
         _check_superclass_details(response, edge_val, violations)
 
+        # E.11 (#1074) — the definitions pyeye's parser couldn't read.
+        _check_unreadable_on_expand(response, edge_val, violations)
+
 
 #: Per-edge "couldn't name / couldn't resolve / couldn't read" lists on an
 #: ExpandResult: (rule, key, the edges it may appear on).
@@ -1193,6 +1228,65 @@ _SUPERCLASS_DETAILS_KEY = "unresolved_superclass_details"
 _SUPERCLASS_REASONS = frozenset(
     {"not_a_name", "unresolvable", "ambiguous", "not_a_class", "restricted", "no_handle"}
 )
+#: E.11 / O.7 / T.13 / B.5 (#1074): a container's definitions pyeye's parser
+#: (Jedi's parso) couldn't read. Named for pyeye's limit: Python parses the file.
+_UNREADABLE_KEY = "unreadable_definitions"
+_UNREADABLE_COUNT_KEY = "unreadable_definition_count"
+_UNREADABLE_TRACE_KEY = "unreadable_definition_counts"
+_UNREADABLE_KINDS = frozenset({"function", "method", "class", "variable"})
+_UNREADABLE_REASONS = frozenset({"parser_unsupported_syntax"})
+
+
+def _unreadable_problem(value: Any) -> str | None:
+    """Why an ``unreadable_definitions`` list is malformed, or ``None`` (#1074)."""
+    if not isinstance(value, list):
+        return f"must be a list; got {type(value).__name__!r}"
+    order = []
+    for idx, entry in enumerate(value):
+        ok = (
+            isinstance(entry, dict)
+            and set(entry) == {"name", "kind", "line", "reason"}
+            and isinstance(entry["name"], str)
+            and entry["name"].strip()
+            and "\n" not in entry["name"]
+            and entry["kind"] in _UNREADABLE_KINDS
+            and _is_plain_int(entry["line"])
+            and entry["line"] >= 1
+            and entry["reason"] in _UNREADABLE_REASONS
+        )
+        if not ok:
+            return (
+                f"[{idx}] must be {{name: single-line str, kind: one of "
+                f"{sorted(_UNREADABLE_KINDS)}, line: int >= 1, reason: one of "
+                f"{sorted(_UNREADABLE_REASONS)}}}; got {_truncate(entry)}"
+            )
+        order.append((entry["line"], entry["name"]))
+    if order != sorted(order):
+        return "entries must be sorted by (line, name)"
+    return None
+
+
+def _check_unreadable_on_expand(
+    response: dict[str, Any], edge_val: Any, violations: list[str]
+) -> None:
+    """E.11 (#1074) — members-only, required there, a well-formed list."""
+    key = _UNREADABLE_KEY
+    if edge_val != "members":
+        if key in response:
+            violations.append(
+                f"[E.11 {key} placement] '{key}' is present but edge={edge_val!r} "
+                "(only allowed when edge == 'members')."
+            )
+        return
+    if key not in response:
+        violations.append(
+            f"[E.11 {key} required] a supported 'members' result must carry '{key}' "
+            "([] when pyeye's parser read every definition)."
+        )
+        return
+    problem = _unreadable_problem(response[key])
+    if problem is not None:
+        violations.append(f"[E.11 {key} entry] {key}: {problem}.")
 
 
 def _check_superclass_details(
@@ -1358,12 +1452,13 @@ def _check_edge_loss_list(
             )
 
 
-def _check_trace_count_map(value: Any, violations: list[str]) -> None:
-    """T.12 (#1006) — ``{handle: int >= 1}``, shaped like T.7."""
-    key = _HANDLELESS_TRACE_KEY
+def _check_trace_count_map(
+    value: Any, violations: list[str], rule: str = "T.12", key: str = _HANDLELESS_TRACE_KEY
+) -> None:
+    """T.12 (#1006) / T.13 (#1074) — ``{handle: int >= 1}``, shaped like T.7."""
     if not isinstance(value, dict):
         violations.append(
-            f"[T.12 trace {key} type] '{key}' must be a dict {{handle: count}}; "
+            f"[{rule} trace {key} type] '{key}' must be a dict {{handle: count}}; "
             f"got {type(value).__name__!r}."
         )
         return
@@ -1371,12 +1466,12 @@ def _check_trace_count_map(value: Any, violations: list[str]) -> None:
         kpath = f"{key}[{handle!r}]"
         if not isinstance(handle, str) or not handle.strip() or "\n" in handle:
             violations.append(
-                f"[T.12 trace {key} key] {kpath}: key must be a non-empty single-line "
+                f"[{rule} trace {key} key] {kpath}: key must be a non-empty single-line "
                 "handle string."
             )
         if not _is_plain_int(count) or count < 1:
             violations.append(
-                f"[T.12 trace {key} count] {kpath}: count must be a plain int >= 1 "
+                f"[{rule} trace {key} count] {kpath}: count must be a plain int >= 1 "
                 f"(omit zero counts); got {_truncate(count)}."
             )
 
@@ -1718,6 +1813,13 @@ def _check_trace_structural_floor(
     if _HANDLELESS_TRACE_KEY in response:
         _check_trace_count_map(response[_HANDLELESS_TRACE_KEY], violations)
 
+    # T.13 (#1074) — unreadable_definition_counts: OPTIONAL, present only when
+    # members was traced; a node whose parser read everything is omitted.
+    if _UNREADABLE_TRACE_KEY in response:
+        _check_trace_count_map(
+            response[_UNREADABLE_TRACE_KEY], violations, "T.13", _UNREADABLE_TRACE_KEY
+        )
+
 
 # ---------------------------------------------------------------------------
 # Check O — OutlineTree structural-floor helpers
@@ -1824,6 +1926,12 @@ def _check_outline_tree_node(
             f"got {type(tree).__name__!r}."
         )
         return
+
+    # O.7 (#1074) — the node's definitions pyeye's parser couldn't read.
+    if _UNREADABLE_KEY in tree:
+        problem = _unreadable_problem(tree[_UNREADABLE_KEY])
+        if problem is not None:
+            violations.append(f"[O.7 outline {_UNREADABLE_KEY}] {path!r}: {problem}.")
 
     # N.3 — found is a response-level field: root only (the root's path is "").
     if path and "found" in tree:
