@@ -45,6 +45,14 @@ Design notes
   ``FutureWarning`` and unresolvable categories don't. The ceiling: a warn
   in a helper (Django's ``warn_about_external_use``), a runtime-built
   category or an unrecognised decorator name isn't seen.
+- ``overloads`` (function, method; #1088 ruling): the ``@overload`` signatures
+  in source order, rendered from the AST like ``signature``. ``[]`` = read, not
+  overloaded; ABSENT = the definition couldn't be read. An overloaded
+  function's ``signature``/``parameters``/``return_type`` are the
+  implementation's (the anchor, #1089); overload-only, the first overload's.
+  For ``deprecation``, a ``@deprecated`` overload is ``conditional`` via
+  ``decorator``, and an overload-only definition never reports a checked
+  ``[]``: without a deprecated overload the field is absent.
 - No source content anywhere — ``location`` is a pointer-only dict.
 - Per-measurement time budget (default 2 s): edges that exceed the budget are
   OMITTED from edge_counts — consistent with the absence-vs-zero invariant.
@@ -83,6 +91,7 @@ from pyeye.mcp.operations.edges import (
 )
 from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
+from pyeye.overloads import overload_set
 from pyeye.project_layout import file_for_module, mark_stub, module_name_for_file, package_kind
 from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
 
@@ -804,6 +813,35 @@ _DEPRECATION_KINDS = frozenset({"function", "method", "class"})
 _CATEGORY_DEPTH = 8
 
 
+def _overload_context(
+    file_path: Path | None, line: int | None, analyzer: JediAnalyzer
+) -> tuple[ast.Module, dict[str, str], ast.FunctionDef | ast.AsyncFunctionDef] | None:
+    """The module AST, import table and ``def`` at *line*, or ``None`` if unread (#1088)."""
+    if file_path is None or not line:
+        return None
+    definition = _find_function_def_at_line(Path(file_path), line)
+    if definition is None:
+        return None
+    try:
+        tree = file_artifact_cache.get_ast(Path(file_path))
+    except Exception:
+        return None
+    module = module_name_for_file(analyzer, Path(file_path)) or ""
+    table = build_import_table(
+        tree,
+        module,
+        resolve_relative_import,
+        Path(file_path).name in ("__init__.py", "__init__.pyi"),
+    )
+    return tree, table, definition
+
+
+def _render_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
+    """``name(args) -> ret`` from a ``def``'s AST, the same style as ``signature``."""
+    returns = f" -> {ast.unparse(node.returns)}" if node.returns is not None else ""
+    return f"{node.name}({ast.unparse(node.args)}){returns}"
+
+
 def _deprecation_evidence(
     file_path: Path, line: int | None, kind: str, analyzer: JediAnalyzer
 ) -> list[dict[str, Any]] | None:
@@ -830,9 +868,21 @@ def _deprecation_evidence(
     table = build_import_table(
         tree, module, resolve_relative_import, file_path.name in ("__init__.py", "__init__.pyi")
     )
-    return deprecation.evidence(
-        definition, table, lambda name: _is_deprecation_category(name, module, analyzer)
-    )
+
+    def category(name: str) -> bool:
+        return _is_deprecation_category(name, module, analyzer)
+
+    if not isinstance(definition, ast.ClassDef):
+        overloads, implementation = overload_set(tree, definition, table)
+        if overloads:
+            # #1088 ruling: a deprecated overload is conditional evidence; with no
+            # implementation there's no body to check, so never a checked [].
+            on_overloads = deprecation.overload_evidence(overloads, table)
+            if implementation is None:
+                return sorted(on_overloads, key=lambda entry: entry["line"]) or None
+            found = deprecation.evidence(implementation, table, category) + on_overloads
+            return sorted(found, key=lambda entry: entry["line"])
+    return deprecation.evidence(definition, table, category)
 
 
 def _is_deprecation_category(name: str, module: str, analyzer: JediAnalyzer) -> bool:
@@ -1133,6 +1183,17 @@ async def _build_function_fields(
     # the class branch and the stub contract (#407).  The structured ``parameters``
     # below remain available regardless, so consumers don't lose information.
     sig = _build_signature(jedi_name)
+    # #1088 ruling: an overloaded function's signature is its implementation's
+    # (the anchor, #1089), or the first overload's when there's only overloads;
+    # ``overloads`` lists them all ([] = read, none; absent = couldn't read).
+    # Jedi's own signature for it is the first overload's, so it isn't used.
+    context = _overload_context(file_path, getattr(jedi_name, "line", None), analyzer)
+    if context is not None:
+        tree, table, definition = context
+        overloads, implementation = overload_set(tree, definition, table)
+        fields["overloads"] = [_render_signature(node) for node in overloads]
+        if overloads:
+            sig = _render_signature(implementation or overloads[0])
     if sig is not None:
         fields["signature"] = sig
 

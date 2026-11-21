@@ -3,10 +3,10 @@ date: "2026-11-22"
 title: "An @overload'ed function anchors on its implementation, not its first overload stub (#1088)"
 issues: [1088, 857, 1082, 1022]
 anchors: ["pyeye.resolver._anchor_on_bindings", "pyeye.resolver._overload_implementation", "tests/test_overload_anchor.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-22-1088-overloaded-signature-is-the-implementations-overloads-listed.md"]
 superseded_by: []
 ---
 
