@@ -121,6 +121,7 @@ def in_with_and_try():
 
 
 def plain():
+    print("not a warning")
     return 1
 
 
@@ -370,3 +371,68 @@ class TestTheLinterRule:
         node = self._node(kind="module", deprecation=[])
         with pytest.raises(ConformanceViolation, match=r"B\.6"):
             lint_response(node, "inspect")
+
+
+class TestEdges:
+    @staticmethod
+    def _project(tmp_path: Path, old: str, cats: str = "") -> JediAnalyzer:
+        pkg = tmp_path / "edge"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        (pkg / "mod.py").write_text(old, encoding="utf-8")
+        (pkg / "cats.py").write_text(cats, encoding="utf-8")
+        return JediAnalyzer(str(tmp_path))
+
+    @pytest.mark.asyncio
+    async def test_a_warn_in_a_match_case_is_conditional(self, tmp_path: Path) -> None:
+        a = self._project(
+            tmp_path,
+            "import warnings\n\n\ndef f(x):\n    match x:\n        case 1:\n"
+            '            warnings.warn("1 is deprecated", DeprecationWarning)\n',
+        )
+        assert await _evidence(a, "edge.mod.f") == [_conditional(7)]
+
+    @pytest.mark.asyncio
+    async def test_a_category_that_is_not_a_plain_name_is_not_evidence(
+        self, tmp_path: Path
+    ) -> None:
+        a = self._project(
+            tmp_path,
+            'import warnings\n\n\ndef f():\n    warnings.warn("x", pick_category())\n',
+        )
+        assert await _evidence(a, "edge.mod.f") == []
+
+    @pytest.mark.asyncio
+    async def test_a_category_chain_past_the_depth_limit_is_not_followed(
+        self, tmp_path: Path
+    ) -> None:
+        """Nine classes between the category and DeprecationWarning: past the bound of 8."""
+        chain = "class C0(DeprecationWarning):\n    pass\n" + "".join(
+            f"class C{i}(C{i - 1}):\n    pass\n" for i in range(1, 10)
+        )
+        a = self._project(
+            tmp_path,
+            "import warnings\nfrom .cats import C9, C3\n\n\ndef far():\n"
+            '    warnings.warn("x", C9)\n\n\ndef near():\n    warnings.warn("x", C3)\n',
+            chain,
+        )
+        assert await _evidence(a, "edge.mod.far") == []
+        assert len(await _evidence(a, "edge.mod.near")) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_category_cycle_ends(self, tmp_path: Path) -> None:
+        a = self._project(
+            tmp_path,
+            'import warnings\nfrom .cats import A\n\n\ndef f():\n    warnings.warn("x", A)\n',
+            "class A(B):\n    pass\n\n\nclass B(A):\n    pass\n",
+        )
+        assert await _evidence(a, "edge.mod.f") == []
+
+    def test_no_line_or_no_definition_there_is_not_checked(self, tmp_path: Path) -> None:
+        from pyeye.mcp.operations.inspect import _deprecation_evidence
+
+        a = self._project(tmp_path, "x = 1\n\n\nclass K:\n    pass\n")
+        mod = tmp_path / "edge" / "mod.py"
+        assert _deprecation_evidence(mod, None, "function", a) is None
+        assert _deprecation_evidence(mod, 1, "class", a) is None  # line 1 is `x = 1`
+        assert _deprecation_evidence(mod, 4, "class", a) == []
