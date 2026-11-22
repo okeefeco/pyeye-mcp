@@ -84,23 +84,10 @@ def iter_module_scope_imports_guarded(
     Yields:
         ``(import node, type_only)`` in source order.
     """
-    names, modules = _type_checking_spellings(tree)
+    spellings = _type_checking_spellings(tree)
 
     def guard(test: ast.expr) -> bool | None:
-        """``True`` for the guard, ``False`` for ``not`` the guard, else ``None``."""
-        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
-            inner = guard(test.operand)
-            return None if inner is None else not inner
-        if isinstance(test, ast.Name) and test.id in names:
-            return True
-        if (
-            isinstance(test, ast.Attribute)
-            and test.attr == "TYPE_CHECKING"
-            and isinstance(test.value, ast.Name)
-            and test.value.id in modules
-        ):
-            return True
-        return None
+        return _guard_kind(test, *spellings)
 
     def walk(
         nodes: Iterable[ast.AST], type_only: bool
@@ -118,6 +105,48 @@ def iter_module_scope_imports_guarded(
         yield from ((n, False) for n in tree.body if isinstance(n, (ast.Import, ast.ImportFrom)))
         return
     yield from walk(tree.body, False)
+
+
+def type_only_lines(tree: ast.Module) -> frozenset[int]:
+    """The lines that run only under a type checker, anywhere in *tree* (#1106).
+
+    A line is type-only when it lies in the branch of an ``if`` that only a type
+    checker takes: the body of ``if TYPE_CHECKING:``, the ``else`` of
+    ``if not TYPE_CHECKING:``, at any depth below it. The guard spellings are
+    :func:`iter_module_scope_imports_guarded`'s (#1081), but this reaches into
+    class and function bodies too, since a class can declare an attribute under
+    the guard and define a method of the same name at runtime (Scrapy's
+    ``Spider.parse``).
+    """
+    spellings = _type_checking_spellings(tree)
+    lines: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.If):
+            continue
+        kind = _guard_kind(node.test, *spellings)
+        if kind is None:
+            continue
+        branch = node.body if kind else node.orelse
+        for stmt in branch:
+            lines.update(range(stmt.lineno, (stmt.end_lineno or stmt.lineno) + 1))
+    return frozenset(lines)
+
+
+def _guard_kind(test: ast.expr, names: set[str], modules: set[str]) -> bool | None:
+    """``True`` for the TYPE_CHECKING guard, ``False`` for ``not`` it, else ``None`` (#1081)."""
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        inner = _guard_kind(test.operand, names, modules)
+        return None if inner is None else not inner
+    if isinstance(test, ast.Name) and test.id in names:
+        return True
+    if (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id in modules
+    ):
+        return True
+    return None
 
 
 def _type_checking_spellings(tree: ast.Module) -> tuple[set[str], set[str]]:

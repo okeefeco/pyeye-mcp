@@ -38,6 +38,7 @@ from pyeye import file_artifact_cache
 from pyeye._ast_targets import attr_target_position, unsubscripted
 from pyeye._goto import goto_target, pick_target
 from pyeye._jedi_names import is_attribute_target
+from pyeye._module_scope import type_only_lines
 from pyeye._module_sentinel import ModuleSentinel
 from pyeye._parse_gaps import binding_line, bound_in, scope_named, scope_path_at
 from pyeye._stdlib_static import StdlibDefinition, relocate_platform, stdlib_definition
@@ -1514,6 +1515,12 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     - **Imports and plain definitions, all unconditional** (``from .src import
       A`` then ``class A``): the LAST binding wins, as at runtime. If the last is
       an import (``class A`` then ``from .src import A``), it collapses.
+    - **A runtime binding beats a TYPE_CHECKING-only one** (#1106): when some
+      bindings sit in a branch only a type checker takes and some don't, the
+      type-only ones are dropped and these rules apply to the rest
+      (:func:`prefer_runtime_bindings`). Scrapy's ``Spider`` declares
+      ``parse: CallbackT`` under ``if TYPE_CHECKING:`` and defines ``def parse``
+      in the ``else:``; the ``def`` is the anchor.
     - **Overloads with an implementation** (#1088): when every binding is a
       ``def`` and all but one are ``@overload``, the one without is the
       implementation and is the anchor (:func:`_overload_implementation`).
@@ -1527,6 +1534,9 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     first = matches[0]
     if len(matches) == 1:
         return _cross_file_target(first) or _anchor_on_definition(first, handle)
+    runtime = prefer_runtime_bindings(matches, mod_file)
+    if len(runtime) < len(matches):
+        return _anchor_on_bindings(runtime, mod_file, handle)
     implementation = _overload_implementation(matches, mod_file)
     if implementation is not None:
         return _anchor_on_definition(implementation, handle)
@@ -1549,6 +1559,32 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     if ((last.line or 0), last.name) in found.imports:
         return _cross_file_target(last) or _anchor_on_definition(last, handle)
     return _anchor_on_definition(last, handle)
+
+
+def prefer_runtime_bindings(names: list[Any], mod_file: Path | None = None) -> list[Any]:
+    """*names* without its TYPE_CHECKING-only bindings, when it has runtime ones too (#1106).
+
+    All of *names* bind one name in *mod_file* (by default, the first name's
+    file). A binding is type-only when its line is in a branch only a type
+    checker takes (:func:`pyeye._module_scope.type_only_lines`, #1081's guard
+    spellings). The runtime bindings are what the name IS when the code runs, so
+    they win; with none, or no type-only one, *names* comes back unchanged, as
+    it does for a file the server's Python can't parse (#703) or names from
+    several files.
+    """
+    if len(names) < 2:  # noqa: PLR2004 - one binding has nothing to prefer
+        return names
+    if mod_file is None:
+        files = {getattr(n, "module_path", None) for n in names}
+        if len(files) != 1 or None in files:
+            return names
+        mod_file = Path(next(iter(files)))  # type: ignore[arg-type]
+    try:
+        type_only = type_only_lines(file_artifact_cache.get_ast(mod_file))
+    except (SyntaxError, ValueError, OSError):
+        return names
+    runtime = [n for n in names if (n.line or 0) not in type_only]
+    return runtime if runtime else names
 
 
 def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:

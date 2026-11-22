@@ -102,6 +102,7 @@ from pyeye.resolver import (
     is_function_local,
     local_definition_handle,
     local_member_full_name,
+    prefer_runtime_bindings,
     resolve_external_item,
 )
 from pyeye.scope import classify_scope, is_stdlib_source
@@ -904,23 +905,24 @@ def _module_member_names(
 def _collect_members(
     selected: Iterable[tuple[Any, str]], analyzer: JediAnalyzer
 ) -> list[tuple[Handle, Any]]:
-    """The one member-collection loop for ``_class_members`` / ``_module_members`` (#686).
+    r"""The one member-collection loop for ``_class_members`` / ``_module_members`` (#686).
 
     Each caller selects its ``(Jedi Name, full_name)`` pairs; this builds each
     handle through :func:`_handle_for_name` and dedupes on the handle it EMITS,
-    keeping the first ``Name``. The handle can differ from ``full_name`` (the
-    stdlib public-name and project-anchor rules, #544 / #714), so deduping on
+    in first-seen order. The handle can differ from ``full_name`` (the stdlib
+    public-name and project-anchor rules, #544 / #714), so deduping on
     ``full_name`` could emit one handle twice. Unplaceable names are skipped.
+
+    Of several ``Name``\ s for one handle the first is kept, except that a
+    runtime binding beats a TYPE_CHECKING-only one (#1106), as the resolver
+    anchors it (:func:`pyeye.resolver.prefer_runtime_bindings`).
     """
-    members: list[tuple[Handle, Any]] = []
-    seen: set[str] = set()
+    grouped: dict[str, tuple[Handle, list[Any]]] = {}
     for name, full_name in selected:
         h = _handle_for_name(name, analyzer, full_name)
-        if h is None or str(h) in seen:
-            continue
-        seen.add(str(h))
-        members.append((h, name))
-    return members
+        if h is not None:
+            grouped.setdefault(str(h), (h, []))[1].append(name)
+    return [(h, prefer_runtime_bindings(names)[0]) for h, names in grouped.values()]
 
 
 # ---------------------------------------------------------------------------

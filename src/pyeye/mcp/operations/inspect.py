@@ -343,7 +343,14 @@ def _build_signature(jedi_name: Any) -> str | None:
     try:
         # A signature Jedi infers from a definition in a restricted directory (an
         # inherited __init__, an alias of a function there) isn't shown (#999).
-        sigs = [s for s in jedi_name.get_signatures() if not _restricted_signature(s)]
+        raw = jedi_name.get_signatures()
+        if not raw and getattr(jedi_name, "type", None) == "function":
+            # A ``def`` Jedi infers as something else has no signature of its
+            # own: a TYPE_CHECKING-only declaration of the same name shadows it
+            # (``parse: CallbackT`` beside ``def parse``, #1106). The def as
+            # written is its signature, as for a decorator's wrapper (#437).
+            return _signature_from_source_ast(jedi_name)
+        sigs = [s for s in raw if not _restricted_signature(s)]
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
