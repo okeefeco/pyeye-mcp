@@ -123,7 +123,7 @@ class TestReportChanged:
         _git(tmp_path, "config", "user.email", "t@example.com")
         _git(tmp_path, "config", "user.name", "t")
         monkeypatch.setattr(docs, "DOCS", ())
-        monkeypatch.setattr(cli.registry, "build", lambda _root: FACTS)
+        monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
         return tmp_path
 
     def _snapshot(self, repo: Path, facts: dict[str, int]) -> None:
