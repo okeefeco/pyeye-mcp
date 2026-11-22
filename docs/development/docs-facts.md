@@ -195,7 +195,10 @@ change-triggered `/docs-review`.
 
 A group ID (a view) that gained a member is listed too, under "Views with a new member",
 with the pages that bind it. A new member counts as covered as soon as it exists, so this
-is what sends those pages to review (#1108).
+is what sends those pages to review (#1108). A view that lost a member is listed under
+"Views that lost a member", and the gone member names the pages that bound its view. Each
+snapshot file records every view's members for this (#1114), so the comparison needs
+nothing but the two snapshots.
 
 ## Adding a fact
 

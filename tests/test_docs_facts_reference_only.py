@@ -390,8 +390,12 @@ class TestAViewGainingAMember:
         assert member in getattr(facts["determinism.table"], "members", ())
         head = cli._committed_snapshots(Path("."), config.load(Path(".")).paths)
         before = {k: v for k, v in head.items() if k != member}
+        views = cli._committed_views(Path("."), config.load(Path(".")).paths)
+        old_views = {v: [m for m in ms if m != member] for v, ms in views.items()}
         monkeypatch.setattr(cli, "base_snapshots", lambda _root, _base, _paths: dict(before))
         monkeypatch.setattr(cli, "_committed_snapshots", lambda _root, _paths: dict(head))
+        monkeypatch.setattr(cli, "base_views", lambda _root, _base, _paths: dict(old_views))
+        monkeypatch.setattr(cli, "_committed_views", lambda _root, _paths: dict(views))
 
         out = review.scope(Path("."), facts, base="HEAD")
 

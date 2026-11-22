@@ -1338,6 +1338,14 @@ def _page_fact_ids(text: str, entry: Any, facts: Facts) -> set[str]:
     return ledger.expand([b.fact_id for b in blocks], facts) | ledger.expand(entry.covers, facts)
 
 
+def _block_ids(text: str) -> set[str]:
+    """The IDs a page's blocks name as written: a view's own ID among them (#1114)."""
+    from . import binding
+
+    blocks, _ = binding.parse(text)
+    return {b.fact_id for b in blocks}
+
+
 def _section_fact_ids(section: Section, entry: Any, facts: Facts, text: str) -> list[str]:
     """The facts a section's freshness depends on.
 
@@ -1471,7 +1479,7 @@ def scope(
         docs,
         ledger,
     )
-    from .cli import SNAPSHOT, _committed_snapshots, base_snapshots
+    from .cli import SNAPSHOT, _committed_snapshots, _committed_views, base_snapshots, base_views
     from .config import load as load_setup
 
     wanted = list(pages)
@@ -1491,8 +1499,15 @@ def scope(
                 f"can't read {SNAPSHOT} at {base!r}: give a git revision that has it "
                 "(e.g. origin/main), or name pages instead"
             )
-        diff = changed_facts.diff(before, _committed_snapshots(root, paths), {}, facts)
-        changed_ids = set(diff.added) | set(diff.changed) | set(diff.grown)
+        diff = changed_facts.diff(
+            before,
+            _committed_snapshots(root, paths),
+            {},
+            facts,
+            base_views=base_views(root, base, paths),
+            head_views=_committed_views(root, paths),
+        )
+        changed_ids = set(diff.added) | set(diff.changed) | set(diff.grown) | set(diff.shrunk)
         current = ledger.load(root)
         uncovered = sorted(current.new) if current is not None else []
     state = load(root)
@@ -1505,7 +1520,7 @@ def scope(
         )
         if base is not None and not picked:
             text = (root / path).read_text(encoding="utf-8")
-            picked = bool(_page_fact_ids(text, entry, facts) & changed_ids)
+            picked = bool((_page_fact_ids(text, entry, facts) | _block_ids(text)) & changed_ids)
         if picked:
             selected.append(packet(root, path, entry, facts, state, changed_ids))
     return {
