@@ -314,6 +314,7 @@ BINDING_CASES = {
         "method",
         "__init__.py:11",
     ),
+    # #1106 ruling (i): the runtime placeholder wins over the type-only import.
     "type_checking_branch": (
         {
             "pkg/__init__.py": (
@@ -324,8 +325,8 @@ BINDING_CASES = {
         },
         "pkg.TCThing",
         "pkg.TCThing",
-        "class",
-        "__init__.py:4",
+        "variable",
+        "__init__.py:6",
     ),
     "try_except_fallback": (
         {
