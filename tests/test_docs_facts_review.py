@@ -549,9 +549,11 @@ class TestScope:
     ) -> None:
         from pyeye.docs_facts import changed
 
-        def older(root: Path, _base: str, _path: str) -> dict[str, Any]:
+        def older(root: Path, _base: str, _path: str, section: str = "facts") -> dict[str, Any]:
             from pyeye.docs_facts.cli import _committed_snapshot
 
+            if section != "facts":  # no view memberships on this base (#1114)
+                return {}
             snap = dict(_committed_snapshot(root))
             snap[fact_id] = "a different value"
             return snap

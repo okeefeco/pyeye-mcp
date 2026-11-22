@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import binding, changed, config, docs, examples, ledger, registry, removed, review, rules
-from .facts import Bindable, snapshot
+from .facts import Bindable, memberships, snapshot
 from .setup import Paths, Setup, pyeye_setup
 
 SNAPSHOT = "docs/facts/facts.json"
@@ -56,8 +56,9 @@ class Plan:
 
 
 def snapshot_text(facts: Mapping[str, Bindable]) -> str:
-    """The snapshot file: every item fact's value, sorted by ID."""
-    return json.dumps({"facts": snapshot(facts)}, indent=2, sort_keys=True) + "\n"
+    """The snapshot file: every item fact's value, and every view's members (#1114)."""
+    data = {"facts": snapshot(facts), "views": memberships(facts)}
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def snapshot_texts(facts: Mapping[str, Bindable], paths: Paths) -> dict[str, str]:
@@ -170,6 +171,24 @@ def base_snapshots(root: Path, base: str, paths: Paths) -> dict[str, object] | N
     return before
 
 
+def _committed_views(root: Path, paths: Paths) -> dict[str, list[str]]:
+    """Every snapshot file's view memberships together (#1114); none before they were kept."""
+    views: dict[str, list[str]] = {}
+    for path in paths.snapshot_files():
+        current = _current(root, path)
+        if current is not None:
+            views.update(json.loads(current).get("views", {}))
+    return views
+
+
+def base_views(root: Path, base: str, paths: Paths) -> dict[str, list[str]]:
+    """Every snapshot file's view memberships at git revision *base* (#1114)."""
+    views: dict[str, list[str]] = {}
+    for path in paths.snapshot_files():
+        views.update(changed.base_views(root, base, path))
+    return views
+
+
 def _committed_snapshots(root: Path, paths: Paths) -> dict[str, object]:
     """Every snapshot file's facts together, so moving a family between files loses none."""
     facts: dict[str, object] = {}
@@ -279,7 +298,15 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
         return 0
     facts = registry.build(root, setup.extractors)
     bound = changed.bound_pages(root, facts, setup.docs)
-    print(changed.summary(changed.diff(before, head, bound, facts), base))
+    found = changed.diff(
+        before,
+        head,
+        bound,
+        facts,
+        base_views=base_views(root, base, setup.paths),
+        head_views=_committed_views(root, setup.paths),
+    )
+    print(changed.summary(found, base))
     return 0
 
 

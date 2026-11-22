@@ -153,3 +153,12 @@ def index(items: Iterable[Bindable]) -> dict[str, Bindable]:
 def snapshot(items: Mapping[str, Bindable]) -> dict[str, Any]:
     """The value of every item fact, by ID (views have no value of their own)."""
     return {i: f.value for i, f in sorted(items.items()) if isinstance(f, Fact)}
+
+
+def memberships(items: Mapping[str, Bindable]) -> dict[str, list[str]]:
+    """Each view's members, by view ID, in display order (#1114).
+
+    The snapshot records them so a later diff knows which views held a fact
+    that has since gone.
+    """
+    return {i: list(v.members) for i, v in sorted(items.items()) if isinstance(v, View)}
