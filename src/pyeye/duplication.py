@@ -92,6 +92,24 @@ DISMISSAL_FACT = "duplication"
 #: Why a family was dismissed (closed vocabulary).
 DISMISSAL_REASONS = ("benign-idiom", "deliberate-twin", "vendored", "generated", "other")
 
+#: The CLI's subcommands and the long options each accepts, in the order
+#: :func:`_parser` adds them. Declared as a literal so the docs read the CLI's
+#: vocabulary from the source, never by building the parser (#1098, C19);
+#: ``tests/test_duplication.py`` checks the parser matches it.
+COMMANDS: dict[str, tuple[str, ...]] = {
+    "review": ("--root", "--min-tokens", "--max-occurrences", "--state", "--today", "--json"),
+    "dismiss": (
+        "--root",
+        "--min-tokens",
+        "--max-occurrences",
+        "--state",
+        "--family",
+        "--reason",
+        "--date",
+        "--review-after",
+    ),
+}
+
 _SKIP = (ast.expr_context, ast.Load, ast.Store, ast.Del)
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 _STUB_DECORATORS = frozenset({"overload", "abstractmethod", "abstractproperty"})
