@@ -62,7 +62,8 @@ batch (`PYEYE_WATCHER_DEBOUNCE`, default <!-- fact:begin env.PYEYE_WATCHER_DEBOU
 watcher and scope classification (#1104): a virtual environment (any directory
 holding `pyvenv.cfg`), and a directory named like a cache or build output
 (`.git`, `__pycache__`, `.venv`, `build`, `dist`, `env`, `node_modules` and the
-like) unless it holds `__init__.py` or `__init__.pyi`. So a real package named
+like, in any case: `Build/` too, #1116) unless it holds `__init__.py` or
+`__init__.pyi`. So a real package named
 `env` is watched and scanned, while setuptools' `build/lib` and a namespace
 package named `build` (no `__init__`) are not.
 

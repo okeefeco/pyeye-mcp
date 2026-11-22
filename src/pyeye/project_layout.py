@@ -60,6 +60,7 @@ compared against.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -297,11 +298,34 @@ VENV_MARKER = "pyvenv.cfg"
 _PACKAGE_MARKERS = ("__init__.py", "__init__.pyi")
 
 
+@functools.lru_cache(maxsize=16)
+def _folded(names: frozenset[str]) -> tuple[frozenset[str], tuple[str, ...]]:
+    """*names* case-folded: the exact names, and the suffixes of ``*.suffix`` patterns."""
+    exact = frozenset(n.casefold() for n in names if not n.startswith("*"))
+    suffixes = tuple(n[1:].casefold() for n in names if n.startswith("*"))
+    return exact, suffixes
+
+
+def dir_name_matches(name: str, names: Collection[str]) -> bool:
+    """Whether directory *name* is one of *names*, ignoring case (#1116).
+
+    THE directory-name match for exclusion, shared by the project scan
+    (:func:`excluded_name`) and scope classification, each with its own name
+    set. A ``*.suffix`` entry matches any name ending in the suffix
+    (``*.egg-info``). Case is ignored because a directory named ``Build/`` is
+    ``build/`` on macOS and Windows. It's for DIRECTORY exclusion only: module,
+    class and handle names stay case-sensitive.
+    """
+    exact, suffixes = _folded(frozenset(names))
+    folded = name.casefold()
+    return folded in exact or any(folded.endswith(s) and folded != s for s in suffixes)
+
+
 def excluded_name(name: str) -> bool:
-    """Whether *name* names a directory that usually holds no project source (#1104)."""
+    """Whether *name* names a directory that usually holds no project source (#1104, #1116)."""
     from .constants import EXCLUDED_DIRS
 
-    return name in EXCLUDED_DIRS or name.endswith(".egg-info")
+    return dir_name_matches(name, EXCLUDED_DIRS)
 
 
 def is_package_dir(directory: Path, entries: Collection[str] | None = None) -> bool:
