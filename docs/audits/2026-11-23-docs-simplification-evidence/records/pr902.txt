@@ -1,0 +1,39 @@
+# PR 902 docs(claude): point 03 and 11 at their sources; widen 07's example rule (#830)
+## Description
+
+User-approved `.claude/` batch for #830. The user approved it directly in the editing session.
+
+- **`03-mcp-dogfooding.md`:** this is a duplicated-prose fix from worker-4's slice 5 (#889's notes). The page no longer retells which tools were removed and why. It points to the `python-explore` skill ("There is no legacy escape hatch"), which owns that story, and to `docs/api-redesign.md`. Its `removed-name` allow-list in `docs.py` is removed with the retelling (the ratchet only shrinks).
+- **`11-pr-requirements.md`:** this is the other slice-5 duplicate. It links `06-workflow-commits.md` → "Test Requirements (MANDATORY)" instead of copying the list. It keeps the directive that pre-commit doesn't run tests.
+- **`07-validation.md`:** the "Docs Built on Facts" bullet widens to "… a skill, or a human/both-audience prose page outside `.claude/` …", matching #888 (C17 item 2). Nothing else on that line changed.
+
+**Shared files:** none with #889 (checked against `gh pr diff 889 --name-only`).
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 5051 passed, 29 skipped, 1 xfailed.
+- `docs_facts check` passes, `no-breaking` prints 0, and `changelog check` and `decisions check` pass.
+- The path ratchet passes, and the dup report is unchanged. No allow-list entries were added (one was removed).
+
+Fragment: `changes/830-12.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/902?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

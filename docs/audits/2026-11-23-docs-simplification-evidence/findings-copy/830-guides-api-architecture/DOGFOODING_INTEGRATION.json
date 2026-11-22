@@ -1,0 +1,110 @@
+[
+  {
+    "anchor": {
+      "id": "scripts.dogfooding_integration.DogfoodingIntegration.export_mcp_metrics_for_session",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "edge": "callees",
+        "includes": [
+          "pyeye.metrics.MetricsCollector.get_performance_report"
+        ]
+      }
+    ],
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "Says `dogfooding_metrics.py sync` syncs the MCP server's tool usage into the session. The export reads the in-process `pyeye.metrics` collector (`get_performance_report`), which lives in memory and is never persisted; the `sync` CLI is a separate process from the MCP server, so its collector is empty and sync can only ever record 0 calls. The page's whole 'Automatic MCP Tool Tracking' premise (and the 15-call sample session) can't happen this way.",
+    "replacement": "`sync` reads the pyeye metrics collector of the process that runs it, so run from the CLI it records no MCP calls: the MCP server's metrics stay inside the server process. MCP tool usage is tracked by the Claude Code hooks instead (see `scripts/claude_hooks/README.md`).",
+    "route": "wording",
+    "route_reason": "Not a fact: no extractor can express 'reads an in-memory collector of another process'. Not an executed example: the examples run MCP tools, not the dogfooding CLI against a live server process.",
+    "section": "automatic-mcp-tool-tracking",
+    "subject": "Real-time sync via `python scripts/dogfooding_metrics.py sync`"
+  },
+  {
+    "anchor": {
+      "id": "scripts.dogfooding_integration.DogfoodingIntegration.log_mcp_call",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "log_mcp_call(self, tool_name: str, params: dict[str, Any] | None=None) -> None"
+      },
+      {
+        "edge": "callees",
+        "includes": [
+          "builtins.open",
+          "typing.IO.write"
+        ]
+      }
+    ],
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "Says log file writes are async and non-blocking. `log_mcp_call` is a plain synchronous method that opens `mcp_calls.jsonl` and writes to it inline.",
+    "replacement": "Log file writes: one synchronous append to `mcp_calls.jsonl` per call.",
+    "route": "wording",
+    "route_reason": "Whether a write blocks isn't something a registered extractor reads, and an executed example can't show it.",
+    "section": "performance-impact",
+    "subject": "Log file writes: Async, non-blocking"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "An overhead number with no measurement or record behind it.",
+    "replacement": "Delete the line (and 'designed to be lightweight'), or cite a recorded measurement.",
+    "section": "performance-impact",
+    "subject": "Metrics export: < 1ms overhead"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "The example logs a call to `find_symbol`, a tool removed from the MCP surface in v2.0.",
+    "replacement": "integration.log_mcp_call(\"resolve\", {\"identifier\": \"TestClass\"})",
+    "section": "dogfoodingintegration-class",
+    "subject": "integration.log_mcp_call(\"find_symbol\", {\"name\": \"TestClass\"})"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "The ```json block holds a `//` comment, so it isn't valid JSON.",
+    "replacement": "Drop the comment (`\"mcp_ratio\": 0.88,`) and, if the arithmetic matters, say it in a sentence after the block.",
+    "section": "session-with-mcp-integration",
+    "subject": "\"mcp_ratio\": 0.88,  // 15/(15+2) = 88% MCP adoption"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "'comprehensive' is an unbacked absolute; nothing records what the tests cover.",
+    "replacement": "The integration's tests are in `tests/test_dogfooding_integration.py`:",
+    "section": "testing",
+    "subject": "The integration includes comprehensive tests in"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "problem": "The section lists projections as a roadmap, and this one already exists: `scripts/claude_hooks/` tracks MCP calls through Claude Code hooks.",
+    "replacement": "Delete the Future Improvements section (and the 'Future:' line under Related Issues); link `scripts/claude_hooks/README.md` for the hook-based tracking that exists, and track any remaining ideas as issues.",
+    "section": "future-improvements",
+    "subject": "**Claude Hook Integration**: Use Claude Code hooks for automatic syncing"
+  }
+]

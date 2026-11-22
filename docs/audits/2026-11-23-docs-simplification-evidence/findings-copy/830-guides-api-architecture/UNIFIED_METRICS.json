@@ -1,0 +1,107 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.unified_metrics.UnifiedMetricsCollector.__init__",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Directory for metrics storage (defaults to ~/.pyeye/metrics)"
+      }
+    ],
+    "extractor": "new: pyeye.constants.METRICS_DIR, the metrics storage directory under the home directory",
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "Gives the storage directory as `~/.pyeye/unified_metrics/`. The collector defaults to `Path.home() / METRICS_DIR`, i.e. `~/.pyeye/metrics`, the same directory the dogfooding tracker uses. The wrong path is repeated in the architecture diagram and in the 'No sessions showing up' and 'Debug Commands' sections, so every debug command points at a directory that doesn't exist.",
+    "replacement": "Bind the storage directory from a METRICS_DIR fact block here, and use it (not a hand-written path) in the diagram, the troubleshooting bullet and the debug commands.",
+    "route": "fact",
+    "section": "storage-structure",
+    "subject": "~/.pyeye/unified_metrics/"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.unified_metrics.UnifiedMetricsCollector._update_json_atomic",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Atomically read, update, and write JSON file using filelock."
+      }
+    ],
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "Says the locking is `fcntl`. The collector uses the cross-platform `filelock` library (`FileLock` on a `<file>.lock` sidecar, 10 s timeout).",
+    "replacement": "The system serialises writes with the `filelock` library (a `<file>.lock` sidecar per data file), which works on every platform including Windows:",
+    "route": "wording",
+    "route_reason": "Which locking library is used is an implementation detail no extractor reads, and an executed example can't show it.",
+    "section": "file-locking",
+    "subject": "The system uses `fcntl` file locking to ensure thread-safe access:"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.unified_metrics.UnifiedMetricsCollector.cleanup_old_sessions",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "cleanup_old_sessions(self, days: int=30) -> int"
+      }
+    ],
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "Presents removing old data as a future enhancement. `cleanup_old_sessions(days=30)` exists and `scripts/unified_metrics.py cleanup --days N` runs it; only running it automatically is missing. 'Data Cleanup' under Planned Features repeats the claim.",
+    "replacement": "**Cleanup**: `python scripts/unified_metrics.py cleanup --days N` removes completed sessions older than N days; nothing runs it automatically.",
+    "route": "wording",
+    "route_reason": "The CLI isn't an MCP tool, so no executed example can run it, and no extractor reads CLI subcommands of scripts/.",
+    "section": "storage-efficiency",
+    "subject": "**Cleanup**: Automatic removal of old data (future enhancement)"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "The example records `find_symbol`, a tool removed from the MCP surface in v2.0.",
+    "replacement": "collector.record_mcp_operation(\"resolve\", success=True, duration_ms=45.2)",
+    "section": "manual-session-management-optional",
+    "subject": "collector.record_mcp_operation(\"find_symbol\", success=True, duration_ms=45.2)"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "None of the three test files exists, so both commands fail; they also lack the `uv run` prefix. The unified-metrics tests are in `tests/unit/utils/test_unified_metrics_core.py`.",
+    "replacement": "uv run pytest tests/unit/utils/test_unified_metrics_core.py -v   (and the same path in the coverage command)",
+    "section": "running-tests",
+    "subject": "pytest tests/test_unified_metrics.py tests/test_metrics_hook.py tests/test_unified_metrics_cli.py -v"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "'comprehensive' plus per-file coverage percentages and line counts (99%, 181 lines; 100%, 51 lines) that no record backs and that drift with every change.",
+    "replacement": "Delete the Test Coverage section; the CI coverage gate is the record.",
+    "section": "test-coverage",
+    "subject": "The system has comprehensive test coverage"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/UNIFIED_METRICS.md",
+    "problem": "The section copies the `SessionMetrics` dataclass by hand (without its defaults), so it drifts from `src/pyeye/unified_metrics.py`. Its `session_type` comment lists \"task\" while 'Session Types' lists `auto`.",
+    "replacement": "Replace the copied dataclass with a link to `SessionMetrics` in `src/pyeye/unified_metrics.py` and one sentence on what a session record holds.",
+    "section": "sessionmetrics",
+    "subject": "class SessionMetrics:"
+  }
+]

@@ -1,0 +1,130 @@
+# PR 877 docs(api,architecture): plugin and architecture pages from facts and executed examples (#830)
+## Description
+
+#830 slice 1: `docs/api/*` and `docs/architecture/*`. I ran the internal `/docs-review` on all seven pages with fresh reviewers: 23 validated findings, 21 clear fixes and 2 needing a decision, plus about 14 code contradictions the skill couldn't categorise before #864. **The user decided:**
+- apply all the fixes and contradictions;
+- plugin detection becomes a concept plus a link;
+- the resolver strategy and bare-name policy become facts.
+
+Everything follows C15 (prose doesn't state code facts) and C16 (prose says what an example demonstrates, never restates its output).
+
+**docs/api/**
+- **`{flask,django,pydantic}-tools.md`:** each tool gets a one-line purpose and an **executed** `pyeye-example`/`pyeye-output` pair, matched against the real response in CI. Parameters link to the generated `docs/reference/tools.md`, and the tool list is a `tools.plugin.*` block. Deleted:
+  - the invented TypeScript Returns shapes;
+  - Python-syntax examples with fake output;
+  - recipes using keys no tool returns, which would `KeyError`;
+  - Error Conditions describing analyses that don't exist;
+  - unmeasured performance comparisons;
+  - "Find all …" overclaims.
+- **`README.md`:**
+  - A new **Every plugin tool** section, stated once instead of copied on three pages. The scope default and scope forms are bound (`scope.default.plugin`, `scopes.table`), and an executed `envelope` example shows the wrapper.
+  - `configure_packages`: its parameters are bound (`tool.configure_packages.params`) and its output is executed.
+  - The "restart to activate a plugin" claim is corrected. `configure_packages` activates the plugin and names it in `activated_plugins` (#659).
+
+**docs/architecture/**
+- **`resolution.md`:**
+  - The strategy chain and bare-name policy are bound (`resolver.strategy`, `resolver.bare_name`), with the why kept as prose. This fixes the missing private-stdlib step.
+  - The definition-site exception (#544) is stated.
+  - "never via Jedi" is scoped.
+  - The not-found shape excludes `trace`.
+  - The scope rule becomes a concept plus a link.
+  - `re_exports` is added to `unparseable_files`.
+- **`plugin-system.md`:**
+  - The tool lists are bound, and detection is described as a concept with links (the user's choice).
+  - Re-detection is scoped to the startup project, with `activated_plugins`.
+  - The `ValueError` claim is scoped to one registration batch, and "can't collide" is fixed.
+  - The parameter contract links the reference.
+- **`caching.md`:**
+  - The cache defaults are bound to their `env.*.default` facts.
+  - "the main memory lever" is replaced by what `settings.py` actually says.
+  - The class and import graphs (#397) are added.
+  - The TypeRef key is corrected.
+
+**Code (the resolver facts, the user's choice):** `pyeye.resolver`'s strategy chain and bare-name policy are now **tables the code runs**: `STRATEGY`, then `PROJECT_STRATEGY` or `EXTERNAL_STRATEGY`, and `BARE_NAME_POLICY`. A new `resolver` extractor reads those same tables. Behaviour is unchanged:
+- the side is still picked only after the shared steps miss;
+- the synthetic import runs at most once per path (`_Inference`);
+- `tests/test_docs_facts_resolver.py` records the order in which entries are called, and checks that the first answer wins;
+- the docstrings point at the tables.
+
+The decision entry is `2026-11-18-830-the-resolver-strategy-and-bare-name-policy-are-tables.md`.
+
+**Fixtures, cleared with worker-3 against what the existing examples pin:**
+- `myapp/admin.py` (a blueprint, a MethodView, an error handler, a CLI command, an extension and a render call) and `myapp/templates/admin.html`;
+- `User` gains a `ConfigDict` and a `@computed_field`;
+- a new `tests/fixtures/docs_examples_django/`, reached with `fixture=`.
+
+There are 31 executed examples now.
+
+**Code problems found and filed, not fixed here:**
+- #870: pydantic `ConfigDict`, `get_model_schema.computed_fields` and `trace_model_inheritance.mro` come back empty. The examples omit those fields, and the page names the issue.
+- #873: Flask misses `async def` handlers and `flask.Blueprint(...)`, and `find_flask_config` ignores `scope`.
+- #874: docstrings disagree with `server.py` about `unparseable_files`.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+- [x] Code refactoring
+
+## Checklist
+
+- [x] My code follows the project's style guidelines
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+- [x] I have checked for security vulnerabilities
+
+## Coverage Requirements
+
+- [x] Coverage maintained or improved: 94.60%
+- [x] New code has >90% coverage
+
+## Testing
+
+- **Full suite**, capped at `MemoryMax=2G`, before merging `main`: 4815 passed, 29 skipped, coverage 94.60%.
+- **After merging `main`** (#864, #866, #867, #869): the conflicts were only `registry.py` (both new extractors) and the generated `uncovered.json`. 849 docs_facts, docs-examples, changelog and surface tests pass.
+- **Resolver suites**, capped (`-k "resolve or resolver or stdlib or reexport or canonical or namespace or internal_errors or decision_invariants"`): 1046 passed.
+- **Gates:**
+  - `docs_facts check`: 80 files;
+  - `decisions check`: 108 OK;
+  - `changelog check`: OK, and `no-breaking` prints 0;
+  - path ratchet and dup ratchet: clean.
+- **Fragment:** `changes/830-5.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/877?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)
+---
+## Regression check: django scenario (pyeye-verify)
+
+`pyeye.resolver`'s strategy chain and bare-name policy are tables in this PR, so I checked the core resolver against the django scenario. Setup:
+- django at its pinned commit `cd385e6b8c`;
+- the skill's cache settings (`PYEYE_PARSO_CACHE_MAX_ENTRIES=1000`, `PYEYE_ARTIFACT_CACHE_MAX_ENTRIES=500`, `PYEYE_SCRIPT_CACHE_MAX_ENTRIES=200`);
+- each job capped with `systemd-run MemoryMax=2G MemorySwapMax=0`;
+- Python 3.12.
+
+Both builds ran back to back on the same machine. "Before" is `origin/main` `8e1188c7`. "After" is this PR at `d700917c`.
+
+| | before (main `8e1188c7`) | this PR (`d700917c`) |
+|---|---|---|
+| 5 probes | match the skill's baseline | **identical** (path-normalised JSON compare, each result equal) |
+| round-trip `django.db.models.base` | 57 stubs, 0 don't round-trip | **identical**: 57 stubs, 0 don't round-trip, no inspect/resolve miss, disagree or mismatch |
+| probes wall time | 62.0 s | 63.0 s |
+| round-trip wall time | 55.6 s | 46.1 s |
+| max RSS (probes / round-trip) | 331 / 351 MB | 332 / 355 MB |
+
+The probe values match the recorded baseline:
+1. `resolve` gives `django.db.models.base.Model`, `class`, `project`.
+2. `inspect` gives superclasses `[…utils.AltersData]`, `Model()`, `edge_counts {members: 67, superclasses: 1}` and `re_exports ["django.db.models.Model"]`, with no `callers` or `references` key.
+3. `superclasses` gives one stub, `ceiling: declared_bases` and `unresolved_superclasses: []`.
+4. `imported_by` gives 10 stubs, `ceiling: static_imports`, `unresolved_importers: []`, and `unparseable_files` naming `tests_syntax_error.py`.
+5. `callers` is `unsupported`, with `deferred_reference_backend` and `report_issues`.
+
+Per-probe times are within noise of `main`: the first `inspect` takes 20.8 → 21.6 s and the first `imported_by` 34.0 → 32.6 s.

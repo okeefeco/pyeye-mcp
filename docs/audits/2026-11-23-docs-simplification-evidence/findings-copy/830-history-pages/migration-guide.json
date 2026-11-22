@@ -1,0 +1,147 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/migration-guide.md",
+    "problem": "Line 3 says the guide helps you 'upgrade to the latest version', but the whole page covers the 0.1.x to 0.2.0 upgrade (August 2025). A reader on 2.x takes the snippets below as the current API, and several of them were later changed or removed.",
+    "replacement": "This is a historical guide: it covers the upgrade from 0.1.x to 0.2.0. Some APIs it shows were later changed or removed, so for the current tools and configuration see the [README](../README.md) and [namespace-packages.md](namespace-packages.md).",
+    "section": "migration-guide"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "Item 5 'Lazy Loading: On-demand namespace loading' (and the same item in performance-features, line 162) reads as a live feature. JediAnalyzer did use LazyNamespaceLoader in 0.2.0, but today nothing in pyeye uses it, and constructing it emits a DeprecationWarning (src/pyeye/scope_utils.py LazyNamespaceLoader docstring, #628).",
+    "replacement": "Keep the item as 0.2.0 history, with a short note: '5. **Lazy Loading**: On-demand namespace loading (no longer used; the class is deprecated, see #628)'. Apply the same note to item 3 under Performance Features.",
+    "section": "whats-new"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "Item 1 says scope was 'required' before 0.2.0. That is wrong even as history: in the commit before 0.2.0 (ac355fb8~1), find_subclasses had `scope: Scope = \"all\"`, a fixed default rather than a required parameter. The item also restates parameter types, which is a code fact in prose.",
+    "replacement": "1. **Scope defaults**: before 0.2.0, each method had a fixed default scope. From 0.2.0, an omitted scope resolves through the smart defaults and any `scope_defaults` you configure. **Impact**: minimal, because existing calls keep working.",
+    "section": "version-020"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "assessment": "unanchored: judgment only. With the page-level historical banner, the inline note keeps the history accurate. Deleting avoids a copyable call that fails.",
+    "category": "style",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "keeps an API that no longer exists in a copyable block, with one more note to maintain",
+        "text": "Keep the line and add an inline comment: `# 0.2.0 only; later removed, use invalidate_all()`."
+      },
+      {
+        "cost": "loses a detail of what 0.2.0 actually shipped",
+        "text": "Delete the `invalidate_scope` line and the 'now per-scope' sentence, keeping only the before/after cache description."
+      }
+    ],
+    "page": "docs/migration-guide.md",
+    "problem": "Line 106 shows `scoped_cache.invalidate_scope(\"main\")`. The method did exist in 0.2.0 (ac355fb8 scope_utils.py), but ScopedCache now has only `invalidate_all`, so the copyable snippet fails on any current version.",
+    "question": "On this history page, should the removed `invalidate_scope` call stay with a note, or go?",
+    "section": "version-020"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "assessment": "unanchored: judgment only. The ruling is never to restate a code fact in prose, which favours deleting the block and linking the live defaults.",
+    "category": "style",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "keeps restated defaults that can drift from SMART_DEFAULTS, and needs per-line notes",
+        "text": "Keep it under a lead-in 'In 0.2.0 the defaults were:', and mark list_modules and find_routes as later removed or moved to plugins."
+      },
+      {
+        "cost": "the page no longer lists what each default was in 0.2.0",
+        "text": "Delete the block, and replace line 114 with 'In 0.2.0, methods gained a default scope suited to their purpose; the current per-tool defaults are in [Default Scopes for Plugin Tools](namespace-packages.md#default-scopes-for-plugin-tools).'"
+      }
+    ],
+    "page": "docs/migration-guide.md",
+    "problem": "Lines 116-124 show `analyzer.list_modules` and `analyzer.find_routes` with `scope=\"main\"` defaults. Those were 0.2.0 SMART_DEFAULTS entries, but there is no `def list_modules` anywhere in src, and find_routes is a Flask plugin method (exposed as the find_flask_routes tool), not an analyzer method. The `# scope=\"all\"` comments for find_symbol/find_subclasses restate the current SmartScopeResolver.SMART_DEFAULTS in prose, with no 'historical' label (C-S5). Lines 126-137, which describe the live `scope_defaults.methods` override, are current and fine.",
+    "question": "Label the first code block as the 0.2.0 defaults, or remove it?",
+    "section": "smart-defaults"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/migration-guide.md",
+    "problem": "Line 155 `await analyzer.find_routes(scope=\"backend\")` calls a method JediAnalyzer does not have. find_routes lives on the Flask plugin and is reached as the find_flask_routes tool.",
+    "replacement": "Use the alias as the scope of a plugin tool call, e.g. `find_flask_routes(scope=\"backend\")`.",
+    "section": "scope-aliases"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "'All analyzer methods now support optional scope' is an unscoped absolute. The signature block below it is wrong on both sides: 'Before (required scope)' was a fixed default (`scope: Scope = \"all\"` at ac355fb8~1), and `-> list[dict]` (C-S6) no longer matches, because find_subclasses now returns `dict[str, Any]`. It restates code signatures in prose.",
+    "replacement": "Delete the signature block and the 'All analyzer methods' line. Replace them with: 'In 0.2.0, the scope-taking analyzer methods let you omit `scope`, which then resolves through the smart defaults.'",
+    "section": "analyzer-methods"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "The 'Typical improvements in 0.2.0' table (500ms\u2192200ms '2.5x faster', 50ms\u21925ms '10x faster', 2000ms\u2192800ms, 5000ms\u21922000ms) has no linked record. It arrived with the doc in ac355fb8, and nothing in the repo measures v0.1.x against v0.2.0 (tests/test_scope_performance.py asserts thresholds and records no comparison).",
+    "replacement": "Delete the Benchmarks subsection (heading, sentence and table).",
+    "section": "benchmarks"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "'Lazy loading: 50% reduction in memory for large namespace configurations' has no record behind it, and the loader it credits is now deprecated and unused. 'Better cache utilization, less memory churn' is an implied comparison with no measurement either.",
+    "replacement": "Delete the Memory Usage subsection. If the Performance Improvements heading is left empty, delete it too and remove its Table of Contents entry.",
+    "section": "memory-usage"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/migration-guide.md",
+    "problem": "`pip install pyeye-mcp==0.1.x` is not a valid pip version specifier, so the copyable command fails as written.",
+    "replacement": "pip install \"pyeye-mcp<0.2\"",
+    "section": "rollback-procedure"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/migration-guide.md",
+    "problem": "Lists 2025-era projections ('may be deprecated', 'Will become async-only') as forward-looking guidance, with no linked issue or decision record behind any of them. On a history page they read as current plans.",
+    "replacement": "Delete the Future Deprecations section. Current deprecations are tracked in CHANGELOG.md and the linked issues (e.g. #628).",
+    "section": "future-deprecations"
+  }
+]

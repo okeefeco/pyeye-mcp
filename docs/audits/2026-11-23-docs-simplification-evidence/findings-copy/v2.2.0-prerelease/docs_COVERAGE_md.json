@@ -1,0 +1,47 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.docs_facts.extractors.ci",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Every ``--cov-fail-under`` in ``ci.yml`` must agree, or extraction fails"
+      }
+    ],
+    "page": "docs/COVERAGE.md",
+    "page_hash": "28588e11",
+    "problem": "Says to change `--cov-fail-under` in pyproject's `addopts` and in `ci.yml`. Those are only the places the ci extractor cross-checks. `.github/workflows/release.yml` also passes its own `--cov-fail-under` to pytest, and nothing checks it. A contributor who follows the page leaves the release job on the old threshold, and no check reports the mismatch.",
+    "replacement": "Change `--cov-fail-under` in pyproject's `addopts`, in `ci.yml` and in `release.yml` in one PR (`docs_facts.py check` compares ci.yml with pyproject, but not release.yml); `docs_facts.py generate` updates every page that binds `ci.coverage_threshold`.",
+    "route": "wording",
+    "route_reason": "No registered fact lists every workflow that sets --cov-fail-under, and the extractor checks only ci.yml, so neither a fact nor an example can say where the flag lives. Making the extractor also read release.yml would allow a fact later.",
+    "section": "-raising-the-threshold"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/COVERAGE.md",
+    "page_hash": "28588e11",
+    "problem": "The checklist runs a bare `pytest`. Everywhere else the page runs `uv run pytest`, and dependencies are installed only in the uv-managed venv, so this command fails unless the venv is activated.",
+    "replacement": "Run `uv run pytest --cov=src/pyeye --cov-report=term`",
+    "section": "-pr-checklist-for-coverage",
+    "subject": "Run `pytest --cov=src/pyeye --cov-report=term`"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/COVERAGE.md",
+    "page_hash": "28588e11",
+    "problem": "The page no longer holds any per-file tracking, such as a table of low-coverage files or milestones. It only shows the threshold and points to Codecov, so a PR has no \"tracking\" here to reference.",
+    "replacement": "**Submit PR**: Say in the PR description which file's coverage it raises",
+    "section": "-contributing-to-coverage",
+    "subject": "Reference this tracking in PR description"
+  }
+]

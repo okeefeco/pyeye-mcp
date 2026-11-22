@@ -1,0 +1,79 @@
+[
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/api/flask-tools.md",
+    "problem": "Line 7 says every tool 'also takes these two optional parameters' (scope, envelope), but each Flask tool takes three: per-call `project_path` (#665) is missing, and docs/reference/tools.md#flask lists it. Line 9 restates by hand the list of scope values and the order in which the default is chosen (scope.default.plugin, scopes.options). That order is also imprecise: the code reads `scope_defaults.methods.<tool>`, not 'the tool's scope_defaults entry'. Line 10 restates the default of `envelope`.",
+    "replacement": "Open the section with 'Every tool on this page takes `scope`, `envelope` and `project_path`; their types and defaults are in [the generated tool reference](../reference/tools.md#flask).' Keep one sentence per parameter saying what it does: `scope` picks where to search, and an omitted scope falls back through `scope_defaults` (link the reference for the order and the values); `envelope` wraps the result (see below); `project_path` answers about another project, even one where Flask wasn't auto-detected, and a path that doesn't exist is a tool error. Delete the hand-written list of scope values and the default order.",
+    "section": "common-parameters"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/api/flask-tools.md",
+    "problem": "All 8 Parameters sections (lines 58, 159, 269, 394, 505, 631, 779, 883) say 'None - searches entire project in current directory.' That is wrong. Each tool takes `scope`, `envelope` and `project_path` (docs/reference/tools.md#flask). An omitted scope resolves through scope_defaults to \"main\", not 'the entire project'. The project is the startup project or the given `project_path`, not 'current directory'. The page's own Common parameters section, line 7, contradicts these lines.",
+    "replacement": "Replace each of the 8 lines with: 'The [common parameters](#common-parameters) only; see [the generated reference](../reference/tools.md#<tool>) for types and defaults.' Use the tool's own anchor in each, e.g. #find_flask_routes.",
+    "section": "parameters"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/api/flask-tools.md",
+    "problem": "All 8 Returns sections (lines 62-81, 163-188, 273-308, 398-423, 509-546, 635-673, 783-801, 887-914) are hand-written TypeScript shapes, which C15/C16 forbid. Almost every field in them is invented. The real records (src/pyeye/plugins/flask.py, plus the #627 enrichment in plugins/handles.py) are: routes {name, file, line, path, methods, type:'route', location, scope, handle}; blueprints {name (the variable), blueprint_name, file, line, url_prefix, type:'blueprint'}; views {name, file, line, type:'method_view'} (MethodView classes only, no functions); templates ONE bundle [{templates:[{file,name,type}], render_calls:[{template,file,line,type}]}]; extensions {extension, file, line, type:'import'}; config {file, type:'config_file'} or {file, line, type:'config_access'}; error handlers {name, file, line, error_code, type}; CLI {name, function, file, line, type}. Line 799 even gives error handlers `scope: \"app\" | \"blueprint\"`, which contradicts the page's own line 33 (`scope` is \"project\"/\"external\").",
+    "replacement": "Delete every TypeScript block. Under each tool, put an executed ```json pyeye-example tool=<tool>``` {} block and a ```json pyeye-output``` block that uses \"\u2026\": \"<omitted>\" for keys it leaves out. For find_flask_routes, the fixture already gives [{\"name\": \"get_user\", \"path\": \"/users/<int:user_id>\", \"methods\": [\"GET\"], \"type\": \"route\", \"handle\": \"myapp.web.get_user\", \"scope\": \"project\", \"\u2026\": \"<omitted>\"}]. tests/fixtures/docs_examples has no Blueprint, MethodView, template, Flask extension import, errorhandler or app.cli.command, so those tools currently return [] there (find_flask_templates returns [{\"templates\": [], \"render_calls\": []}]). Add one of each to the fixture first (e.g. in myapp/web.py and a templates/ dir), so each example shows a record. Prose under each example may say only what it demonstrates.",
+    "section": "returns"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api/flask-tools.md",
+    "problem": "All 8 Examples sections (lines 85-129, 192-239, 312-364, 427-475, 550-601, 677-749, 805-853, 918-978) show invented '# Returns:' output, and their filter code uses keys that no tool returns. With the real output it raises KeyError: auth_required (125), is_async (128, 363, 971), routes and error_handlers (235, 238), type=='class' (357; the real type is 'method_view'), rendered_in, has_forms and extends (467-474; templates also returns a one-item bundle, so iterating it gives the bundle, not templates), usage and common_extensions (591, 597), secret_keys, location and environments (741-748), error_type and returns_json (846-852; the real key is error_code), subcommands, help_text and options (968-977). Only line 122 (`'POST' in r['methods']`) works as written.",
+    "replacement": "Delete each '# Returns:' comment block; the executed pyeye-example/pyeye-output pair from the Returns finding replaces it. Keep only filters over real keys, e.g. routes: `[r for r in routes if 'POST' in r['methods']]`; error handlers: `[h for h in handlers if h['error_code'] == 404]`; templates: `bundle = find_flask_templates()[0]; rendered = {c['template'] for c in bundle['render_calls']}; orphaned = [t for t in bundle['templates'] if t['name'] not in rendered]`. Delete the rest.",
+    "section": "examples"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api/flask-tools.md",
+    "problem": "The four recipes (lines 1006-1060, 1064-1111, 1115-1176, 1180-1215) are built on fields no tool returns: auth_required, common_extensions, environments, uses_env_vars and secret_keys (Complete App Analysis); route['route'], function, endpoint and url_params (Route Documentation Generator); config_values, env_var and error_type (Security Audit); bp['routes'], rendered_in, template_file and url_for_calls (Blueprint Dependency Graph). They fail at the first missing key. The Security Audit and Blueprint Dependency Graph can't be built from the real output at all: no tool reports auth, config values, blueprint-to-route membership or url_for calls.",
+    "replacement": "Delete Route Documentation Generator, Security Audit and Blueprint Dependency Graph. Cut Complete Flask App Analysis down to what the tools return: route totals and counts by method from `methods`, blueprint names and `url_prefix`, extension names from `extension`, and config files and access sites from `type`.",
+    "section": "common-patterns"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api/flask-tools.md",
+    "problem": "The tool summaries claim completeness the scanners don't have. Line 54 'Find all Flask routes': only sync `def` functions (ast.FunctionDef, so `async def` routes are never found) decorated `@<x>.route(...)` with a literal path; `add_url_rule` is not seen. Line 155 'Find all Flask blueprints': only `name = Blueprint(...)` with a bare `Blueprint` name, so `flask.Blueprint(...)` is missed. Line 265 'Find all Flask view functions and classes': it returns MethodView subclasses only, and never a function. Line 390 'Find all Flask templates': only *.html/*.jinja2 under templates/, */templates and app/templates. Line 1224 tells readers to 'use find_flask_routes to ensure all routes are protected', but the tool reports nothing about auth. All of them search only the resolved scope (default \"main\").",
+    "replacement": "Line 54: 'Find routes declared with an `@<app or blueprint>.route(\"<literal path>\")` decorator on a `def` function (not `async def`, not `add_url_rule`), in the searched scope.' Line 155: 'Find blueprints created as `name = Blueprint(...)`.' Line 265: 'Find class-based views (subclasses of `MethodView`); view functions are not listed, see find_flask_routes.' Line 390: 'Find .html/.jinja2 files under templates/, */templates or app/templates, and `render_template(\"<literal>\")` calls.' Delete Best Practices item 1 (line 1224).",
+    "section": "find_flask_routes"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api/flask-tools.md",
+    "problem": "The Performance Notes compare cost with no measurement behind them: 'Moderate performance impact' (251, 613), 'Can be slow for large codebases' (376), 'Template parsing can be expensive' (486; templates are not parsed at all), 'Can be slow for many config accesses' (761), 'Lightweight operation' (864, 990). Every tool does the same thing: a substring prefilter, then an AST walk of each Python file in scope.",
+    "replacement": "Delete these lines. If any cost note is kept, use one sentence in Common parameters: 'Each tool reads and parses every Python file in the searched scope; narrow `scope` to search less.'",
+    "section": "performance-notes-1"
+  }
+]

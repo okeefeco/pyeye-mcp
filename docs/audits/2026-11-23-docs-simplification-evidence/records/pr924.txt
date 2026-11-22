@@ -1,0 +1,18 @@
+# PR 924 fix(docs): bind or delete the last honest-claims seeds (#830)
+## Summary
+- `claim_seeds.SEEDS` is now `{}`, so the honest-claims rule (D12) runs with no allowance. A new test pins it empty and checks that no `DocEntry` carries an `honest-claims` allowance.
+- `docs/architecture/resolution.md`: the "roughly 7% of bases" figure doesn't match #419's own numbers, and no command or commit was recorded, so it can't be a record (C18). The line now points to #419's measurement instead.
+- `scripts/claude_hooks/README.md`: the invented sample report is replaced by the report's real sections, read from `mcp_analytics.py` (C16). The weekly adoption targets are deleted, because D12 doesn't allow targets.
+- The review-packet test now monkeypatches a seed, since the real dict is empty.
+
+## Test plan
+- [x] `uv run pytest --cov=src/pyeye`: 5150 passed, 94.89% coverage (capped run)
+- [x] `docs_facts.py check` OK, `changelog.py no-breaking` printed 0, `decisions.py check` OK
+
+Refs #830
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/924?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

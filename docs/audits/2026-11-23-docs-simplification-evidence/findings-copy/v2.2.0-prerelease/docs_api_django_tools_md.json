@@ -1,0 +1,46 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.plugins.django.DjangoPlugin.find_models",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "find_models(self, scope: Scope=\"main\") -> list[dict[str, Any]]"
+      },
+      {
+        "docstring": "Find all Django models in the project."
+      }
+    ],
+    "page": "docs/api/django-tools.md",
+    "page_hash": "2c9d6eed",
+    "problem": "\"The model classes, found in each app's models.py\" reads as every model in the project. find_models only reads files named models.py, so a models/ package is never read, and it only counts a class whose own base is spelled `Model` or `<x>.Model`. A model that subclasses a project base model (`class Product(TimestampedModel)`), at any depth, is missed. The prose is wrong on those paths, and the method's docstring (\"Find all Django models in the project\") overclaims the same way.",
+    "replacement": "The classes in each app's `models.py` whose own base is Django's `Model` (`models.Model`). A model in a `models/` package, or one that subclasses your own base model, isn't listed. Expand a model's handle to see its fields.",
+    "route": "wording",
+    "route_reason": "No extractor reads the plugin's detection rules, and an executed example can't show what is missed. Binding a fact would need a new extractor, which is out of scope for a fix to the prose.",
+    "section": "find_django_models"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.plugins.django.DjangoPlugin.find_templates",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "find_templates(self, scope: Scope=\"main\") -> list[dict[str, Any]]"
+      },
+      {
+        "docstring": "Find all Django templates in the project."
+      }
+    ],
+    "page": "docs/api/django-tools.md",
+    "page_hash": "2c9d6eed",
+    "problem": "\"The template files under the project's template directories\" suggests the directories the project configures (settings `TEMPLATES` `DIRS`, every app's `templates/`). find_templates ignores settings. It globs only `templates` and `*/templates` directly under each scope root, and it lists only `*.html` files. A template directory that sits deeper (`src/app/templates`) or is configured elsewhere is missed, and so is a template with another extension (`.txt`, `.xml`).",
+    "replacement": "The `.html` files in a `templates` directory at a scope root or one level below it (`<app>/templates`). Template directories set in Django's settings aren't read.",
+    "route": "wording",
+    "route_reason": "The glob patterns are local to the method, so no extractor reads them, and an executed example can't show the directories it skips.",
+    "section": "find_django_templates"
+  }
+]

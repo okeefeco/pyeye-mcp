@@ -1,0 +1,392 @@
+{
+  "all_word_variant": {
+    "by_level": {
+      "heading": 17,
+      "none": 15,
+      "word": 15
+    },
+    "failing": 21,
+    "marked_pass": 26,
+    "mentions": 47
+  },
+  "allow_lists": {
+    "entries": 15,
+    "pages": 4,
+    "per_page": {
+      ".claude/instructions/04-agent-triggers.md": [
+        "names removed tool 'find_references' beside 'removed'",
+        "names removed tool 'get_call_hierarchy' beside 'removed'",
+        "names removed tool 'get_module_info' beside 'removed'"
+      ],
+      "README.md": [
+        "names removed tool 'find_references' beside 'removed'",
+        "names removed tool 'get_call_hierarchy' beside 'removed'",
+        "names removed tool 'analyze_dependencies' beside 'removed'"
+      ],
+      "docs/CLAUDE_AGENTS.md": [
+        "names removed tool 'find_references' beside 'removed'",
+        "names removed tool 'get_call_hierarchy' beside 'removed'",
+        "names removed tool 'get_module_info' beside 'removed'"
+      ],
+      "skills/python-explore/SKILL.md": [
+        "names removed tool 'analyze_dependencies' beside 'removed'",
+        "names removed tool 'find_references' beside 'removed'",
+        "names removed tool 'get_call_hierarchy' beside 'removed'",
+        "names removed tool 'get_call_hierarchy' beside 'removed'",
+        "names removed tool 'analyze_dependencies' beside 'removed'",
+        "names removed tool 'find_references' beside 'removed'"
+      ]
+    }
+  },
+  "commit": "55e35597",
+  "current_major": 2,
+  "entries_by_match": {
+    "heading": 7,
+    "none": 4,
+    "word": 8
+  },
+  "entries_live_again_not_scanned": [],
+  "live_pages_scanned": 57,
+  "only_under_all_word": [
+    {
+      "line": 146,
+      "marked": false,
+      "name": "find_symbol",
+      "path": ".claude/agents/smart-commit-examples.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 141,
+      "marked": false,
+      "name": "lookup",
+      "path": ".claude/instructions/04-agent-triggers.md",
+      "real_level": "none"
+    },
+    {
+      "line": 149,
+      "marked": true,
+      "name": "find_imports",
+      "path": ".claude/instructions/04-agent-triggers.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 149,
+      "marked": true,
+      "name": "find_symbol",
+      "path": ".claude/instructions/04-agent-triggers.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 149,
+      "marked": true,
+      "name": "get_type_info",
+      "path": ".claude/instructions/04-agent-triggers.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 149,
+      "marked": true,
+      "name": "list_modules",
+      "path": ".claude/instructions/04-agent-triggers.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 43,
+      "marked": false,
+      "name": "get_type_info",
+      "path": ".claude/instructions/07-validation.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 33,
+      "marked": false,
+      "name": "lookup",
+      "path": ".claude/instructions/08-project-specific.md",
+      "real_level": "none"
+    },
+    {
+      "line": 71,
+      "marked": false,
+      "name": "exclude_patterns",
+      "path": "DOCUMENTATION.md",
+      "real_level": "none"
+    },
+    {
+      "line": 138,
+      "marked": false,
+      "name": "lookup",
+      "path": "SECURITY.md",
+      "real_level": "none"
+    },
+    {
+      "line": 168,
+      "marked": false,
+      "name": "lookup",
+      "path": "SECURITY.md",
+      "real_level": "none"
+    },
+    {
+      "line": 169,
+      "marked": false,
+      "name": "lookup",
+      "path": "SECURITY.md",
+      "real_level": "none"
+    },
+    {
+      "line": 170,
+      "marked": false,
+      "name": "lookup",
+      "path": "SECURITY.md",
+      "real_level": "none"
+    },
+    {
+      "line": 19,
+      "marked": true,
+      "name": "find_imports",
+      "path": "docs/CLAUDE_AGENTS.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 19,
+      "marked": true,
+      "name": "find_symbol",
+      "path": "docs/CLAUDE_AGENTS.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 19,
+      "marked": true,
+      "name": "get_type_info",
+      "path": "docs/CLAUDE_AGENTS.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 19,
+      "marked": true,
+      "name": "list_modules",
+      "path": "docs/CLAUDE_AGENTS.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 230,
+      "marked": false,
+      "name": "exclude_patterns",
+      "path": "docs/TROUBLESHOOTING.md",
+      "real_level": "none"
+    },
+    {
+      "line": 481,
+      "marked": false,
+      "name": "exclude_patterns",
+      "path": "docs/TROUBLESHOOTING.md",
+      "real_level": "none"
+    },
+    {
+      "line": 138,
+      "marked": true,
+      "name": "exclude_patterns",
+      "path": "docs/api/README.md",
+      "real_level": "none"
+    },
+    {
+      "line": 138,
+      "marked": true,
+      "name": "file_pattern",
+      "path": "docs/api/README.md",
+      "real_level": "none"
+    },
+    {
+      "line": 138,
+      "marked": true,
+      "name": "recursive",
+      "path": "docs/api/README.md",
+      "real_level": "none"
+    },
+    {
+      "line": 74,
+      "marked": false,
+      "name": "lookup",
+      "path": "docs/architecture/resolution.md",
+      "real_level": "none"
+    },
+    {
+      "line": 169,
+      "marked": false,
+      "name": "lookup",
+      "path": "docs/architecture/resolution.md",
+      "real_level": "none"
+    },
+    {
+      "line": 94,
+      "marked": false,
+      "name": "lookup",
+      "path": "docs/development/duplicate-code-check.md",
+      "real_level": "none"
+    },
+    {
+      "line": 164,
+      "marked": false,
+      "name": "list_modules",
+      "path": "docs/namespace-packages.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 165,
+      "marked": false,
+      "name": "find_subclasses",
+      "path": "docs/namespace-packages.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 194,
+      "marked": false,
+      "name": "find_symbol",
+      "path": "docs/testing/CONVENTIONS.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 135,
+      "marked": false,
+      "name": "find_symbol",
+      "path": "docs/testing/FIXTURES.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 38,
+      "marked": false,
+      "name": "find_symbol",
+      "path": "docs/testing/PERFORMANCE.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 87,
+      "marked": false,
+      "name": "find_symbol",
+      "path": "docs/testing/PERFORMANCE.md",
+      "real_level": "heading"
+    },
+    {
+      "line": 78,
+      "marked": false,
+      "name": "find_symbol",
+      "path": "docs/testing/STRATEGY.md",
+      "real_level": "heading"
+    }
+  ],
+  "real_mentions": [
+    [
+      ".claude/instructions/04-agent-triggers.md",
+      149,
+      "find_references",
+      "word",
+      "marked"
+    ],
+    [
+      ".claude/instructions/04-agent-triggers.md",
+      149,
+      "get_call_hierarchy",
+      "word",
+      "marked"
+    ],
+    [
+      ".claude/instructions/04-agent-triggers.md",
+      149,
+      "get_module_info",
+      "word",
+      "marked"
+    ],
+    [
+      "README.md",
+      354,
+      "find_references",
+      "word",
+      "marked"
+    ],
+    [
+      "README.md",
+      354,
+      "get_call_hierarchy",
+      "word",
+      "marked"
+    ],
+    [
+      "README.md",
+      355,
+      "analyze_dependencies",
+      "word",
+      "marked"
+    ],
+    [
+      "docs/CLAUDE_AGENTS.md",
+      19,
+      "find_references",
+      "word",
+      "marked"
+    ],
+    [
+      "docs/CLAUDE_AGENTS.md",
+      19,
+      "get_call_hierarchy",
+      "word",
+      "marked"
+    ],
+    [
+      "docs/CLAUDE_AGENTS.md",
+      19,
+      "get_module_info",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      250,
+      "analyze_dependencies",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      250,
+      "find_references",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      250,
+      "get_call_hierarchy",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      253,
+      "get_call_hierarchy",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      255,
+      "analyze_dependencies",
+      "word",
+      "marked"
+    ],
+    [
+      "skills/python-explore/SKILL.md",
+      257,
+      "find_references",
+      "word",
+      "marked"
+    ]
+  ],
+  "real_rule": {
+    "by_level": {
+      "word": 15
+    },
+    "failing": 0,
+    "marked_pass": 15,
+    "mentions": 15
+  },
+  "removed_entries": 19
+}

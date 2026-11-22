@@ -1,0 +1,38 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "An unbacked count, and the record contradicts it: PR #121 (\"test: Enhance Flask plugin test coverage from 56% to 89%\") changed 2 files. No record shows path issues across 8 files.",
+    "replacement": "Delete the line, or reword it to what the record supports: \"PR #121: Flask plugin test coverage, where cross-platform path issues surfaced (see issue #110)\".",
+    "section": "historical-context",
+    "subject": "PR #121: Path issues across 8 files"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "An unbacked counterfactual comparison: nothing records that find_references would have caught the PR #77 bug, and find_references was later removed (#505) because it answered confidently and wrongly.",
+    "replacement": "PR #77: a cache bug that broke existing tests",
+    "section": "historical-context",
+    "subject": "PR #77: Cache bug could have been prevented with find_references"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "A 2025 plan read as a standing process; no record of a weekly review exists, and \"How to Contribute\" step 3 sends readers to it.",
+    "replacement": "Delete the Next Steps list and How to Contribute step 3, or retitle the list \"Planned next steps (2025-08-22)\" so it reads as the plan made then.",
+    "section": "next-steps",
+    "subject": "Weekly review of metrics every Friday"
+  }
+]

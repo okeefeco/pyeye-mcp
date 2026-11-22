@@ -1,0 +1,83 @@
+{
+  "by_anchor_kind": {
+    "audience_rule": 43,
+    "claims_rule": 87,
+    "fact": 38,
+    "literal": 0,
+    "style_rule": 152,
+    "symbol": 51,
+    "task": 0
+  },
+  "by_category": {
+    "audience": 43,
+    "code_contradiction": 51,
+    "fact_drift": 38,
+    "honest_claims": 87,
+    "style": 152,
+    "uncovered_fact": 0
+  },
+  "by_session": {
+    "830-guides-api-architecture": {
+      "audience": 18,
+      "code_contradiction": 26,
+      "fact_drift": 22,
+      "honest_claims": 35,
+      "style": 67
+    },
+    "830-history-pages": {
+      "audience": 2,
+      "honest_claims": 24,
+      "style": 12
+    },
+    "830-readme-contrib-skills": {
+      "audience": 17,
+      "code_contradiction": 6,
+      "fact_drift": 3,
+      "honest_claims": 4,
+      "style": 15
+    },
+    "v2.2.0-prerelease": {
+      "audience": 6,
+      "code_contradiction": 19,
+      "fact_drift": 13,
+      "honest_claims": 24,
+      "style": 58
+    }
+  },
+  "category_x_anchor": {
+    "audience/audience_rule": 43,
+    "code_contradiction/symbol": 51,
+    "fact_drift/fact": 38,
+    "honest_claims/claims_rule": 87,
+    "style/style_rule": 152
+  },
+  "files_found": 68,
+  "files_used": 68,
+  "findings": 371,
+  "needs_decision": 12,
+  "page_level": 0,
+  "rule_ids": {
+    "D12-absolute": 43,
+    "D12-comparison": 15,
+    "D12-measurement": 2,
+    "D12-number": 2,
+    "D12-projection": 22,
+    "D12-volatile": 3,
+    "broken-link": 5,
+    "claude-directs": 1,
+    "contradictory-directive": 2,
+    "dated-claim": 14,
+    "duplicated-prose": 3,
+    "duplication": 1,
+    "human-explains": 2,
+    "imprecise-limit": 2,
+    "invalid-example": 60,
+    "link-not-restate": 34,
+    "missing-prerequisite": 23,
+    "orphaned-text": 31,
+    "restated-code": 12,
+    "restated-example": 1,
+    "right-audience": 4
+  },
+  "skipped": []
+}

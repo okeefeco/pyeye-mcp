@@ -1,0 +1,81 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "problem": "The release walkthrough uses 2.0.0 throughout (branch, prepare, commit, PR). v2.0.0 and v2.1.0 are already tagged, and `prepare` refuses a version that is already released or not newer than the latest, so the block fails as written.",
+    "replacement": "Use a placeholder throughout the block: `release/vX.Y.Z`, `changelog.py prepare X.Y.Z`, `chore(release): vX.Y.Z`, with a line saying X.Y.Z must be newer than the latest tag.",
+    "section": "2-open-the-release-pr",
+    "subject": "python scripts/changelog.py prepare 2.0.0"
+  },
+  {
+    "anchor": {
+      "id": "scripts.changelog.prepare",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Deleting the fragment files is the caller's job, after the result is written."
+      }
+    ],
+    "page": "docs/RELEASE.md",
+    "problem": "Says `changelog.py prepare` creates a commit. It only rewrites CHANGELOG.md (and the fragments/ledgers); the person commits, as step 2's own block shows (`git commit -m \"chore(release): vX.Y.Z\"`).",
+    "replacement": "the subject of the commit you make after `changelog.py prepare`",
+    "route": "wording",
+    "route_reason": "Which commands make a commit isn't something an extractor reads, and the CLI isn't an MCP tool an executed example can run.",
+    "section": "3-merge-it",
+    "subject": "the subject of the commit `changelog.py prepare` creates"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "problem": "The paragraph hedges on how GitHub's merge queue builds the squash subject ('community reports say\u2026 other reports say\u2026') and asks for a check 'until a release has gone through the queue'. One has: v2.1.0 merged through the queue as `chore(release): v2.1.0 (#821)`, after #649. The external behaviour still needs checking, but the open question is answered by the repo's own history.",
+    "replacement": "Replace the hedging with the record: \"v2.1.0 (#821) was the first release through the queue; its squash subject was the PR title plus ` (#N)`, which `tag-release.yml` accepts.\" Drop the 'Until a release has gone through the queue' check, keeping only 'if the subject doesn't start with chore(release): vX.Y.Z, nothing is tagged'.",
+    "section": "3-merge-it",
+    "subject": "Until a release has gone through the queue"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "problem": "The section never says when to use it. Run after a normal release merge, a hand-pushed tag races `tag-release.yml`, and the page's own merge-queue paragraph says to fix forward 'rather than tagging by hand'.",
+    "replacement": "Start the section with its precondition: \"Only when `tag-release.yml` did not tag a merged release PR (check `git tag -l vX.Y.Z`); never alongside it.\" and use vX.Y.Z in the example.",
+    "section": "manual-tag-fallback",
+    "subject": "Pushing a tag by hand still runs `release.yml` directly"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "problem": "PENDING-CONFIG: the sample `ls dist/` output names the wheel after the project's old name. pyproject.toml's `[project] name` is `pyeye-mcp`, so `uv build` writes `pyeye_mcp-<version>-py3-none-any.whl`.",
+    "replacement": "pyeye_mcp-X.Y.Z-py3-none-any.whl (and `# At tag vX.Y.Z` / `# Output: X.Y.Z` above it)",
+    "section": "in-tagged-releases",
+    "subject": "python_code_intelligence_mcp-0.3.0-py3-none-any.whl"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/RELEASE.md",
+    "problem": "An unbacked 'industry standard' claim with examples that aren't right: pip doesn't use setuptools_scm, and pandas builds with meson-python and versioneer.",
+    "replacement": "Delete the item.",
+    "section": "benefits-of-this-approach",
+    "subject": "**Industry Standard**: Used by pytest, pip, pandas"
+  }
+]

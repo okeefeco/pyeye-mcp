@@ -1,0 +1,79 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "The copyable command calls bare `pytest`. This is a uv project: the tools live in the uv-managed environment, so a contributor who hasn't activated it gets 'command not found', or runs a different pytest. CONTRIBUTING and the project's own instructions use `uv run pytest --cov=src/pyeye`.",
+    "replacement": "run `uv run pytest --cov=src/pyeye --cov-report=term`",
+    "section": "coverage-requirements",
+    "subject": "run `pytest --cov=src/pyeye --cov-report=term`"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "The section's ruff commands (C90, PLR0913, PLR0912) call bare `ruff`, which is only installed in the uv-managed environment. The same applies to each of them.",
+    "replacement": "Prefix each command with `uv run`, e.g. run `uv run ruff check --select C90 <changed_files>` (and likewise for PLR0913 and PLR0912).",
+    "section": "complexity--maintainability",
+    "subject": "run `ruff check --select C90 <changed_files>`"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "The command calls bare `ruff`, which is only installed in the uv-managed environment.",
+    "replacement": "run `uv run ruff check --select PLR2004 <changed_files>`",
+    "section": "code-clarity",
+    "subject": "run `ruff check --select PLR2004 <changed_files>`"
+  },
+  {
+    "anchor": {
+      "id": "D12-number",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "Nothing backs the 50-line limit: no tool or config in the repo measures it. pyproject's ruff `select` doesn't enable C90/PLR rules at all, so every threshold in this checklist is a convention only. The other items at least name the ruff rule that defines their limit. This one is a bare number with no source.",
+    "replacement": "Either delete the item, or reword it without a figure (\"- [ ] No overly long functions; split ones that do more than one thing\").",
+    "section": "complexity--maintainability",
+    "subject": "No functions longer than 50 lines (excluding docstrings)"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "\"No code duplication\" is absolute, but the ratchet it cites only scans `src/pyeye/mcp/operations/` and `src/pyeye/canonicalization.py` (the hook's `files` filter and the script's default targets). It also passes for baselined clones. Passing it doesn't show the PR adds no duplication elsewhere.",
+    "replacement": "- [ ] No new copies of existing logic (the `duplicate-code-report` ratchet passes for the MCP operations and canonicalization, where it fails on a new copy; elsewhere, check by review; see `docs/development/duplicate-code-check.md`)",
+    "section": "code-clarity",
+    "subject": "No code duplication (the `duplicate-code-report` ratchet passes"
+  },
+  {
+    "anchor": {
+      "id": "precommit.hook.duplicate-code-report",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": ".github/pull_request_template.md",
+    "page_hash": "65cc61ba",
+    "problem": "The hook ID `duplicate-code-report` is written by hand. It is a registered repo_config fact, so a renamed hook would leave this checklist item pointing at nothing.",
+    "replacement": "Bind the hook ID through a fact block for precommit.hook.duplicate-code-report instead of typing it.",
+    "section": "code-clarity"
+  }
+]

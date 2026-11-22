@@ -1,0 +1,72 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.plugins.flask._UrlRegistry",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "with no subdomain and no cycle; otherwise it is ``None`` (omitted, never partial)"
+      }
+    ],
+    "page": "docs/api/flask-tools.md",
+    "page_hash": "3d3b2a0c",
+    "problem": "The list of conditions under which `urls` is absent is incomplete. `_UrlRegistry.prefixes` also returns None, so `urls` is omitted, when the blueprint's constructor or any registration in its chain sets `subdomain` (or passes a `**` splat), and when registrations form a cycle. The page names only a non-literal prefix, an unregistered blueprint, and an unreadable registration. It also never says that one unplaced registration removes `urls` from every route in the call, not only from that blueprint's routes.",
+    "replacement": "It is absent when a prefix isn't a literal, the blueprint isn't registered in the searched scope, a registration or constructor sets a subdomain, or the registrations form a cycle. When any registration's blueprint can't be read, `urls` is absent from every route, because that registration could be any blueprint (#952).",
+    "route": "wording",
+    "route_reason": "No registered extractor reads the plugin's absence conditions, and an example can't show every path. The docstring of _UrlRegistry is the only source.",
+    "section": "find_flask_routes"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api/flask-tools.md",
+    "page_hash": "3d3b2a0c",
+    "problem": "The section says it lists every render_template call and that comparing the two lists finds unrendered templates. The code is narrower in two ways. Template files are found only as `.html`/`.jinja2` files under a `templates` directory at a searched root or one level below it, so templates in a package nested deeper (for example `src/pkg/templates`) are not listed. A render_template call is recorded only when its template argument is a string literal. A template rendered by a computed name therefore looks unrendered, and the comparison reports a false orphan. The find_flask_config section states its depth limit, but this section states no limit.",
+    "replacement": "The template files in a `templates` directory at a searched root or one level below it, and each `render_template` call whose template is named by a string literal. Comparing the two suggests templates nothing renders. A template rendered by a computed name shows up as unrendered, and a templates directory nested deeper isn't listed.",
+    "section": "find_flask_templates",
+    "subject": "The template files, and every `render_template` call with the template it\nnames. Comparing the two finds a template nothing renders."
+  },
+  {
+    "anchor": {
+      "id": "pyeye.plugins.flask.FlaskPlugin.find_error_handlers",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Find error handler functions."
+      }
+    ],
+    "page": "docs/api/flask-tools.md",
+    "page_hash": "3d3b2a0c",
+    "problem": "The section says each handler is listed \"with the status code or exception each one handles\", and that is wrong on one path. `error_code` is filled only when the decorator's first argument is a constant or a bare name. A dotted exception, such as `@app.errorhandler(werkzeug.exceptions.NotFound)` or `@bp.errorhandler(exceptions.HTTPException)`, gives `error_code: null`. In addition, only decorators named `errorhandler` are found: `app_errorhandler` on a blueprint and `register_error_handler(...)` calls are not listed.",
+    "replacement": "The functions decorated with `errorhandler(...)`, with the status code, or the exception when it is named by a bare name, that each one handles. A dotted exception name gives a null `error_code`. `app_errorhandler` and `register_error_handler` are not read.",
+    "route": "wording",
+    "route_reason": "This is plugin behaviour with no extractor. An executed example could show the null case but not the decorators that are left out. Alternatively, file a code issue to read dotted exceptions and re-route this as code_bug.",
+    "section": "find_error_handlers"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.plugins.flask.FlaskPlugin.find_cli_commands",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "find_cli_commands(self, scope: Scope=\"main\") -> list[dict[str, Any]]"
+      }
+    ],
+    "page": "docs/api/flask-tools.md",
+    "page_hash": "3d3b2a0c",
+    "problem": "The section says the tool finds the application's CLI commands (`app.cli.command`). The code matches only the called form, `@<x>.cli.command(...)`. It does not match the bare `@app.cli.command`, which click's Group.command accepts, so those commands are missed. In the other direction, the code also lists any function decorated with a bare `@command` name, whatever that name is bound to, and lists `@bp.cli.command()` on blueprints.",
+    "replacement": "The CLI commands declared with a called `@app.cli.command(...)` decorator, or the same on a blueprint's `cli`. The bare `@app.cli.command` form, without parentheses, isn't recognised. A function decorated with a bare `@command` is also listed.",
+    "route": "wording",
+    "route_reason": "This is plugin behaviour with no extractor, and the missed bare-decorator path can't be shown by an example. Alternatively, file a code issue for the missed `@app.cli.command` form and re-route this as code_bug.",
+    "section": "find_cli_commands"
+  }
+]

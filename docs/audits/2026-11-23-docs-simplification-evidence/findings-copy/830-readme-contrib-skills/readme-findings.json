@@ -1,0 +1,79 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "README.md",
+    "problem": "\"Standalone Scripts: Analyze notebooks, scripts, and examples\" reads as Jupyter notebook support, but nothing in src/pyeye reads `.ipynb` files; auto-discovery only picks up `.py` files in directories named notebooks/, scripts/ and examples/.",
+    "replacement": "- \ud83d\udcdd **Standalone Scripts**: Analyze standalone `.py` files (for example in `scripts/` or `examples/` directories) alongside formal packages",
+    "section": "features"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "README.md",
+    "problem": "The bullets and the closing paragraph hand-state what the SessionStart hook runs (`uv sync --no-dev --frozen`, `uv run`), where it writes the venv (`${CLAUDE_PLUGIN_DATA}/.venv`) and how it decides to re-run. These are subprocess and write-path statements that C15 says must come from a bound fact or an executed example, not prose.",
+    "replacement": "Keep the why and the requirement in prose: \"On first session start the plugin installs its dependencies into a per-user venv, and reinstalls only when its lockfile changes. Requirement: `uv` on your `PATH`.\" Move the exact command, the venv path and the `uv run` invocation into bound facts (C15's subprocess / written-path candidates) instead of hand-writing them.",
+    "section": "option-0-claude-code-plugin-zero-config"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "problem": "After the Option 2 pipx install, `claude mcp add pyeye -s user -- python -m pyeye.mcp` runs whatever `python` is on PATH, which doesn't have pyeye (pipx isolates it in its own venv), so the server fails to start. The `pyeye-mcp` console script in docs/reference/cli.md works for every Option 2 install.",
+    "replacement": "claude mcp add pyeye -s user -- pyeye-mcp   # the console script; see docs/reference/cli.md for the entry points",
+    "section": "configure-with-claude-code-global"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "problem": "Every example uses `export`, which the Performance Settings section just said reaches the server only when the client was launched from that shell, so as written they usually have no effect. The comments also claim speed effects with no record (\"faster switching\", \"Near real-time updates\").",
+    "replacement": "Show each profile as `-e` flags on the server entry, e.g. `claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=50 -e PYEYE_CACHE_TTL=1800 -e PYEYE_WATCHER_DEBOUNCE=2.0 -- python -m pyeye.mcp` (other clients: the same keys in the entry's `env` map), and drop the speed comments.",
+    "section": "performance-tuning-examples"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "problem": "The ```python``` block shows `configure_packages(...)` as a Python call, but it is an MCP tool, not an importable function; copied into Python it raises NameError.",
+    "replacement": "Introduce it as a tool call and show the arguments as JSON: \"Ask your assistant to call `configure_packages` with:\" followed by ```json {\"packages\": [\"../my-lib\", \"~/repos/shared-utils\"], \"namespaces\": {\"company\": [\"~/repos/company-*\"]}} ```, linking docs/reference/tools.md#configure_packages.",
+    "section": "multi-project-support"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "problem": "As in Multi-Project Support, `configure_packages(...)` in a ```python``` block is an MCP tool call, not runnable Python.",
+    "replacement": "Show the tool arguments as JSON, `{\"namespaces\": {\"company\": [\"~/repos/company-auth\", \"~/repos/company-api\"]}}`, or the equivalent `namespaces` entry in `.pyeye.json`.",
+    "section": "namespace-packages"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "README.md",
+    "problem": "\"API Reference\" points at the README's own Core Tools section rather than the generated reference that section itself defers to.",
+    "replacement": "- [API Reference](docs/reference/tools.md) - every tool and its parameters",
+    "section": "documentation"
+  }
+]

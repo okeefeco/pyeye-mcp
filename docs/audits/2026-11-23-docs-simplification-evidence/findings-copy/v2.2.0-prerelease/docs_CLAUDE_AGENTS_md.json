@@ -1,0 +1,15 @@
+[
+  {
+    "anchor": {
+      "id": "duplicated-prose",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/CLAUDE_AGENTS.md",
+    "page_hash": "ffaf1e61",
+    "problem": "The cross-platform-validator retirement rationale is copied almost word for word from `.claude/instructions/04-agent-triggers.md` (\"Why no cross-platform-validator agent\"), so the two copies can drift apart.",
+    "replacement": "- **cross-platform-validator** (retired #483). Use `scripts/check_cross_platform_paths.py` and the rules in `.claude/instructions/10-cross-platform.md` instead; the rationale is in `.claude/instructions/04-agent-triggers.md` (\"Why no cross-platform-validator agent\").",
+    "section": "retired-agents",
+    "subject": "it was built on the Jedi-shaped tools removed in v2.0 (`find_symbol`, `get_type_info`, `find_imports`, `get_module_info`, `list_modules`) plus `find_references` / `get_call_hierarchy` (themselves removed in #505)"
+  }
+]

@@ -1,0 +1,180 @@
+[
+  {
+    "anchor": {
+      "id": "project.requires_python",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Hand-writes the server's minimum Python version (\"Python 3.11+\") instead of binding the requires-python fact.",
+    "replacement": "Ensure a Python that satisfies `requires-python` (<!-- fact:begin project.requires_python --> block) is installed: `python --version`",
+    "section": "python-version-compatibility"
+  },
+  {
+    "anchor": {
+      "id": "project.requires_python",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "\"Server requires: Python 3.11+\" restates requires-python by hand.",
+    "replacement": "- **Server requires**: Python <!-- fact:begin project.requires_python --> block (bind the fact rather than writing the version).",
+    "section": "supported-python-versions"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_LOG_LEVEL",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "States PYEYE_LOG_LEVEL's default (`INFO`) and accepted values by hand instead of binding the env fact.",
+    "replacement": "pyeye reads two logging variables: `PYEYE_LOG_LEVEL` (default bound via a fact block for env.PYEYE_LOG_LEVEL.default; see [Environment variables](reference/env-vars.md) for its values) and `PYEYE_LOG_FILE` (append logs to this file; otherwise they go to stderr only).",
+    "section": "enable-debug-logging"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_MAX_PROJECTS",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "The code block marks `PYEYE_MAX_PROJECTS=10  # Default` by hand; the default lives in the env fact and will drift.",
+    "replacement": "Drop the `# Default` comment and the standard-system line from the block; state the default in prose with a fact block for env.PYEYE_MAX_PROJECTS.default.",
+    "section": "project-limit-tuning"
+  },
+  {
+    "anchor": {
+      "id": "D12-number",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "RAM tiers paired with project/cache limits (<8GB, 16GB, 32GB+ mapped to 3/10/20 projects and 500 entries) have no measurement or record behind them.",
+    "replacement": "Delete the RAM-tier table; say instead: lower `PYEYE_MAX_PROJECTS` and the `PYEYE_*_CACHE_MAX_ENTRIES` caps when memory is tight, and measure with `ps` as [High Memory Usage](#high-memory-usage) shows.",
+    "section": "project-limit-tuning",
+    "subject": "# Small memory system (<8GB RAM)"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "A shell `export` doesn't reach the server: the MCP client launches it, as the page's own Environment Variable Issues section explains. The example has no effect as written.",
+    "replacement": "Replace the block with the client-entry form: `claude mcp remove pyeye` then `claude mcp add pyeye -s user -e PYEYE_MAX_PROJECTS=5 -- python -m pyeye.mcp`, and restart the client.",
+    "section": "high-memory-usage",
+    "subject": "export PYEYE_MAX_PROJECTS=5"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Shell `export` doesn't reach a client-launched server, so this example has no effect as written.",
+    "replacement": "Show the setting on the client's server entry (`claude mcp add pyeye -s user -e PYEYE_WATCHER_DEBOUNCE=2 -- python -m pyeye.mcp`) and say to restart the client.",
+    "section": "file-watcher-performance",
+    "subject": "export PYEYE_WATCHER_DEBOUNCE=2"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Shell `export` lines don't reach a client-launched server; the examples have no effect as written.",
+    "replacement": "Write the values as `-e PYEYE_WATCHER_DEBOUNCE=...` on the client's server entry (or as bare `NAME=value` settings with a pointer to the README's Performance Settings), not `export`.",
+    "section": "debounce-settings",
+    "subject": "export PYEYE_WATCHER_DEBOUNCE=3.0"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "The section says to set these on the client's server entry, not with a shell export, then shows `export` blocks that contradict it and do nothing for a client-launched server.",
+    "replacement": "Drop `export` from both blocks: show them as `-e NAME=value` flags on `claude mcp add pyeye ...` (or bare `NAME=value` lines), matching the sentence above them.",
+    "section": "optimal-cache-settings",
+    "subject": "export PYEYE_CACHE_TTL=600  # 10 minutes"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Exporting PYTHONPATH in a shell doesn't reach the server the MCP client launches, and pyeye's own way to add import roots is configuration, so this step misleads.",
+    "replacement": "Replace step 2 with: add the directory to `packages` in `.pyeye.json` or call `configure_packages`; if you rely on PYTHONPATH, set it on the client's server entry (`-e PYTHONPATH=...`) and restart the client.",
+    "section": "import-resolution-failures",
+    "subject": "export PYTHONPATH=\"/path/to/lib:$PYTHONPATH\""
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Implied comparison (WSL2 is more compatible than native Windows) with no record; CI runs native Windows.",
+    "replacement": "Delete the line, or link a tracked issue that records a native-Windows incompatibility.",
+    "section": "windows",
+    "subject": "Use WSL2 for better compatibility"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "pyeye ships no binaries (it is a pure-Python package), so the Gatekeeper advice refers to something absent.",
+    "replacement": "Delete the Gatekeeper bullet.",
+    "section": "macos",
+    "subject": "Check Gatekeeper settings for unsigned binaries"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "Hand-describes each plugin's detect() (which files, which roots). It is already incomplete: Django also reads `requirements/base.txt`, which the list omits. The same detection list is restated again under Plugin Activation Issues and the FAQ.",
+    "replacement": "Bind a new fact (extractor `new: each plugin's detection files and roots, read from the plugins' detect()`) and keep one prose sentence explaining when detection runs; point the other two sections here.",
+    "section": "framework-detection-logic",
+    "subject": "Each plugin looks for framework imports in Python files"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "page_hash": "263a018c",
+    "problem": "The script hard-codes pyeye's dependency list, copied from pyproject.toml's `dependencies`, so it drifts whenever a dependency changes.",
+    "replacement": "Read the list from the installed distribution instead, e.g. `from importlib.metadata import requires, version` and iterate `requires(\"pyeye-mcp\")`, printing each requirement's installed `version()`.",
+    "section": "quick-diagnostics-script",
+    "subject": "packages = [\"jedi\", \"parso\", \"mcp\", \"watchdog\", \"aiofiles\", \"filelock\", \"psutil\"]"
+  }
+]

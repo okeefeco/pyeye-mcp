@@ -1,0 +1,76 @@
+# PR 867 docs(security): SECURITY.md's security model from the code's facts (#830)
+## Description
+
+#830 PR 2. It follows #859, which removed SECURITY.md's wrong claims and listed the fact candidates. Under C15 (prose must not state code facts), the security model's values now come from a new `security` extractor, and SECURITY.md shows them through fact blocks. Prose keeps the why, Jedi's own behaviour (third-party), the advice, and the #856 gaps.
+
+**The server's import closure.** It's computed statically from `pyeye.mcp.__main__`, following module-level and function-local imports, absolute and relative. Today it covers 66 of 94 modules. Repo tooling the server never imports falls outside by construction, with no exclusion list. For example, `docs_facts.changed` runs git, and a test confirms its subprocess would be found if it were in the closure.
+
+| Fact | Read from | Today |
+|---|---|---|
+| `security.subprocesses` | process-starting calls (`subprocess`, `os.system`/`exec*`/`spawn*`, asyncio subprocesses, `multiprocessing`, `ProcessPoolExecutor`) in the closure | none |
+| `security.write_sites` | write calls (`open` in a writing mode or a computed one, `write_text`/`write_bytes`/`mkdir`/`touch`, `os`/`shutil` writes, `logging.FileHandler`), named `module:qualname` and never by line, so no churn | 8 sites |
+| `security.network_imports` | imports of a networking module in the closure | none |
+| `security.writes.config` / `.metrics` | `constants.CONFIG_FILE` (new) / `METRICS_DIR` | `<project_path>/.pyeye.json`, `~/.pyeye/metrics/` |
+| `security.metrics_inputs` | the parameters of `UnifiedMetricsCollector.record_mcp_operation` | `tool_name`, `session_id`, `success`, `duration_ms` |
+| `security.path_checks.*` | `PathValidator.REJECTED_SEQUENCES` and `RESTRICTED_COMPONENTS` (new), `RESTRICTED_TARGETS` (from #852, with the name agreed with worker-3), and the first line of `check_forms`' docstring, which names the forms checked | (view) |
+| `security.jedi_unsafe_extensions` | `_jedi_project.LOAD_UNSAFE_EXTENSIONS` (new), now passed to `jedi.Project` explicitly | off |
+
+Code changes are limited to what makes these facts readable. Behaviour is unchanged:
+- **`validation.py`:** the null-byte and `...` checks and the component list become class constants, looped over in a new `_check_spelling`. The error messages are identical. `validate_path`'s complexity drops from 15 to 11.
+- **`constants.CONFIG_FILE`:** `config.save_config` and `configure_packages`' result now use it.
+- **`make_project`:** it passes `load_unsafe_extensions=False` explicitly. That's Jedi's default, so behaviour doesn't change.
+
+**Out of scope (noted):** `create_example_config` is a write site with no caller in `src`. It's dead code, and the fact lists it honestly.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+- [x] Code refactoring
+
+## Checklist
+
+- [x] My code follows the project's style guidelines
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+- [x] I have checked for security vulnerabilities
+
+## Coverage Requirements
+
+- [x] Coverage maintained or improved: 94.65% on the full suite
+- [x] New code has >90% coverage
+
+## Code Quality Metrics
+
+- [x] No new complexity findings. `validate_path` improves, and the other findings in `validation.py` were already on `main`.
+- [x] The `duplicate-code-report` ratchet passes, 0 clones.
+
+## Testing
+
+- **Full suite**, capped at `MemoryMax=2G`: 4802 passed, 29 skipped, coverage 94.65%.
+- **After merging `main`** (#865, a clean merge): 680 docs_facts and validation tests pass.
+- **`tests/test_docs_facts_security.py`**, 34 tests. They cover:
+  - each process, write and network form, plus lookalikes;
+  - site naming by scope;
+  - the closure (relative, absolute and local imports, and a missing entry point);
+  - the facts against the live code: each listed component and sequence is really rejected, and a `../…/etc` climb is caught by the target check;
+  - `make_project`'s kwargs;
+  - a `check_forms` docstring changing shape.
+- **Gates:**
+  - `docs_facts.py check`: 77 files, and the ledger has no new entries;
+  - `decisions.py check`: OK;
+  - `changelog.py check`: OK, and `no-breaking` prints 0;
+  - path ratchet and dup ratchet: clean.
+- **Fragment:** `changes/830-2.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/867?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

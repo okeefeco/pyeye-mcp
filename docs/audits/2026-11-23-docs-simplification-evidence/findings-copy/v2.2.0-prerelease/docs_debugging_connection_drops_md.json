@@ -1,0 +1,99 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "'Comprehensive' is an unscoped absolute. The list after it gives the real scope, and the page's own Future Enhancements section names gaps (no stdio health checks, no latency tracking).",
+    "replacement": "PyEye's connection diagnostics track:",
+    "section": "solution-connection-diagnostics",
+    "subject": "PyEye includes comprehensive connection diagnostics that track:"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.connection_diagnostics.setup_signal_handlers",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "setup_signal_handlers() -> None"
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "Says signal handling covers SIGTERM, SIGPIPE and SIGHUP. That's right except on Windows: setup_signal_handlers registers SIGHUP and SIGPIPE only when the signal module defines them (POSIX), so Windows gets only SIGTERM. The SIGPIPE disconnect pattern later on the page can never appear there.",
+    "replacement": "2. **Signal handling** - SIGTERM on every platform, plus SIGPIPE and SIGHUP on POSIX systems (Windows doesn't define them), to detect disconnects",
+    "route": "wording",
+    "route_reason": "Platform-conditional signal registration has no extractor and can't be shown by an MCP example (it runs at process start, not through a tool).",
+    "section": "solution-connection-diagnostics"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "The Claude Desktop config runs pyeye from a source checkout with uv (`uv --directory /path/to/pyeye-mcp run pyeye-mcp`). The page never says to clone the repo or install uv. The README section it links (Configure with Claude Desktop) uses `python -m pyeye.mcp` instead, so a reader who followed the README gets a config that doesn't match.",
+    "replacement": "Use the same server entry as the README's Configure with Claude Desktop section (`\"command\": \"python\"`, `\"args\": [\"-m\", \"pyeye.mcp\"]`) and add only the `env` block, so the snippet works for an installed pyeye without a checkout.",
+    "section": "1-enable-file-logging",
+    "subject": "\"args\": [\"--directory\", \"/path/to/pyeye-mcp\", \"run\", \"pyeye-mcp\"],"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "Same as in the file-logging section: the Desktop config assumes a uv-managed source checkout the page never sets up, and doesn't match the README's `python -m pyeye.mcp` entry.",
+    "replacement": "Use the README's Claude Desktop server entry (`\"command\": \"python\"`, `\"args\": [\"-m\", \"pyeye.mcp\"]`) with this `env` block, or show only the `env` block and say to add it to that entry.",
+    "section": "2-enable-performance-metrics-optional",
+    "subject": "\"args\": [\"--directory\", \"/path/to/pyeye-mcp\", \"run\", \"pyeye-mcp\"],"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "The snippet is labelled 'From Claude Code or any MCP client', but `client` is never defined. It isn't runnable Python, and in Claude Code you ask the agent to call the tool. You don't write Python.",
+    "replacement": "Replace the Python snippet with a sentence: in Claude Code, ask the agent to call `get_connection_diagnostics`; in another MCP client, call that tool with no arguments.",
+    "section": "using-the-diagnostic-tool-live-query",
+    "subject": "result = await client.call_tool(\"get_connection_diagnostics\")"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "The hand-written response shape restates what get_connection_diagnostics returns (C15) and will drift. It isn't valid JSON (`[...]` placeholders). It also suggests `stdin_alive` and `stdout_alive` are live health signals, but ConnectionDiagnostics sets them to true at start and never updates them, so they are always true.",
+    "replacement": "Replace the block with an executed `json pyeye-example tool=get_connection_diagnostics` example (with a `pyeye-output` block that marks trims with `\"<omitted>\"`), or link the tool's entry in docs/reference. Drop `stdin_alive` and `stdout_alive` from any shown output, or note that they don't reflect pipe state yet (see Future Enhancements).",
+    "section": "using-the-diagnostic-tool-live-query",
+    "subject": "Returns:"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "page_hash": "2caee2e0",
+    "problem": "The comment hard-codes the current heartbeat interval that main() passes. No fact or example carries it, so it goes stale as soon as the call changes.",
+    "replacement": "# Start heartbeat monitor with a 60-second interval",
+    "section": "advanced-adjusting-heartbeat-interval",
+    "subject": "logs every 60 seconds instead of 30"
+  }
+]

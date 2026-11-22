@@ -1,0 +1,74 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.architecture_review.state.build_non_issue",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Structural, not content: cosmetic source edits keep the same key."
+      }
+    ],
+    "page": "skills/architecture-review/auditor.md",
+    "problem": "Says not to re-surface a finding matching an \"unexpired\" confirmed non-issue. Non-issues never expire: a NonIssue is only handles, structural_fact and key, and it suppresses a finding for as long as the key matches.",
+    "replacement": "**prior cross-run state** (optional) \u2014 previously observed findings and confirmed non-issues. Do **not** re-surface a finding that matches a confirmed non-issue.",
+    "route": "wording",
+    "route_reason": "Not a fact: it is the matching rule of a dismissal, not a value an extractor reads. Not an example: build_non_issue is a library helper, not an MCP tool an executed example can call.",
+    "section": "what-you-are-given"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/architecture-review/auditor.md",
+    "problem": "The first two bullets restate python-explore's mechanics (what each primitive returns, the edge names, outline's `found: false` response for a file path) while the third bullet says not to reinvent the primitives here. They are code facts (C15) with a maintained home in python-explore.",
+    "replacement": "Cut the primitive descriptions, the edge list and the `found: false` detail. Keep the auditor-specific directives: build the structural model before reading; pass dotted handles (resolve a path first); read async-ness from `inspect`; follow python-explore for the mechanics and its honest-limits rule.",
+    "section": "method--structural-model-first-targeted-reads-only",
+    "subject": "`expand` one edge to immediate neighbours. Edges you will use:"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.architecture_review.state.findings_equivalent",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "identity can't be determined from the key, so this falls back to the"
+      }
+    ],
+    "page": "skills/architecture-review/auditor.md",
+    "problem": "Says the gate, merging and dismissed non-issues key on axis/facet/handles \"never on your `claim` wording\". For an unkeyed finding (facet `other`, or an open axis) merging and non-issue keys fall back to the exact claim, so rewording it splits the finding and lets a dismissed one re-surface.",
+    "replacement": "The facet, the axis and the handle set are the finding's **identity**: the reproduction gate, cross-run merging and dismissed non-issues all key on them, not on your `claim` wording. Only a finding with facet `other` (or on an open axis) falls back to its exact `claim`, so rewording it makes it a new finding.",
+    "route": "wording",
+    "route_reason": "Not a fact: it is the branch logic of an equivalence predicate. Not an example: findings_equivalent is a library helper, not an MCP tool an executed example can call.",
+    "section": "facets--what-a-finding-observes-on-its-axis"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "skills/architecture-review/auditor.md",
+    "problem": "States a future change to the facet vocabulary as fact.",
+    "replacement": "The list is provisional.",
+    "section": "facets--what-a-finding-observes-on-its-axis",
+    "subject": "The list is provisional and will grow."
+  },
+  {
+    "anchor": {
+      "id": "claude-directs",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/architecture-review/auditor.md",
+    "problem": "Contradicts the sentence before it: a `no_signal` finding is required for every axis with nothing found, so finding nothing at all means seven `no_signal` findings, never `[]`. The two directives give the auditor opposite instructions for the same case.",
+    "replacement": "If you found nothing at all, emit one `no_signal` finding per seed axis.",
+    "section": "output-contract--read-this-last",
+    "subject": "If you found nothing at all, output `[]`."
+  }
+]

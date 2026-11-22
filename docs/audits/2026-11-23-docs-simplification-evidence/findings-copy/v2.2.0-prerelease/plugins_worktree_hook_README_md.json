@@ -1,0 +1,41 @@
+[
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "plugins/worktree-hook/README.md",
+    "page_hash": "c07fa073",
+    "problem": "Describes Claude Code's native fallback as a flat `worktree-<name>` directory and branch, but the 'This hook fires inside git repositories' note on the same page describes the same native default as `.claude/worktrees/<name>` on a `worktree-<name>` branch (only the branch carries the `worktree-` prefix). The two descriptions of third-party behaviour disagree, and both are observed Claude Code behaviour that may change between versions; it needs checking against the current Claude Code release.",
+    "replacement": "(a `.claude/worktrees/<name>` directory on a `worktree-<name>` branch, as described under *This hook fires inside git repositories*)",
+    "section": "restart-your-session-after-installingenabling",
+    "subject": "(a flat `worktree-<name>`"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "plugins/worktree-hook/README.md",
+    "page_hash": "c07fa073",
+    "problem": "Quotes a Claude Code (third-party) refusal message and the `discard_changes` parameter of `ExitWorktree` as fixed facts. Neither is defined in this repo, so the wording can go stale with a Claude Code release; it needs checking, and the page should flag it as observed behaviour like the neighbouring notes do.",
+    "replacement": "`ExitWorktree` may first **refuse** the removal (observed: \"could not verify worktree state\"; check against your Claude Code version);",
+    "section": "removing-a-worktree-this-hook-created",
+    "subject": "`ExitWorktree` still first **refuses** with \"could not verify worktree state\";"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "plugins/worktree-hook/README.md",
+    "page_hash": "c07fa073",
+    "problem": "States Claude Code's hook-merging rule (additive, deduped by exact command string) as a fixed fact. It is external harness behaviour with no source in this repo and may change across Claude Code versions; it needs checking against the current Claude Code hooks documentation, or a link to it.",
+    "replacement": "plugin hooks are *additive* (Claude Code merges them with hooks from your settings; see the Claude Code hooks documentation for the current deduplication rule).",
+    "section": "installation",
+    "subject": "plugin hooks are *additive* and deduped by\n> exact command string."
+  }
+]

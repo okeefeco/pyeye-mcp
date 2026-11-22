@@ -1,0 +1,47 @@
+# PR 886 docs(skills): bind the ceilings, bucket order and duplication flags; execute the envelope and resolve examples (#830)
+## Description
+
+#830 slice 4c: the four items left from slice 4a (#881), decided by the coordinator under C15/C16.
+
+- **(a) python-explore ceilings:** the seven hand-copied ceiling bullets are now the generated `ceilings.table` fact block. `test_static_ceiling.py` now checks the bound table lists every id; `docs_facts check` already guarantees the content.
+- **(b) python-explore examples:** these are now executed `pyeye-example`/`pyeye-output` pairs, run by `tests/test_docs_examples.py`:
+  - the plugin-envelope shape (`find_django_models`, `envelope=true`, on the `docs_examples_django` fixture);
+  - `resolve("myapp")`;
+  - `resolve("myapp.cache.Cache.evict")`, whose LSP call stays as text, now taking the location from the response.
+
+  The plugin tool list links `docs/reference/tools.md#plugin-tools`.
+- **(c) architecture-review bucket order:** a new `review.buckets` view in the review extractor renders the default `AXIS_STAKES_BUCKET` map, highest stakes first, with a test. The rank step binds it and says to show the map actually passed to `rank` when a project re-tiered it.
+- **(d) duplication-review flags:** every flag in the `review` table and the `dismiss` bullets is bound to its `duplication.flag.*` fact. Those facts already render the flag name, so no extractor change was needed. The skill test now accepts a flag bound to its own fact as "explained".
+
+**Shared files:** `docs/facts/uncovered.json` (regenerated). `claim_seeds.py` is untouched.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 4925 passed. The one failure was the flag-explanation test, which was updated for bound flags; that file now passes (18).
+- `docs_facts check` passes, and `mkdocs build --strict` is clean.
+- `no-breaking` prints 0, and `changelog check` and `decisions check` pass.
+- The path ratchet passes, and the dup report is unchanged. No allow-list entries were added.
+
+Fragment: `changes/830-10.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/886?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)
