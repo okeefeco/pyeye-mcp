@@ -254,13 +254,14 @@ repos:
   # Decision log (#679): one file per decision in docs/decisions/entries/. Validates
   # front matter, names and symmetric amend/supersede links, and points at
   # `scripts/decisions.py migrate` if an entry was written into DECISIONS.md.
+  # The engine is pyeye.decisions (#1093); the script wraps it with this repo's settings.
   - repo: local
     hooks:
       - id: decisions-check
         name: Decision log check (one file per decision)
         entry: uv run --frozen python scripts/decisions.py check
         language: system
-        files: ^(docs/decisions/|scripts/decisions\.py$)
+        files: ^(docs/decisions/|scripts/decisions\.py$|src/pyeye/decisions\.py$)
         pass_filenames: false
 
   # Decision-log nudge — runs AFTER each commit, never blocks. Prints a one-line

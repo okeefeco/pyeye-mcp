@@ -1,8 +1,10 @@
 """The decision log is one file per decision, with no committed index (#679).
 
-``scripts/decisions.py`` lists entries from their front matter (``index``),
-validates them (``check``, run in CI) and splits entries still written into
-``DECISIONS.md`` into files (``migrate``, re-runnable and idempotent).
+``pyeye.decisions`` (shipped since #1093; this repo's ``scripts/decisions.py``
+wraps it) lists entries from their front matter (``index``), validates them
+(``check``, run in CI) and splits entries still written into ``DECISIONS.md``
+into files (``migrate``, re-runnable and idempotent). The engine is tested
+through the module; this repo's own log through the wrapper's settings.
 """
 
 from __future__ import annotations
@@ -13,12 +15,14 @@ from pathlib import Path
 
 import pytest
 
+from pyeye import decisions
+
 _ROOT = Path(__file__).resolve().parents[1]
-_spec = importlib.util.spec_from_file_location("decisions", _ROOT / "scripts" / "decisions.py")
+_spec = importlib.util.spec_from_file_location("decisions_repo", _ROOT / "scripts" / "decisions.py")
 assert _spec and _spec.loader
-decisions = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = decisions  # dataclasses resolve their module via sys.modules
-_spec.loader.exec_module(decisions)
+repo = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = repo
+_spec.loader.exec_module(repo)
 
 
 def _entry(
@@ -65,21 +69,21 @@ def _problems(directory: Path) -> list[str]:
 
 
 def test_the_repository_log_is_valid() -> None:
-    entries, errors = decisions.load()
+    entries, errors = decisions.load(repo.ENTRIES_DIR)
     assert not errors
-    assert not decisions.check(entries)
-    assert not decisions.stale_grandfathered(entries)
+    assert not decisions.check(entries, repo.APPLIES_TO_GRANDFATHERED)
+    assert not decisions.stale_grandfathered(entries, repo.APPLIES_TO_GRANDFATHERED)
     assert len(entries) >= 53
 
 
 def test_decisions_md_is_a_static_header_with_no_entries() -> None:
-    text = decisions.LOG_FILE.read_text(encoding="utf-8")
+    text = repo.LOG_FILE.read_text(encoding="utf-8")
     assert decisions.entries_in_log(text) == []
-    assert text == decisions.STATIC_HEADER
+    assert text == repo.STATIC_HEADER
 
 
 def test_the_append_only_decision_is_superseded_by_679() -> None:
-    entries = {e.name: e for e in decisions.load()[0]}
+    entries = {e.name: e for e in decisions.load(repo.ENTRIES_DIR)[0]}
     old = entries["2026-06-13-decisions-captured-as-an-append-only-log-not-one-adr-file.md"]
     new = entries["2026-11-15-679-one-file-per-decision-with-no-committed-index.md"]
     assert old.status == "superseded"
@@ -90,7 +94,7 @@ def test_the_append_only_decision_is_superseded_by_679() -> None:
 def test_the_skill_documents_the_entry_files() -> None:
     skill = (_ROOT / "skills" / "decision-log" / "SKILL.md").read_text(encoding="utf-8")
     assert "docs/decisions/entries/" in skill
-    assert "scripts/decisions.py check" in skill
+    assert "python -m pyeye.decisions check" in skill  # the shipped module (#1093)
     assert "Append on confirm" not in skill
 
 
@@ -197,8 +201,11 @@ def test_check_cli_hints_at_migrate_for_entries_left_in_the_log(
         encoding="utf-8",
         newline="\n",
     )
-    assert decisions.main(["--dir", str(entries), "--log", str(log), "check"]) == 1
+    # The repo wrapper names its own command; the module names `python -m pyeye.decisions`.
+    assert repo.main(["--dir", str(entries), "--log", str(log), "check"]) == 1
     assert "python scripts/decisions.py migrate" in capsys.readouterr().err
+    assert decisions.main(["--dir", str(entries), "--log", str(log), "check"]) == 1
+    assert "python -m pyeye.decisions migrate" in capsys.readouterr().err
 
 
 # ---------------------------------------------------------------------------
@@ -452,9 +459,9 @@ def test_a_grandfathered_name_with_no_file_is_stale(tmp_path: Path) -> None:
 
 def test_the_grandfather_list_holds_only_entries_without_applies_to() -> None:
     """The real list: every name exists, and none of them has Applies-to."""
-    entries, _ = decisions.load()
+    entries, _ = decisions.load(repo.ENTRIES_DIR)
     by_name = {e.name: e for e in entries}
-    for name in decisions.APPLIES_TO_GRANDFATHERED:
+    for name in repo.APPLIES_TO_GRANDFATHERED:
         assert name in by_name, name
         assert decisions.applies_to(by_name[name].body) is None, name
 
@@ -466,7 +473,8 @@ def test_check_cli_fails_a_new_entry_without_applies_to(
     entries.mkdir()
     _entry(entries, "2026-12-01-9-new.md", applies_to=None)
 
-    code = decisions.main(["--dir", str(entries), "--log", str(tmp_path / "none.md"), "check"])
+    # This repo's grandfather list (the wrapper's), checked against a log that lacks them.
+    code = repo.main(["--dir", str(entries), "--log", str(tmp_path / "none.md"), "check"])
 
     err = capsys.readouterr().err
     assert code == 1
