@@ -237,10 +237,12 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
 
     Three exclusion rules apply:
 
-    1. **Name-based** — any path component *below* ``path`` in
-       ``EXCLUDED_DIRS`` (virtual envs, caches, build artifacts). Components of
-       ``path`` itself and its ancestors are never tested, so a project that
-       lives under e.g. ``~/dev/build/`` scans normally (#515).
+    1. **Not project source** (:func:`pyeye.project_layout.excluded_scan_dir`,
+       #1104) — a directory *below* ``path`` that is a virtual environment
+       (``pyvenv.cfg``, any name), or is named in ``EXCLUDED_DIRS`` (caches,
+       build artifacts, ``env``…) and is not a package (no ``__init__.py(i)``).
+       Components of ``path`` itself and its ancestors are never tested, so a
+       project that lives under e.g. ``~/dev/build/`` scans normally (#515).
     2. **Nested checkouts** (#507) — any directory *strictly below* ``path``
        that is a linked git worktree root. A linked worktree is a duplicate of
        the tree it was created from, so scanning one gives every project symbol
@@ -271,10 +273,7 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
         worktrees, nested independent clones, etc.)
     """
     patterns = (pattern,) if isinstance(pattern, str) else pattern
-    from .constants import EXCLUDED_DIRS
-
-    def _excluded(name: str) -> bool:
-        return name in EXCLUDED_DIRS or name.endswith(".egg-info")
+    from .project_layout import excluded_name, excluded_scan_dir
 
     # Excluded directories are PRUNED, never descended into (#738): on a repo
     # with a ``.venv`` that is ~30x cheaper than walking everything and
@@ -287,17 +286,24 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
     for ancestor in (path, *path.parents):
         declared |= _declared_submodules(ancestor)
     for here, dirnames, filenames in pruned_walk(path):
+        # #1104: a directory is checked against its own listing as it is entered,
+        # which finds a venv of any name (``pyvenv.cfg``) with no extra lookup.
+        if here != path and excluded_scan_dir(here, filenames):
+            dirnames[:] = []
+            continue
         if here != path and ".gitmodules" in filenames:
             declared |= _declared_submodules(here)  # a nested superproject's own
         dirnames[:] = [
             d
             for d in dirnames
-            if not _excluded(d)
+            # A name-matched child is checked before it is entered, so a big
+            # node_modules or .venv is never listed (#738).
+            if not (excluded_name(d) and excluded_scan_dir(here / d))
             and not _is_linked_worktree(here / d)
             and not _is_nested_repo(here / d, declared)
         ]
         for name in (*dirnames, *filenames):
-            if not _excluded(name) and _tail_matches(here / name, path, patterns):
+            if _tail_matches(here / name, path, patterns):
                 results.append(here / name)
     return results
 

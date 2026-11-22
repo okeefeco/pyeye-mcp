@@ -69,7 +69,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pyeye.path_utils import normalize_path, relative_within
-from pyeye.project_layout import RootsBoundary, project_roots
+from pyeye.project_layout import RootsBoundary, is_package_dir, project_roots
 
 if TYPE_CHECKING:
     from .analyzers.jedi_analyzer import JediAnalyzer
@@ -153,6 +153,10 @@ def _has_build_artifact_segment(path: Path, project_root: Path | None = None) ->
         folded = part.casefold()
         # Top-level-only names
         if folded in _BUILD_ARTIFACT_TOPLEVEL:
+            # #1104: the scan's package rule — a ``build``/``dist`` PACKAGE is source.
+            # The name match stays case-folded here, as it always was.
+            if is_package_dir(Path(*parts[: i + 1])):
+                continue
             if toplevel_idx is not None and i == toplevel_idx:
                 return True
             elif toplevel_idx is None:

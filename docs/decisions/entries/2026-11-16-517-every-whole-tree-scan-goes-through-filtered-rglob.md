@@ -3,10 +3,10 @@ date: "2026-11-16"
 title: "Every whole-tree project scan goes through `filtered_rglob` (#517)"
 issues: [517, 507, 690]
 anchors: ["pyeye.async_utils.filtered_rglob", "rglob_async", "pyeye.plugins.pydantic.PydanticPlugin.detect", "pyeye.plugins.flask.FlaskPlugin.detect", "get_framework_components", "pyeye.plugins.django.DjangoPlugin.find_migrations", "pyeye.canonicalization._scan_package_for_handle"]
-status: "active"
+status: "amended"
 amends: ["2026-08-09-507-the-project-scan-excludes-nested-git-worktrees-not.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1104-a-package-named-like-an-excluded-dir-is-scanned.md"]
 superseded_by: []
 ---
 

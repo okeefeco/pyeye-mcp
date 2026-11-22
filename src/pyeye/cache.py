@@ -11,6 +11,7 @@ from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from .path_utils import relative_within
+from .project_layout import excluded_name, excluded_scan_dir
 from .settings import settings
 
 logger = logging.getLogger(__name__)
@@ -43,33 +44,6 @@ class CodebaseWatcher(FileSystemEventHandler):
         self.pending_changes: set[str] = set()
         self.debounce_lock = threading.Lock()
 
-    # Directories that should never trigger cache invalidation.
-    # Watchdog's Observer still receives events from these but we skip them
-    # immediately to avoid unnecessary processing.
-    _IGNORE_DIRS = frozenset(
-        {
-            ".git",
-            ".hg",
-            ".svn",
-            "__pycache__",
-            ".mypy_cache",
-            ".pytest_cache",
-            ".ruff_cache",
-            "node_modules",
-            ".venv",
-            "venv",
-            ".env",
-            "env",
-            ".tox",
-            ".nox",
-            ".eggs",
-            "dist",
-            "build",
-            ".idea",
-            ".vscode",
-        }
-    )
-
     def _is_ignored(self, path: str) -> bool:
         """Whether *path* lies in an ignored directory **below** the watched root.
 
@@ -78,8 +52,16 @@ class CodebaseWatcher(FileSystemEventHandler):
         """
         candidate = Path(path)
         rel = relative_within(candidate, self.project_path)
-        parts = rel.parts if rel is not None else candidate.parts
-        return any(part in self._IGNORE_DIRS for part in parts)
+        if rel is None:  # outside the root: the names alone
+            return any(excluded_name(part) for part in candidate.parts)
+        # The scan's rule (#1104): a package named ``env`` is watched, a venv of
+        # any name and a non-package ``build`` are not.
+        here = Path(self.project_path)
+        for part in rel.parts:
+            here = here / part
+            if excluded_scan_dir(here):
+                return True
+        return False
 
     def _record(self, path: Any, is_directory: bool) -> bool:
         """Queue *path* if it can change the project's modules; return whether it did.

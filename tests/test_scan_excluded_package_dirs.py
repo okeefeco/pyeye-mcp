@@ -20,12 +20,6 @@ from pyeye.project_layout import iter_module_files
 
 PACKAGES = ("env", "build", "dist", "venv")
 
-#: The fix is held for designer's ruling on #1104; ``strict`` turns each marked
-#: test into a failure the moment the fix makes it pass, so the marks can't linger.
-BUG_1104 = pytest.mark.xfail(
-    strict=True, reason="#1104: excluded by name though it's a package (fix pending)"
-)
-
 
 @pytest.fixture
 def project(tmp_path: Path) -> Path:
@@ -60,7 +54,6 @@ def _rel(paths: list[Path], root: Path) -> set[str]:
 
 
 class TestFilteredRglob:
-    @BUG_1104
     @pytest.mark.parametrize("name", PACKAGES)
     def test_a_package_with_an_excluded_name_is_scanned(self, project: Path, name: str) -> None:
         found = _rel(filtered_rglob("*.py", project), project)
@@ -68,7 +61,6 @@ class TestFilteredRglob:
         assert f"pkg/{name}/mod.py" in found
         assert f"pkg/{name}/__init__.py" in found
 
-    @BUG_1104
     def test_a_stub_only_package_counts_as_a_package(self, project: Path) -> None:
         """``__init__.pyi`` marks a package too (a stub-only package, #933)."""
         (project / "pkg/dist/__init__.py").rename(project / "pkg/dist/__init__.pyi")
@@ -109,7 +101,6 @@ class TestTheWatcher:
 
         return CodebaseWatcher(project.as_posix())
 
-    @BUG_1104
     @pytest.mark.parametrize("name", PACKAGES)
     def test_an_edit_under_such_a_package_is_recorded(
         self, watcher, project: Path, name: str  # type: ignore[no-untyped-def]
@@ -130,14 +121,12 @@ class TestTheWatcher:
 
 
 class TestEveryWholeTreeScan:
-    @BUG_1104
     def test_iter_module_files(self, project: Path) -> None:
         found = _rel(iter_module_files(project), project)
 
         assert {f"pkg/{name}/mod.py" for name in PACKAGES} <= found
         assert not any(p.startswith(("env/", "build/")) for p in found)
 
-    @BUG_1104
     @pytest.mark.asyncio
     async def test_imported_by_sees_importers_under_such_packages(self, project: Path) -> None:
         from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -148,7 +137,6 @@ class TestEveryWholeTreeScan:
         handles = {s["handle"] for s in result["stubs"]}
         assert {f"pkg.{name}.mod" for name in PACKAGES} <= handles, handles
 
-    @BUG_1104
     @pytest.mark.asyncio
     async def test_subclasses_sees_classes_under_such_packages(self, project: Path) -> None:
         from pyeye.analyzers import project_graph
@@ -162,3 +150,68 @@ class TestEveryWholeTreeScan:
 
         handles = {s["handle"] for s in result["stubs"]}
         assert {f"pkg.{name}.mod.In{name.title()}" for name in PACKAGES} <= handles, handles
+
+
+class TestVenvsByMarker:
+    """Q2 (ruled): any directory holding ``pyvenv.cfg`` is a venv, whatever its name."""
+
+    @pytest.mark.parametrize("venv", [".direnv/python-3.12", "myvenv", "py312"])
+    def test_a_venv_with_any_name_is_pruned(self, project: Path, venv: str) -> None:
+        (project / venv / "lib/site-packages/other").mkdir(parents=True)
+        (project / venv / "pyvenv.cfg").write_text("version = 3.12\n", encoding="utf-8")
+        (project / venv / "lib/site-packages/other/__init__.py").write_text("", encoding="utf-8")
+
+        found = _rel(filtered_rglob("*.py", project), project)
+
+        assert not any(p.startswith(f"{venv}/") for p in found), found
+
+    def test_a_venv_beats_the_package_rule(self, project: Path) -> None:
+        """A directory holding both is a venv: a venv's root is never a package."""
+        (project / "pkg/env/pyvenv.cfg").write_text("version = 3.12\n", encoding="utf-8")
+
+        found = _rel(filtered_rglob("*.py", project), project)
+
+        assert not any(p.startswith("pkg/env/") for p in found), found
+
+    def test_the_watcher_ignores_a_venv_with_any_name(self, project: Path) -> None:
+        from pyeye.cache import CodebaseWatcher
+
+        (project / "myvenv/lib").mkdir(parents=True)
+        (project / "myvenv/pyvenv.cfg").write_text("version = 3.12\n", encoding="utf-8")
+        watcher = CodebaseWatcher(project.as_posix())
+
+        assert watcher._record((project / "myvenv/lib/x.py").as_posix(), False) is False
+
+
+class TestScopeClassification:
+    """Q4 (ruled): a top-level ``build``/``dist`` PACKAGE is project, not build output."""
+
+    @pytest.mark.parametrize("name", ["build", "dist"])
+    def test_a_top_level_package_is_project(self, tmp_path: Path, name: str) -> None:
+        from pyeye.scope import _has_build_artifact_segment
+
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "__init__.py").write_text("", encoding="utf-8")
+
+        assert _has_build_artifact_segment(tmp_path / name / "mod.py", tmp_path) is False
+
+    @pytest.mark.parametrize("name", ["build", "dist"])
+    def test_a_top_level_build_dir_is_still_external(self, tmp_path: Path, name: str) -> None:
+        from pyeye.scope import _has_build_artifact_segment
+
+        (tmp_path / name / "lib").mkdir(parents=True)
+
+        assert _has_build_artifact_segment(tmp_path / name / "lib" / "mod.py", tmp_path) is True
+
+
+class TestTheCeilingStatesTheLimit:
+    """Q1's limit is disclosed, not silent (ruled): in the ceilings of the scan edges."""
+
+    @pytest.mark.parametrize("edge", ["subclasses", "imported_by"])
+    def test_the_scan_edges_ceiling_names_the_limit(self, edge: str) -> None:
+        from pyeye.mcp.operations.edges import CEILING_MEANINGS, EDGE_CEILINGS
+
+        meaning = CEILING_MEANINGS[EDGE_CEILINGS[edge]]
+
+        assert "pyvenv.cfg" in meaning
+        assert "namespace package" in meaning and "#1104" in meaning

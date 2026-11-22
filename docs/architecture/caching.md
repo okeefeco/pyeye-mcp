@@ -55,9 +55,16 @@ eviction can never make a definition disappear (#457).
 watched root: the project, its packages, namespaces and standalone directories.
 A root shared by several projects has one watcher. The watcher records `.py`
 files and directories that are created, modified, deleted or moved, skips
-anything under ignored directories below the root (`.git`, `__pycache__`,
-`.venv`, `build`, `dist`, `node_modules` and the like), and delivers a debounced
+anything under a directory below the root that holds no project source, and
+delivers a debounced
 batch (`PYEYE_WATCHER_DEBOUNCE`, default <!-- fact:begin env.PYEYE_WATCHER_DEBOUNCE.default -->0.5<!-- fact:end --> s) of every changed path (#617).
+"No project source" is the project scan's own rule, shared by the scan, the
+watcher and scope classification (#1104): a virtual environment (any directory
+holding `pyvenv.cfg`), and a directory named like a cache or build output
+(`.git`, `__pycache__`, `.venv`, `build`, `dist`, `env`, `node_modules` and the
+like) unless it holds `__init__.py` or `__init__.pyi`. So a real package named
+`env` is watched and scanned, while setuptools' `build/lib` and a namespace
+package named `build` (no `__init__`) are not.
 
 For each batch, every changed file's parsed artifacts are dropped, then, for
 every project that reads from that root, its scoped cache, name and member
