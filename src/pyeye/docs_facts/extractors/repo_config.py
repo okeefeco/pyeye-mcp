@@ -21,9 +21,13 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
-from ...config import CONFIG_KEYS, IGNORED_TOP_LEVEL_KEYS
-from ...constants import CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE
+from ... import (
+    config as live_config,
+    constants as live_constants,
+)
+from .. import static
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, view
 
 PREFIXES = ("precommit", "config")
@@ -73,7 +77,18 @@ def _items(prefix: str, names: tuple[str, ...]) -> list[Fact]:
 
 
 def extract(root: Path) -> Iterator[Bindable]:
-    """Yield the pre-commit hook and pyeye config facts, plus their views."""
+    """Yield the pre-commit hook and pyeye config facts, plus their views.
+
+    The config constants are read from the source, never imported (#1098, C19).
+    """
+    return _facts(root, static.Module(root, "pyeye.config"), static.Module(root, "pyeye.constants"))
+
+
+def _extract_imported(root: Path) -> Iterator[Bindable]:  # #1098 twin, deleted next
+    return _facts(root, live_config, live_constants)
+
+
+def _facts(root: Path, config: Any, constants: Any) -> Iterator[Bindable]:
     text = (root / PRE_COMMIT_CONFIG).read_text(encoding="utf-8")
     repos = hook_repos(text)
     if not repos:
@@ -88,19 +103,21 @@ def extract(root: Path) -> Iterator[Bindable]:
     flags = uv_run_flags(text)
     yield Fact("precommit.uv_run_flags", flags, " ".join(code(f) for f in flags))
 
-    keys = _items("config.key", CONFIG_KEYS)
+    keys = _items("config.key", config.CONFIG_KEYS)
     yield from keys
-    yield view("config.keys", keys, code_list(CONFIG_KEYS))
+    yield view("config.keys", keys, code_list(config.CONFIG_KEYS))
 
-    ignored = _items("config.ignored_key", IGNORED_TOP_LEVEL_KEYS)
+    ignored = _items("config.ignored_key", config.IGNORED_TOP_LEVEL_KEYS)
     yield from ignored
-    yield view("config.ignored_keys", ignored, code_list(IGNORED_TOP_LEVEL_KEYS))
+    yield view("config.ignored_keys", ignored, code_list(config.IGNORED_TOP_LEVEL_KEYS))
 
-    project = Fact("config.files.project", list(CONFIG_FILES), code_list(CONFIG_FILES))
+    project = Fact(
+        "config.files.project", list(constants.CONFIG_FILES), code_list(constants.CONFIG_FILES)
+    )
     global_ = Fact(
         "config.files.global",
-        list(GLOBAL_CONFIG_FILES),
-        code_list(f"~/{name}" for name in GLOBAL_CONFIG_FILES),
+        list(constants.GLOBAL_CONFIG_FILES),
+        code_list(f"~/{name}" for name in constants.GLOBAL_CONFIG_FILES),
     )
-    override = Fact("config.files.override", OVERRIDE_FILE, code(OVERRIDE_FILE))
+    override = Fact("config.files.override", constants.OVERRIDE_FILE, code(constants.OVERRIDE_FILE))
     yield from (project, global_, override)

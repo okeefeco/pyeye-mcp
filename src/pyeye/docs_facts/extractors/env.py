@@ -23,6 +23,7 @@ from typing import Any
 from ... import settings as settings_module
 from ...async_utils import filtered_rglob
 from ...path_utils import relative_within
+from .. import static
 from ..facts import Bindable, ExtractionError, Fact, code, literal, table, view
 
 PREFIXES = ("env",)
@@ -177,9 +178,11 @@ def _parse_package(package: Path) -> dict[str, ast.Module]:
     return trees
 
 
-def _status(name: str, attribute: str, used_attributes: set[str]) -> dict[str, str]:
-    if name in settings_module.DEPRECATED_ENV_VARS:
-        return {"status": "deprecated", "deprecated": settings_module.DEPRECATED_ENV_VARS[name]}
+def _status(
+    name: str, attribute: str, used_attributes: set[str], deprecated: dict[str, str]
+) -> dict[str, str]:
+    if name in deprecated:
+        return {"status": "deprecated", "deprecated": deprecated[name]}
     return {"status": "live" if attribute in used_attributes else "unused"}
 
 
@@ -191,9 +194,20 @@ def _row(fact: Fact) -> list[str]:
     return [fact.markdown, literal(value["default"]), _range(value), status]
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the installed package
-    """Yield a fact per ``PYEYE_*`` variable, plus the group views."""
-    settings_path = Path(settings_module.__file__)
+def extract(root: Path) -> Iterator[Bindable]:
+    """Yield a fact per ``PYEYE_*`` variable, plus the group views.
+
+    The package is the checkout's ``src/pyeye``, read, never imported (#1098, C19).
+    """
+    settings = static.Module(root, "pyeye.settings")
+    return _facts(settings.file, settings.DEPRECATED_ENV_VARS)
+
+
+def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
+    return _facts(Path(settings_module.__file__), settings_module.DEPRECATED_ENV_VARS)
+
+
+def _facts(settings_path: Path, deprecated_vars: dict[str, str]) -> Iterator[Bindable]:
     trees = _parse_package(settings_path.parent)
     settings_rel = settings_path.name
     used_attributes = {
@@ -205,7 +219,7 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     }
 
     loaded = _settings_vars(trees[settings_rel])
-    unknown = sorted(set(settings_module.DEPRECATED_ENV_VARS) - set(loaded))
+    unknown = sorted(set(deprecated_vars) - set(loaded))
     if unknown:
         raise ExtractionError(
             f"DEPRECATED_ENV_VARS names variables settings.py never loads: {unknown}"
@@ -214,7 +228,7 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     for name, info in loaded.items():
         value = {k: v for k, v in info.items() if k != "attribute"}
         value["source"] = f"pyeye/{settings_rel}"
-        value.update(_status(name, info["attribute"], used_attributes))
+        value.update(_status(name, info["attribute"], used_attributes, deprecated_vars))
         values[name] = value
     for module, tree in trees.items():
         if module == settings_rel:

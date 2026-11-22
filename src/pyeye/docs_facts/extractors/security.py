@@ -28,7 +28,9 @@ from __future__ import annotations
 import ast
 import inspect
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import pyeye
 
@@ -37,6 +39,7 @@ from ...async_utils import filtered_rglob
 from ...constants import CONFIG_FILE
 from ...path_utils import relative_within
 from ...validation import PathValidator
+from .. import static
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, text, view
 
 PREFIXES = ("security",)
@@ -257,19 +260,61 @@ def _list(sites: list[str]) -> str:
     return code_list(sites) if sites else "none"
 
 
-def _path_checks() -> Iterator[Bindable]:
+@dataclass(frozen=True)
+class _Sources:
+    """The values the security facts read beyond the module ASTs (#1098)."""
+
+    rejected_sequences: tuple[tuple[str, str], ...]
+    restricted_targets: tuple[str, ...]
+    credential_paths: tuple[str, ...]
+    user_homes: tuple[str, ...]
+    check_forms_doc: str | None
+    config_file: str
+    unsafe_extensions: bool
+
+
+def _static_sources(root: Path) -> _Sources:
+    """Read from the source, never imported (#1098, C19)."""
+
+    def validator(name: str) -> Any:
+        return static.constant(root, "pyeye.validation", f"PathValidator.{name}")
+
+    return _Sources(
+        rejected_sequences=validator("REJECTED_SEQUENCES"),
+        restricted_targets=validator("RESTRICTED_TARGETS"),
+        credential_paths=validator("CREDENTIAL_PATHS"),
+        user_homes=validator("USER_HOMES"),
+        check_forms_doc=static.docstring(root, "pyeye.validation", "PathValidator.check_forms"),
+        config_file=static.constant(root, "pyeye.constants", "CONFIG_FILE"),
+        unsafe_extensions=static.constant(root, "pyeye._jedi_project", "LOAD_UNSAFE_EXTENSIONS"),
+    )
+
+
+def _imported_sources() -> _Sources:  # #1098 twin, deleted next
+    return _Sources(
+        rejected_sequences=PathValidator.REJECTED_SEQUENCES,
+        restricted_targets=PathValidator.RESTRICTED_TARGETS,
+        credential_paths=PathValidator.CREDENTIAL_PATHS,
+        user_homes=PathValidator.USER_HOMES,
+        check_forms_doc=inspect.getdoc(PathValidator.check_forms),
+        config_file=CONFIG_FILE,
+        unsafe_extensions=_jedi_project.LOAD_UNSAFE_EXTENSIONS,
+    )
+
+
+def _path_checks(src: _Sources) -> Iterator[Bindable]:
     """What :meth:`PathValidator.validate_path` rejects, from its constants and docstring."""
     rejected = Fact(
         "security.path_checks.rejected",
-        [described for _sequence, described in PathValidator.REJECTED_SEQUENCES],
-        ", ".join(described for _sequence, described in PathValidator.REJECTED_SEQUENCES),
+        [described for _sequence, described in src.rejected_sequences],
+        ", ".join(described for _sequence, described in src.rejected_sequences),
     )
     targets = Fact(
         "security.path_checks.targets",
-        list(PathValidator.RESTRICTED_TARGETS),
-        code_list(PathValidator.RESTRICTED_TARGETS),
+        list(src.restricted_targets),
+        code_list(src.restricted_targets),
     )
-    summary = (inspect.getdoc(PathValidator.check_forms) or "").split("\n", 1)[0]
+    summary = (src.check_forms_doc or "").split("\n", 1)[0]
     prefix = "``(resolved, forms)``: "
     if not summary.startswith(prefix):
         raise ExtractionError(
@@ -279,14 +324,15 @@ def _path_checks() -> Iterator[Bindable]:
     forms = Fact("security.path_checks.forms", summary[len(prefix) :], text(summary[len(prefix) :]))
     credentials = Fact(
         "security.path_checks.credentials",
-        list(PathValidator.CREDENTIAL_PATHS),
-        code_list(PathValidator.CREDENTIAL_PATHS),
+        list(src.credential_paths),
+        code_list(src.credential_paths),
     )
     homes = Fact(
         "security.path_checks.homes",
-        list(PathValidator.USER_HOMES),
-        code_list(PathValidator.USER_HOMES),
+        list(src.user_homes),
+        code_list(src.user_homes),
     )
+    # Still imported: deriving or declaring it is #1098's Q2, with the designer.
     from ...validation import _RESTRICTED_ANCESTORS
 
     ancestors = sorted(_RESTRICTED_ANCESTORS)
@@ -306,9 +352,17 @@ def _path_checks() -> Iterator[Bindable]:
     )
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the installed package
-    """Yield the security facts."""
-    modules = _modules(Path(pyeye.__file__).parent)
+def extract(root: Path) -> Iterator[Bindable]:
+    """Yield the security facts, read from the checkout's ``src/pyeye`` (#1098, C19)."""
+    return _facts(root / "src" / "pyeye", _static_sources(root))
+
+
+def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
+    return _facts(Path(pyeye.__file__).parent, _imported_sources())
+
+
+def _facts(package: Path, src: _Sources) -> Iterator[Bindable]:
+    modules = _modules(package)
     process: set[str] = set()
     write: set[str] = set()
     network: set[str] = set()
@@ -327,13 +381,13 @@ def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the insta
     yield Fact("security.network_imports", networks, _list(networks))
     config = Fact(
         "security.writes.config",
-        {"path": f"<project_path>/{CONFIG_FILE}"},
-        code(f"<project_path>/{CONFIG_FILE}"),
+        {"path": f"<project_path>/{src.config_file}"},
+        code(f"<project_path>/{src.config_file}"),
     )
     yield config
     yield view("security.writes", [config], config.markdown)
 
-    yield from _path_checks()
+    yield from _path_checks(src)
 
-    unsafe = _jedi_project.LOAD_UNSAFE_EXTENSIONS
+    unsafe = src.unsafe_extensions
     yield Fact("security.jedi_unsafe_extensions", unsafe, "on" if unsafe else "off")
