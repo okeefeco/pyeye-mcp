@@ -117,8 +117,6 @@ _TOOLS = ("pyeye.docs_facts", "pyeye.path_utils", "pyeye.async_utils")
 #: The fact sources still imported, each with the ruling that removes it. A
 #: ratchet: it only shrinks, and an entry no longer imported fails too.
 STILL_IMPORTED = {
-    ("mcp_surface", "pyeye.scope_utils"): "#1098 PR B",
-    ("mcp_surface", "pyeye.mcp"): "#1098 PR B",
     ("edges", "pyeye.mcp.operations"): "#1098 Q1: the server's descriptions read it live",
     ("scopes", "pyeye.scope_utils"): "#1098 Q1: the server's descriptions read it live",
     ("security", "pyeye.validation"): "#1098 Q2: _RESTRICTED_ANCESTORS",

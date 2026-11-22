@@ -1,54 +1,31 @@
 """MCP surface facts: every tool, and every parameter with its type and default.
 
-Read from live registrations, never from a hand-kept list:
+Read from the source, never by importing or running pyeye (#1098, ruling C19):
 
-- core tools from the module-level server;
-- admin tools (opt-in via ``PYEYE_ENABLE_PERFORMANCE_METRICS``) registered on a
-  fresh server, so the result doesn't depend on the environment;
-- plugin tools from every plugin class, registered on a fresh server the way
-  the server registers them for a detected framework.
+- core tools: the ``@mcp.tool()`` functions in ``pyeye.mcp.server``;
+- admin tools (opt-in via ``PYEYE_ENABLE_PERFORMANCE_METRICS``): the
+  ``ADMIN_TOOLS`` tuple, so the result doesn't depend on the environment;
+- plugin tools: each class in ``_PLUGIN_CLASSES``, through its
+  ``register_tools()`` dict, with the parameters the server DECLARES it adds
+  (``PLUGIN_TOOL_SCOPE_PARAM``, ``PLUGIN_TOOL_EXTRA_PARAMS``).
 
-Importing the server starts no worker, watcher or thread; it does only the
-module-level registration.
+Parameter types are the annotations rendered the way the MCP input schema
+states them (:mod:`..static_signatures`).
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...scope_utils import SmartScopeResolver
 from .. import static_signatures as sig
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, table, view
 from ..static import constant
 
 PREFIXES = ("tool", "tools")
-
-
-def _schema_type(schema: dict[str, Any]) -> str:
-    """Render a JSON-schema fragment as a short Python-like type."""
-    if "anyOf" in schema:
-        return " | ".join(_schema_type(s) for s in schema["anyOf"])
-    kind = schema.get("type")
-    if kind == "array":
-        return f"list[{_schema_type(schema.get('items', {}))}]"
-    if kind == "object":
-        extra = schema.get("additionalProperties")
-        if isinstance(extra, dict):
-            return f"dict[str, {_schema_type(extra)}]"
-        return "dict"
-    names = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
-    if kind == "null":
-        return "None"
-    return names.get(str(kind), "any")
-
-
-async def _list_tools(server: Any) -> list[Any]:
-    return list(await server.list_tools())
 
 
 #: Where an omitted plugin ``scope`` comes from (#559): the resolver, not the schema.
@@ -80,30 +57,6 @@ class _Param:
 
 #: A tool: its name and its parameters, in schema order.
 _Tool = tuple[str, list[_Param]]
-
-
-def _schema_tools(tools: list[Any]) -> list[_Tool]:
-    """Records from live MCP tool objects (their input schemas)."""
-    records = []
-    for tool in tools:
-        schema = tool.input_schema
-        required = set(schema.get("required", []))
-        records.append(
-            (
-                tool.name,
-                [
-                    _Param(
-                        pname,
-                        _schema_type(pschema),
-                        pname in required,
-                        pschema.get("default"),
-                        "default" in pschema,
-                    )
-                    for pname, pschema in schema.get("properties", {}).items()
-                ],
-            )
-        )
-    return records
 
 
 def _tool_facts(
@@ -150,35 +103,6 @@ def _tool_facts(
         key = f"tools.{group}" if plugin is None else f"tools.plugin.{plugin}"
         yield view(key, tool_facts, code_list(f.id.split(".", 1)[1] for f in tool_facts))
 
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - live registration
-    """The import-based twin, kept until the static path matches it byte for byte (#1098)."""
-    from mcp.server.mcpserver import MCPServer
-
-    from ...mcp import server as srv
-
-    admin_server = MCPServer("docs-facts-admin")
-    for admin_tool in srv.ADMIN_TOOLS:
-        admin_server.tool()(admin_tool)
-    admin_names = {t.name for t in asyncio.run(_list_tools(admin_server))}
-    core = [t for t in asyncio.run(_list_tools(srv.mcp)) if t.name not in admin_names]
-    yield from _tool_facts(_schema_tools(core), "core", None)
-    yield from _tool_facts(_schema_tools(asyncio.run(_list_tools(admin_server))), "admin", None)
-
-    # A resolver with no project config: the built-in defaults, registered the way
-    # initialize_plugins registers them (which always passes a resolver).
-    resolver = SmartScopeResolver()
-    for plugin_class in srv._PLUGIN_CLASSES:
-        plugin = plugin_class(".")
-        plugin_server = MCPServer(f"docs-facts-{plugin.name()}")
-        srv.register_plugin_tools(plugin_server, [plugin], resolver)
-        tools = asyncio.run(_list_tools(plugin_server))
-        yield from _tool_facts(
-            _schema_tools(tools), "plugin", plugin.name().lower(), resolver.plugin_tool_default
-        )
-
-
-# --- static: from the source, never importing it (#1098, ruling C19) ---------
 
 _SERVER = "pyeye.mcp.server"
 _SCOPE_UTILS = "pyeye.scope_utils"
