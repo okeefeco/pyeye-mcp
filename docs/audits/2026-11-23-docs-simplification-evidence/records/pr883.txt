@@ -1,0 +1,54 @@
+# PR 883 docs(claude): correct Claude's instructions and internal skills (#830)
+## Description
+
+#830 slice 4b: `.claude/instructions/*`, `CLAUDE.md` and the internal `.claude/skills` rows from worker-4's step-1 table (slice D), plus the leftovers listed on #830. **The user approved these `.claude/` edits directly in the editing session**, including the two `.claude/skills` pages. These are corrections only; no rules are added.
+
+- **`08-project-specific.md`:**
+  - **D-W7:** the Key Features describe handles and edges, and say there are no reverse references (#333), instead of "find references".
+  - **D-W8, "17+ core tools":** the hand-drawn module tree is replaced by a short pointer to `mcp/`, `plugins/` and `docs_facts/`, with an instruction to `outline` pyeye rather than trust a tree.
+  - **D-S4, "5min TTL":** the cache TTL and the project limit are bound to the `env.PYEYE_CACHE_TTL.default` and `env.PYEYE_MAX_PROJECTS.default` facts.
+  - **D-S5:** the server runs from the plugin or `claude mcp add`; plugin tools also run against any `project_path`.
+  - The "Current Status" snapshot is removed (D12, volatile status).
+  - **D-N3:** the file-reference examples point at real paths.
+- **`09`:** drops its time-based task sizing.
+- **`06` and `11` (D-S13):** tests run as `uv run pytest --cov=src/pyeye`. The fenced `--cov-fail-under` is gone (pyproject's `addopts` enforces it), and so is the removed `GranularCache` name.
+- **`04` and `06` (D-N4):** they say Agent tool, not Task tool.
+- **`CLAUDE.md` (D-N5):** says the `mcp-*` aliases come from `scripts/claude_hooks/setup_mcp_monitoring.sh`.
+- **Claim seeds:** the `.claude` 08 and 09 seeds are cleared.
+- **`.claude/skills/pyeye-verify`:**
+  - **D-S8:** the rubric cites django `members:67` (the exact count recorded by the scenario).
+  - **D-M8:** "Right altitude" lists every truncation reason.
+- **`.claude/skills/pyeye-scenarios` (D-S7, D-S8):** the jaraco probe and round-trip baselines are marked as predating #623 and #712, so they must be re-captured before use. The "#623 acceptance signal" line is dropped, because #623 is closed. I re-captured nothing, since that needs a scenario run.
+- **`scripts/claude_hooks/setup_mcp_monitoring.sh` (D-S14):** the hook test names `resolve`, not the removed `find_symbol`.
+
+**Not done:** the `pyeye-scenarios` timing seeds (20 entries). They're a dated measurement record that needs a decision: register it as a record page, or re-measure.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 4895 passed. The 2 repo-check failures came from the fragment quoting the old claims. After the fix, those two test files pass (100).
+- `docs_facts check` passes, and `mkdocs build --strict` is clean.
+- `no-breaking` prints 0, and `changelog check` and `decisions check` pass.
+- The path ratchet passes, and the dup report is unchanged. No allow-list entries were added.
+
+Fragment: `changes/830-9.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/883?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

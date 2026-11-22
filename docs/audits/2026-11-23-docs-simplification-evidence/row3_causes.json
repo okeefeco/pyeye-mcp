@@ -1,0 +1,430 @@
+{
+  "by_section_and_cause": {
+    "baseline: covered (fact still exists)": 67,
+    "new: fact removed": 1
+  },
+  "detail": [
+    [
+      "b9e343c6",
+      "baseline",
+      "env.PYEYE_CACHE_TTL",
+      "covered (fact still exists)"
+    ],
+    [
+      "b9e343c6",
+      "baseline",
+      "env.PYEYE_WATCHER_DEBOUNCE",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.configure_packages",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.expand",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_cli_commands",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_computed_fields",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_django_migrations",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_django_models",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_django_templates",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_django_urls",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_django_views",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_error_handlers",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_field_validators",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_blueprints",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_config",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_extensions",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_routes",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_templates",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_flask_views",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_model_config",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_pydantic_models",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.find_validators",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.get_model_schema",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.inspect",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.outline",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.resolve",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.resolve_at",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.trace",
+      "covered (fact still exists)"
+    ],
+    [
+      "eeed7be2",
+      "baseline",
+      "tool.trace_model_inheritance",
+      "covered (fact still exists)"
+    ],
+    [
+      "8e1188c7",
+      "baseline",
+      "env.PYEYE_LOG_FILE",
+      "covered (fact still exists)"
+    ],
+    [
+      "8e1188c7",
+      "baseline",
+      "tool.configure_packages.param.save",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "env.PYEYE_MAX_PROJECTS",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.default.plugin",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.all",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.main",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.namespace",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.package",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.packages",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "scope.option.standalone",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "tool.configure_packages.param.namespaces",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "tool.configure_packages.param.packages",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "tool.configure_packages.param.project_path",
+      "covered (fact still exists)"
+    ],
+    [
+      "8664968a",
+      "baseline",
+      "tool.configure_packages.param.standalone_dirs",
+      "covered (fact still exists)"
+    ],
+    [
+      "8ef763b5",
+      "baseline",
+      "project.requires_python",
+      "covered (fact still exists)"
+    ],
+    [
+      "aa239589",
+      "baseline",
+      "tool.trace.param.max_depth",
+      "covered (fact still exists)"
+    ],
+    [
+      "aa239589",
+      "baseline",
+      "tool.trace.param.max_nodes",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "ceiling.static_imports",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.callers",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.decorated_by",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.decorates",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.overridden_by",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.overrides",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.passed_by",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.read_by",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.references",
+      "covered (fact still exists)"
+    ],
+    [
+      "2d1fc367",
+      "baseline",
+      "edge.written_by",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.declared_bases",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.literal_subclassing",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.on_disk_modules",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.package_reexports",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.static_calls",
+      "covered (fact still exists)"
+    ],
+    [
+      "aab9ed93",
+      "baseline",
+      "ceiling.static_definitions",
+      "covered (fact still exists)"
+    ],
+    [
+      "85e68f99",
+      "baseline",
+      "env.PYEYE_ISSUE",
+      "covered (fact still exists)"
+    ],
+    [
+      "85e68f99",
+      "baseline",
+      "env.PYEYE_PARENT_SESSION",
+      "covered (fact still exists)"
+    ],
+    [
+      "85e68f99",
+      "new",
+      "env.PYEYE_METRICS_DIR",
+      "fact removed"
+    ],
+    [
+      "9bf4a7fd",
+      "baseline",
+      "tool.get_connection_diagnostics",
+      "covered (fact still exists)"
+    ],
+    [
+      "9bf4a7fd",
+      "baseline",
+      "tool.get_performance_metrics",
+      "covered (fact still exists)"
+    ]
+  ],
+  "facts_count": {
+    "ledger created": {
+      "commit": "77584a66",
+      "facts": 210
+    },
+    "new section started": {
+      "commit": "088e4f9b",
+      "facts": 282
+    },
+    "pinned main": {
+      "commit": "55e35597",
+      "facts": 289
+    }
+  }
+}

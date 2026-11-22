@@ -1,0 +1,74 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.mcp.operations.inspect.inspect",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "inspect(handle: str, analyzer: JediAnalyzer) -> dict[str, Any]"
+      },
+      {
+        "docstring": "is a pointer dict only"
+      }
+    ],
+    "extractor": "new: the inspect Node's universal fields and what each holds, read from pyeye.mcp.operations.inspect.inspect",
+    "page": "docs/api-redesign.md",
+    "problem": "The universal-fields table says `docstring` is the \"First paragraph of docstring\". inspect returns the whole raw docstring (`jedi_name.docstring(raw=True)`), every paragraph, or null; inspect on this very function returns its Args and Returns sections too.",
+    "replacement": "Bind the universal-field table to a new inspect-node fact (or link docs/reference/ for it) instead of hand-writing it; until then the `docstring` row reads \"The symbol's full docstring, raw, or null when it has none\".",
+    "route": "fact",
+    "section": "universal-fields-always-present"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.operations.inspect._build_class_fields",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Extracts the class signature"
+      }
+    ],
+    "example_at": {
+      "line": 439,
+      "page": "skills/python-explore/SKILL.md"
+    },
+    "page": "docs/api-redesign.md",
+    "problem": "The kind-dependent table lists an `attributes` field for classes (\"Public attributes with types\"), and the TypeRef section repeats it (\"the `type` field on `attributes`\"). A class node has no `attributes` field: _build_class_fields returns only `superclasses` and `signature`. Class attributes are separate `attribute`-kind handles reached through `members`, each with its own `type`. The table also omits fields inspect does return (`is_async`/`is_classmethod`/`is_staticmethod`, `is_package`/`package`, `type`/`default`).",
+    "replacement": "Delete the `attributes` row and the `attributes` mention in the TypeRef section's first sentence (say \"the `type` field on attribute, property and variable nodes\"), and point the kind-dependent fields at the executed inspect example in skills/python-explore/SKILL.md rather than listing them by hand.",
+    "route": "example",
+    "section": "kind-dependent-fields"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.operations.inspect",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "``re_exports`` (non-module kinds) \u2014 **deprecated** in favour of"
+      }
+    ],
+    "extractor": "new: inspect's deprecated response fields (re_exports, #393/#749), read from pyeye.mcp.operations.inspect",
+    "page": "docs/api-redesign.md",
+    "problem": "The Re-exports section (and the `re_exports` rows in the kind-dependent table and the absence-vs-zero list) present inspect's `re_exports` field as the current way to get a symbol's aliases. The field is deprecated in favour of `expand(handle, \"re_exports\")` (#393) and is to be removed in v3.0 (#749); it is also absent, not just for modules, when any file in the package couldn't be parsed. A reader adopting it today builds on a field that is going away.",
+    "replacement": "Add a note at the top of the Re-exports section: \"`re_exports` on inspect is deprecated; use `expand(handle, \\\"re_exports\\\")` (see docs/reference/edges.md).\" Bind the deprecation through the new fact, and keep the rest of the section as the design record.",
+    "route": "fact",
+    "section": "re-exports"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api-redesign.md",
+    "problem": "States future work as fact; no issue or record backs it.",
+    "replacement": "Delete \"; future passes will tighten coverage\", leaving \"The response stays conformant.\"",
+    "section": "known-v1-limitations-graceful-degradation",
+    "subject": "future passes will tighten coverage"
+  }
+]

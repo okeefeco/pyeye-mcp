@@ -1,0 +1,794 @@
+{
+  "baseline_added_after_start": 0,
+  "baseline_now": 104,
+  "baseline_resolved_total": 67,
+  "baseline_start": 171,
+  "events": [
+    {
+      "added": [
+        "ceiling.declared_bases",
+        "ceiling.literal_subclassing",
+        "ceiling.on_disk_modules",
+        "ceiling.package_reexports",
+        "ceiling.static_calls",
+        "ceiling.static_definitions",
+        "ceiling.static_imports",
+        "cli.module.pyeye.mcp",
+        "cli.script.pyeye-mcp",
+        "edge.callers",
+        "edge.decorated_by",
+        "edge.decorates",
+        "edge.overridden_by",
+        "edge.overrides",
+        "edge.passed_by",
+        "edge.read_by",
+        "edge.references",
+        "edge.written_by",
+        "edges.inspect_unmeasured",
+        "env.PYEYE_ANALYSIS_TIMEOUT",
+        "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
+        "env.PYEYE_CACHE_TTL",
+        "env.PYEYE_ENABLE_CONNECTION_POOLING",
+        "env.PYEYE_ENABLE_MEMORY_PROFILING",
+        "env.PYEYE_ENABLE_PERFORMANCE_METRICS",
+        "env.PYEYE_ISSUE",
+        "env.PYEYE_LOG_FILE",
+        "env.PYEYE_LOG_LEVEL",
+        "env.PYEYE_MAX_FILE_SIZE",
+        "env.PYEYE_MAX_PROJECTS",
+        "env.PYEYE_MAX_WORKERS",
+        "env.PYEYE_PARENT_SESSION",
+        "env.PYEYE_PARSO_CACHE_MAX_ENTRIES",
+        "env.PYEYE_POOL_MAX_CONNECTIONS",
+        "env.PYEYE_POOL_TTL",
+        "env.PYEYE_SCRIPT_CACHE_MAX_ENTRIES",
+        "env.PYEYE_WATCHER_DEBOUNCE",
+        "project.python_versions",
+        "project.requires_python",
+        "review.grade.ambiguous",
+        "review.grade.deterministic_single",
+        "review.grade.mechanical_fact",
+        "review.grade.no_signal",
+        "scope.default.plugin",
+        "scope.option.all",
+        "scope.option.main",
+        "scope.option.namespace",
+        "scope.option.package",
+        "scope.option.packages",
+        "scope.option.standalone",
+        "tool.configure_packages",
+        "tool.configure_packages.param.namespaces",
+        "tool.configure_packages.param.packages",
+        "tool.configure_packages.param.project_path",
+        "tool.configure_packages.param.save",
+        "tool.configure_packages.param.standalone_dirs",
+        "tool.expand",
+        "tool.expand.param.edge",
+        "tool.expand.param.handle",
+        "tool.expand.param.max_stubs",
+        "tool.expand.param.project_path",
+        "tool.find_cli_commands",
+        "tool.find_cli_commands.param.envelope",
+        "tool.find_cli_commands.param.project_path",
+        "tool.find_cli_commands.param.scope",
+        "tool.find_computed_fields",
+        "tool.find_computed_fields.param.envelope",
+        "tool.find_computed_fields.param.project_path",
+        "tool.find_computed_fields.param.scope",
+        "tool.find_django_migrations",
+        "tool.find_django_migrations.param.envelope",
+        "tool.find_django_migrations.param.project_path",
+        "tool.find_django_migrations.param.scope",
+        "tool.find_django_models",
+        "tool.find_django_models.param.envelope",
+        "tool.find_django_models.param.project_path",
+        "tool.find_django_models.param.scope",
+        "tool.find_django_templates",
+        "tool.find_django_templates.param.envelope",
+        "tool.find_django_templates.param.project_path",
+        "tool.find_django_templates.param.scope",
+        "tool.find_django_urls",
+        "tool.find_django_urls.param.envelope",
+        "tool.find_django_urls.param.project_path",
+        "tool.find_django_urls.param.scope",
+        "tool.find_django_views",
+        "tool.find_django_views.param.envelope",
+        "tool.find_django_views.param.project_path",
+        "tool.find_django_views.param.scope",
+        "tool.find_error_handlers",
+        "tool.find_error_handlers.param.envelope",
+        "tool.find_error_handlers.param.project_path",
+        "tool.find_error_handlers.param.scope",
+        "tool.find_field_validators",
+        "tool.find_field_validators.param.envelope",
+        "tool.find_field_validators.param.project_path",
+        "tool.find_field_validators.param.scope",
+        "tool.find_flask_blueprints",
+        "tool.find_flask_blueprints.param.envelope",
+        "tool.find_flask_blueprints.param.project_path",
+        "tool.find_flask_blueprints.param.scope",
+        "tool.find_flask_config",
+        "tool.find_flask_config.param.envelope",
+        "tool.find_flask_config.param.project_path",
+        "tool.find_flask_config.param.scope",
+        "tool.find_flask_extensions",
+        "tool.find_flask_extensions.param.envelope",
+        "tool.find_flask_extensions.param.project_path",
+        "tool.find_flask_extensions.param.scope",
+        "tool.find_flask_routes",
+        "tool.find_flask_routes.param.envelope",
+        "tool.find_flask_routes.param.project_path",
+        "tool.find_flask_routes.param.scope",
+        "tool.find_flask_templates",
+        "tool.find_flask_templates.param.envelope",
+        "tool.find_flask_templates.param.project_path",
+        "tool.find_flask_templates.param.scope",
+        "tool.find_flask_views",
+        "tool.find_flask_views.param.envelope",
+        "tool.find_flask_views.param.project_path",
+        "tool.find_flask_views.param.scope",
+        "tool.find_model_config",
+        "tool.find_model_config.param.envelope",
+        "tool.find_model_config.param.project_path",
+        "tool.find_model_config.param.scope",
+        "tool.find_pydantic_models",
+        "tool.find_pydantic_models.param.envelope",
+        "tool.find_pydantic_models.param.project_path",
+        "tool.find_pydantic_models.param.scope",
+        "tool.find_validators",
+        "tool.find_validators.param.envelope",
+        "tool.find_validators.param.project_path",
+        "tool.find_validators.param.scope",
+        "tool.get_connection_diagnostics",
+        "tool.get_model_schema",
+        "tool.get_model_schema.param.envelope",
+        "tool.get_model_schema.param.model_name",
+        "tool.get_model_schema.param.project_path",
+        "tool.get_model_schema.param.scope",
+        "tool.get_performance_metrics",
+        "tool.get_performance_metrics.param.export_format",
+        "tool.get_performance_metrics.param.metric_name",
+        "tool.inspect",
+        "tool.inspect.param.handle",
+        "tool.inspect.param.project_path",
+        "tool.outline",
+        "tool.outline.param.handle",
+        "tool.outline.param.max_depth",
+        "tool.outline.param.max_nodes",
+        "tool.outline.param.project_path",
+        "tool.resolve",
+        "tool.resolve.param.identifier",
+        "tool.resolve.param.max_candidates",
+        "tool.resolve.param.project_path",
+        "tool.resolve_at",
+        "tool.resolve_at.param.column",
+        "tool.resolve_at.param.file",
+        "tool.resolve_at.param.line",
+        "tool.resolve_at.param.project_path",
+        "tool.trace",
+        "tool.trace.param.follow",
+        "tool.trace.param.max_depth",
+        "tool.trace.param.max_nodes",
+        "tool.trace.param.project_path",
+        "tool.trace.param.start",
+        "tool.trace.param.stop_when",
+        "tool.trace_model_inheritance",
+        "tool.trace_model_inheritance.param.envelope",
+        "tool.trace_model_inheritance.param.model_name",
+        "tool.trace_model_inheritance.param.project_path",
+        "tool.trace_model_inheritance.param.scope"
+      ],
+      "commit": "77584a66",
+      "date": "2026-11-17",
+      "resolved": [],
+      "section": "baseline",
+      "subject": "feat(docs-facts): removed-name rule and the uncovered-fact ledger (#826) (#846)"
+    },
+    {
+      "added": [],
+      "commit": "b9e343c6",
+      "date": "2026-11-17",
+      "resolved": [
+        "env.PYEYE_CACHE_TTL",
+        "env.PYEYE_WATCHER_DEBOUNCE"
+      ],
+      "section": "baseline",
+      "subject": "feat(docs-facts): the honest-claims rule D12 (#844) (#847)"
+    },
+    {
+      "added": [],
+      "commit": "eeed7be2",
+      "date": "2026-11-17",
+      "resolved": [
+        "env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES",
+        "tool.configure_packages",
+        "tool.expand",
+        "tool.find_cli_commands",
+        "tool.find_computed_fields",
+        "tool.find_django_migrations",
+        "tool.find_django_models",
+        "tool.find_django_templates",
+        "tool.find_django_urls",
+        "tool.find_django_views",
+        "tool.find_error_handlers",
+        "tool.find_field_validators",
+        "tool.find_flask_blueprints",
+        "tool.find_flask_config",
+        "tool.find_flask_extensions",
+        "tool.find_flask_routes",
+        "tool.find_flask_templates",
+        "tool.find_flask_views",
+        "tool.find_model_config",
+        "tool.find_pydantic_models",
+        "tool.find_validators",
+        "tool.get_model_schema",
+        "tool.inspect",
+        "tool.outline",
+        "tool.resolve",
+        "tool.resolve_at",
+        "tool.trace",
+        "tool.trace_model_inheritance"
+      ],
+      "section": "baseline",
+      "subject": "docs(readme): bind README's code facts and drop its unbacked claims (#830) (#866)"
+    },
+    {
+      "added": [],
+      "commit": "8e1188c7",
+      "date": "2026-11-17",
+      "resolved": [
+        "env.PYEYE_LOG_FILE",
+        "tool.configure_packages.param.save"
+      ],
+      "section": "baseline",
+      "subject": "docs(security): SECURITY.md's security model from the code's facts (#830) (#867)"
+    },
+    {
+      "added": [],
+      "commit": "8664968a",
+      "date": "2026-11-17",
+      "resolved": [
+        "env.PYEYE_MAX_PROJECTS",
+        "scope.default.plugin",
+        "scope.option.all",
+        "scope.option.main",
+        "scope.option.namespace",
+        "scope.option.package",
+        "scope.option.packages",
+        "scope.option.standalone",
+        "tool.configure_packages.param.namespaces",
+        "tool.configure_packages.param.packages",
+        "tool.configure_packages.param.project_path",
+        "tool.configure_packages.param.standalone_dirs"
+      ],
+      "section": "baseline",
+      "subject": "docs(api,architecture): plugin and architecture pages from facts and executed examples (#830) (#877)"
+    },
+    {
+      "added": [],
+      "commit": "8ef763b5",
+      "date": "2026-11-17",
+      "resolved": [
+        "project.requires_python"
+      ],
+      "section": "baseline",
+      "subject": "docs: fix CONTRIBUTING, DOCUMENTATION and the example configs (#830) (#876)"
+    },
+    {
+      "added": [],
+      "commit": "aa239589",
+      "date": "2026-11-18",
+      "resolved": [
+        "tool.trace.param.max_depth",
+        "tool.trace.param.max_nodes"
+      ],
+      "section": "baseline",
+      "subject": "docs(guides): docs/, docs/testing and docs/development guides from facts (#830) (#880)"
+    },
+    {
+      "added": [],
+      "commit": "2d1fc367",
+      "date": "2026-11-18",
+      "resolved": [
+        "ceiling.static_imports",
+        "edge.callers",
+        "edge.decorated_by",
+        "edge.decorates",
+        "edge.overridden_by",
+        "edge.overrides",
+        "edge.passed_by",
+        "edge.read_by",
+        "edge.references",
+        "edge.written_by"
+      ],
+      "section": "baseline",
+      "subject": "docs: correct the shipped skills and the MCP tool descriptions (#830) (#881)"
+    },
+    {
+      "added": [],
+      "commit": "aab9ed93",
+      "date": "2026-11-18",
+      "resolved": [
+        "ceiling.declared_bases",
+        "ceiling.literal_subclassing",
+        "ceiling.on_disk_modules",
+        "ceiling.package_reexports",
+        "ceiling.static_calls",
+        "ceiling.static_definitions"
+      ],
+      "section": "baseline",
+      "subject": "docs(skills): bind the ceilings, bucket order and duplication flags; execute the envelope and resolv"
+    },
+    {
+      "added": [
+        "precommit.hook.black",
+        "precommit.hook.check-added-large-files",
+        "precommit.hook.check-case-conflict",
+        "precommit.hook.check-docstring-first",
+        "precommit.hook.check-json",
+        "precommit.hook.check-merge-conflict",
+        "precommit.hook.check-toml",
+        "precommit.hook.check-yaml",
+        "precommit.hook.commitizen",
+        "precommit.hook.conformance-linter",
+        "precommit.hook.debug-statements",
+        "precommit.hook.decision-log-nudge",
+        "precommit.hook.decisions-check",
+        "precommit.hook.detect-private-key",
+        "precommit.hook.docs-facts-generate",
+        "precommit.hook.duplicate-code-report",
+        "precommit.hook.end-of-file-fixer",
+        "precommit.hook.markdownlint",
+        "precommit.hook.mixed-line-ending",
+        "precommit.hook.mypy",
+        "precommit.hook.name-tests-test",
+        "precommit.hook.path-ownership",
+        "precommit.hook.pretty-format-json",
+        "precommit.hook.pydocstyle",
+        "precommit.hook.refresh-version-file",
+        "precommit.hook.ruff",
+        "precommit.hook.start-metrics-session",
+        "precommit.hook.trailing-whitespace"
+      ],
+      "commit": "088e4f9b",
+      "date": "2026-11-18",
+      "resolved": [],
+      "section": "new",
+      "subject": "docs(facts): repo and pyeye config as facts; pages link instead of restating (#830) (#889)"
+    },
+    {
+      "added": [
+        "env.PYEYE_METRICS_DIR"
+      ],
+      "commit": "db5d574a",
+      "date": "2026-11-18",
+      "resolved": [],
+      "section": "new",
+      "subject": "fix(metrics): keep the unified metrics store bounded and whole (#914) (#918)"
+    },
+    {
+      "added": [],
+      "commit": "85e68f99",
+      "date": "2026-11-18",
+      "resolved": [
+        "env.PYEYE_ISSUE",
+        "env.PYEYE_PARENT_SESSION"
+      ],
+      "section": "baseline",
+      "subject": "refactor(metrics): the server stops writing unified metrics; its surfaces become deprecated stubs (#"
+    },
+    {
+      "added": [
+        "env.PYEYE_ISSUE",
+        "env.PYEYE_PARENT_SESSION"
+      ],
+      "commit": "85e68f99",
+      "date": "2026-11-18",
+      "resolved": [
+        "env.PYEYE_METRICS_DIR"
+      ],
+      "section": "new",
+      "subject": "refactor(metrics): the server stops writing unified metrics; its surfaces become deprecated stubs (#"
+    },
+    {
+      "added": [
+        "env.PYEYE_RESOLVE_CACHE_MAX_ENTRIES"
+      ],
+      "commit": "0d317733",
+      "date": "2026-11-18",
+      "resolved": [],
+      "section": "new",
+      "subject": "perf(resolver): memoise the imports edge's external re-resolutions (#925) (#931)"
+    },
+    {
+      "added": [
+        "tool.find_pydantic_models.param.max_unplaced"
+      ],
+      "commit": "5ad066d1",
+      "date": "2026-11-18",
+      "resolved": [],
+      "section": "new",
+      "subject": "feat(pydantic): disclose unplaced classes in find_pydantic_models' envelope (#921) (#950)"
+    },
+    {
+      "added": [],
+      "commit": "9bf4a7fd",
+      "date": "2026-11-18",
+      "resolved": [
+        "tool.get_connection_diagnostics",
+        "tool.get_performance_metrics"
+      ],
+      "section": "baseline",
+      "subject": "docs: pre-release fixes for the README, SECURITY, DOCUMENTATION and caching pages (#983) (#986)"
+    }
+  ],
+  "new_added_total": 33,
+  "new_now": 32,
+  "new_resolved_total": 1,
+  "open_baseline": [
+    "cli.module.pyeye.mcp",
+    "cli.script.pyeye-mcp",
+    "edges.inspect_unmeasured",
+    "env.PYEYE_ANALYSIS_TIMEOUT",
+    "env.PYEYE_ENABLE_CONNECTION_POOLING",
+    "env.PYEYE_ENABLE_MEMORY_PROFILING",
+    "env.PYEYE_ENABLE_PERFORMANCE_METRICS",
+    "env.PYEYE_LOG_LEVEL",
+    "env.PYEYE_MAX_FILE_SIZE",
+    "env.PYEYE_MAX_WORKERS",
+    "env.PYEYE_PARSO_CACHE_MAX_ENTRIES",
+    "env.PYEYE_POOL_MAX_CONNECTIONS",
+    "env.PYEYE_POOL_TTL",
+    "env.PYEYE_SCRIPT_CACHE_MAX_ENTRIES",
+    "project.python_versions",
+    "review.grade.ambiguous",
+    "review.grade.deterministic_single",
+    "review.grade.mechanical_fact",
+    "review.grade.no_signal",
+    "tool.expand.param.edge",
+    "tool.expand.param.handle",
+    "tool.expand.param.max_stubs",
+    "tool.expand.param.project_path",
+    "tool.find_cli_commands.param.envelope",
+    "tool.find_cli_commands.param.project_path",
+    "tool.find_cli_commands.param.scope",
+    "tool.find_computed_fields.param.envelope",
+    "tool.find_computed_fields.param.project_path",
+    "tool.find_computed_fields.param.scope",
+    "tool.find_django_migrations.param.envelope",
+    "tool.find_django_migrations.param.project_path",
+    "tool.find_django_migrations.param.scope",
+    "tool.find_django_models.param.envelope",
+    "tool.find_django_models.param.project_path",
+    "tool.find_django_models.param.scope",
+    "tool.find_django_templates.param.envelope",
+    "tool.find_django_templates.param.project_path",
+    "tool.find_django_templates.param.scope",
+    "tool.find_django_urls.param.envelope",
+    "tool.find_django_urls.param.project_path",
+    "tool.find_django_urls.param.scope",
+    "tool.find_django_views.param.envelope",
+    "tool.find_django_views.param.project_path",
+    "tool.find_django_views.param.scope",
+    "tool.find_error_handlers.param.envelope",
+    "tool.find_error_handlers.param.project_path",
+    "tool.find_error_handlers.param.scope",
+    "tool.find_field_validators.param.envelope",
+    "tool.find_field_validators.param.project_path",
+    "tool.find_field_validators.param.scope",
+    "tool.find_flask_blueprints.param.envelope",
+    "tool.find_flask_blueprints.param.project_path",
+    "tool.find_flask_blueprints.param.scope",
+    "tool.find_flask_config.param.envelope",
+    "tool.find_flask_config.param.project_path",
+    "tool.find_flask_config.param.scope",
+    "tool.find_flask_extensions.param.envelope",
+    "tool.find_flask_extensions.param.project_path",
+    "tool.find_flask_extensions.param.scope",
+    "tool.find_flask_routes.param.envelope",
+    "tool.find_flask_routes.param.project_path",
+    "tool.find_flask_routes.param.scope",
+    "tool.find_flask_templates.param.envelope",
+    "tool.find_flask_templates.param.project_path",
+    "tool.find_flask_templates.param.scope",
+    "tool.find_flask_views.param.envelope",
+    "tool.find_flask_views.param.project_path",
+    "tool.find_flask_views.param.scope",
+    "tool.find_model_config.param.envelope",
+    "tool.find_model_config.param.project_path",
+    "tool.find_model_config.param.scope",
+    "tool.find_pydantic_models.param.envelope",
+    "tool.find_pydantic_models.param.project_path",
+    "tool.find_pydantic_models.param.scope",
+    "tool.find_validators.param.envelope",
+    "tool.find_validators.param.project_path",
+    "tool.find_validators.param.scope",
+    "tool.get_model_schema.param.envelope",
+    "tool.get_model_schema.param.model_name",
+    "tool.get_model_schema.param.project_path",
+    "tool.get_model_schema.param.scope",
+    "tool.get_performance_metrics.param.export_format",
+    "tool.get_performance_metrics.param.metric_name",
+    "tool.inspect.param.handle",
+    "tool.inspect.param.project_path",
+    "tool.outline.param.handle",
+    "tool.outline.param.max_depth",
+    "tool.outline.param.max_nodes",
+    "tool.outline.param.project_path",
+    "tool.resolve.param.identifier",
+    "tool.resolve.param.max_candidates",
+    "tool.resolve.param.project_path",
+    "tool.resolve_at.param.column",
+    "tool.resolve_at.param.file",
+    "tool.resolve_at.param.line",
+    "tool.resolve_at.param.project_path",
+    "tool.trace.param.follow",
+    "tool.trace.param.project_path",
+    "tool.trace.param.start",
+    "tool.trace.param.stop_when",
+    "tool.trace_model_inheritance.param.envelope",
+    "tool.trace_model_inheritance.param.model_name",
+    "tool.trace_model_inheritance.param.project_path",
+    "tool.trace_model_inheritance.param.scope"
+  ],
+  "open_new": [
+    {
+      "entered": [
+        "85e68f99",
+        "2026-11-18"
+      ],
+      "fact_id": "env.PYEYE_ISSUE",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "85e68f99",
+        "2026-11-18"
+      ],
+      "fact_id": "env.PYEYE_PARENT_SESSION",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "0d317733",
+        "2026-11-18"
+      ],
+      "fact_id": "env.PYEYE_RESOLVE_CACHE_MAX_ENTRIES",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.black",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-added-large-files",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-case-conflict",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-docstring-first",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-json",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-merge-conflict",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-toml",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.check-yaml",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.commitizen",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.conformance-linter",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.debug-statements",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.decision-log-nudge",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.decisions-check",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.detect-private-key",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.docs-facts-generate",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.duplicate-code-report",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.end-of-file-fixer",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.markdownlint",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.mixed-line-ending",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.mypy",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.name-tests-test",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.path-ownership",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.pretty-format-json",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.pydocstyle",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.refresh-version-file",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.ruff",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.start-metrics-session",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "088e4f9b",
+        "2026-11-18"
+      ],
+      "fact_id": "precommit.hook.trailing-whitespace",
+      "first_seen": "2.2.0"
+    },
+    {
+      "entered": [
+        "5ad066d1",
+        "2026-11-18"
+      ],
+      "fact_id": "tool.find_pydantic_models.param.max_unplaced",
+      "first_seen": "2.2.0"
+    }
+  ],
+  "ref": "55e35597",
+  "revisions": 17
+}

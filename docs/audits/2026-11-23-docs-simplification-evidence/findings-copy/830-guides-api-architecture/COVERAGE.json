@@ -1,0 +1,146 @@
+[
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "States current coverage as 79% (as of January 2025) and calls 85% an unreached Phase 2 target, beside a fact block showing that 85% is already the enforced threshold. pytest fails below the threshold, so a 79% figure contradicts the page's own fact block, and the date makes it volatile status (D12).",
+    "replacement": "Delete the 'Current Coverage' and 'Target' lines. Keep only '**CI Threshold**: <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->' (pytest enforces it through pyproject's addopts), and leave the codecov badge to show live coverage.",
+    "section": "-current-status",
+    "subject": "**Current Coverage**: 79% (as of January 2025)"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "Says the CI threshold is set and enforced at 75%. The enforced threshold is the ci.coverage_threshold fact, not 75%.",
+    "replacement": "Fold Phases 1 and 2 into one past-tense sentence, e.g. 'The threshold was raised from 75% to its current <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.', and drop the per-phase status bullets.",
+    "section": "phase-1-75--achieved",
+    "subject": "**CI Threshold**: Set and enforced"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "Presents 85% as an active, unreached target with 79% current coverage and a 6% gap. The ci.coverage_threshold fact shows 85% is already enforced, so the phase, the current figure and the gap are all wrong.",
+    "replacement": "Delete the Phase 2 'In Progress' block; the threshold is stated once with an inline block (<!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->) in the folded milestone sentence.",
+    "section": "phase-2-85--in-progress",
+    "subject": "- **Current**: 79%\n- **Gap**: 6%"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/COVERAGE.md",
+    "problem": "States a future plan (a 90% phase triggered by 'wide adoption') as if it were scheduled. No issue or record backs it.",
+    "replacement": "Delete the Phase 3 block, or replace it with a link to the issue that tracks raising the threshold if one exists.",
+    "section": "phase-3-90--future",
+    "subject": "**Trigger**: When project reaches wide adoption"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/COVERAGE.md",
+    "problem": "A table of per-file coverage percentages and projected 'Impact on Total' figures from January 2025, with no record behind them. They are frozen numbers presented as current, and the total they lead to is already past the threshold (e.g. path_utils.py at 0% is no longer plausible).",
+    "replacement": "Delete the table and say how to find low-coverage files instead: run `uv run pytest --cov-report=term-missing` and sort by the Miss column, or open the codecov dashboard.",
+    "section": "priority-files-biggest-impact",
+    "subject": "| `src/pyeye/plugins/flask.py` | 56% | ~119 lines | +3-4% |"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/COVERAGE.md",
+    "problem": "Asserts that path_utils.py, async_utils.py and plugins/base.py have low coverage, with no record. It depends on the frozen January 2025 table.",
+    "replacement": "Delete the Quick Wins section along with the priority table.",
+    "section": "quick-wins",
+    "subject": "Files with low coverage but easy to test:"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "The 'Ensure minimum threshold' command uses --cov-fail-under=75, which contradicts the enforced threshold. pyproject's addopts already passes the threshold, so the number doesn't belong in the command.",
+    "replacement": "Make the command plain `uv run pytest` (comment: '# Fails below the threshold; pyproject's addopts enforces it'), and state the threshold once in prose above the fence: 'pytest fails when coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.'",
+    "section": "running-coverage-locally",
+    "subject": "uv run pytest --cov=src/pyeye --cov-fail-under=75"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/COVERAGE.md",
+    "problem": "tests/plugins/test_flask.py doesn't exist (the Flask plugin tests are tests/unit/plugins/test_flask_plugin.py), and src/pyeye/plugins/flask is not a directory. Also, addopts' coverage threshold applies to a single-file run, so a module-scoped run fails on the threshold.",
+    "replacement": "uv run pytest --cov=pyeye.plugins.flask --cov-fail-under=0 tests/unit/plugins/test_flask_plugin.py",
+    "section": "running-coverage-locally",
+    "subject": "uv run pytest --cov=src/pyeye/plugins/flask tests/plugins/test_flask.py"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "Gives the baseline as 'currently 79%', below the enforced threshold, and as volatile status.",
+    "replacement": "- [ ] Coverage is at or above <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end --> (pytest fails below it)",
+    "section": "-pr-checklist-for-coverage",
+    "subject": "Coverage is \u2265 baseline (currently 79%)"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/COVERAGE.md",
+    "problem": "The whole section describes raising the threshold from 75 to 85 as future work. The ci.coverage_threshold fact shows it is already 85%, so the section is obsolete.",
+    "replacement": "Delete the section. If a how-to for raising the threshold is wanted, replace it with 'Raising the threshold': change `--cov-fail-under` in pyproject's addopts and in ci.yml in one PR; `docs_facts.py generate` updates every page that binds ci.coverage_threshold.",
+    "section": "-when-we-reach-85",
+    "subject": "--cov-fail-under=85  # Update from 75"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/COVERAGE.md",
+    "problem": "A promise of future updates that has not been kept since January 2025, with an 'set 85% target' entry that is now stale.",
+    "replacement": "Delete the placeholder line; keep the January 2025 entry as history and add a dated line for when the threshold reached its current value, if known.",
+    "section": "coverage-history",
+    "subject": "(Updates will be added as milestones are reached)"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/COVERAGE.md",
+    "problem": "An empty list with a promise of maintenance that has not happened.",
+    "replacement": "Delete the 'Files Improved' section, and step 4 'Update This Doc' under Contributing to Coverage that feeds it.",
+    "section": "files-improved",
+    "subject": "(List will be maintained as improvements are made)"
+  }
+]

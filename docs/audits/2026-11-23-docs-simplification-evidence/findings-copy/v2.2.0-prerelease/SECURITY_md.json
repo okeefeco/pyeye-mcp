@@ -1,0 +1,34 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig._passes_path_check",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "A refused entry is skipped with a warning, as package paths already are, never an error"
+      }
+    ],
+    "extractor": "security",
+    "page": "SECURITY.md",
+    "page_hash": "fdef3393",
+    "problem": "The hand-written list of checked inputs says config files have only their `namespaces` and `standalone.dirs` paths checked (and skipped with a warning when refused). The code also checks a config file's `packages` entries and skips a refused one with a warning (ProjectConfig._package_refusal via _process_package_path; rejected_paths records scope `packages`). Wrong on the config `packages` path, and the list is a code fact written by hand.",
+    "replacement": "Replace the hand-written 'That covers:' list with a fact block, produced by the security extractor, that enumerates every caller-supplied and config-supplied path input the PathValidator check is applied to (including a config file's `packages` entries), and keep only the prose on why refused config entries are skipped with a warning rather than failing the call.",
+    "route": "fact",
+    "section": "security-model"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "SECURITY.md",
+    "page_hash": "fdef3393",
+    "problem": "Restates the pip-audit hook's `files` pattern from .pre-commit-config.yaml by hand (C17), and incompletely: the pattern is `(requirements.*\\.txt|pyproject\\.toml|uv\\.lock)$`, so requirements*.txt changes also trigger it. No fact carries the hook's trigger files yet.",
+    "replacement": "Bind the pip-audit hook's trigger files through a new repo_config fact (the hook's `files` pattern from .pre-commit-config.yaml) in place of naming `pyproject.toml` and `uv.lock` by hand, e.g. 'whenever one of <fact: precommit.hook.pip-audit.files> changes'.",
+    "section": "security-checks-in-development",
+    "subject": "whenever `pyproject.toml` or\n`uv.lock` changes"
+  }
+]

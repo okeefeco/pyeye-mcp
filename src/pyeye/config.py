@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from ._data_files import read_yaml
 from .constants import CONFIG_FILE, CONFIG_FILES, GLOBAL_CONFIG_FILES, OVERRIDE_FILE, PROJECT_NAME
 from .path_utils import normalize_path, path_to_key, repo_path_refusal
 from .project_layout import detect_src_layout
@@ -296,14 +297,12 @@ class ProjectConfig:
                         self._project_layer = copy.deepcopy(section)
 
             elif config_path.suffix in [".yaml", ".yml"]:
-                with open(config_path) as f:
-                    import yaml
-
-                    data = yaml.safe_load(f)
-                    section = data.get(PROJECT_NAME, data)
-                    self.config.update(self._without_network(section, config_path, repo))
-                    if project_file:
-                        self._project_layer = copy.deepcopy(section)
+                # The one YAML reader, safe_load only (#1091).
+                data = read_yaml(config_path)
+                section = data.get(PROJECT_NAME, data)
+                self.config.update(self._without_network(section, config_path, repo))
+                if project_file:
+                    self._project_layer = copy.deepcopy(section)
 
             elif config_path.name == "pyproject.toml":
                 import tomllib

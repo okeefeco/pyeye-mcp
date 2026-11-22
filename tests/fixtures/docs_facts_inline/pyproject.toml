@@ -1,0 +1,44 @@
+# A small repository configured inline for docs-facts (#1091): the inline path,
+# dogfooded in CI by tests/test_docs_facts_inline_fixture.py. Data only.
+[project]
+name = "inline-demo"
+version = "0.4.0"
+requires-python = ">=3.11"
+
+[tool.pyeye.docs_facts]
+rules = ["honest-claims"]
+
+[[tool.pyeye.docs_facts.facts]]
+id = "demo.requires_python"
+from = "toml"
+file = "pyproject.toml"
+key = "project.requires-python"
+
+[[tool.pyeye.docs_facts.facts]]
+id = "demo.timeout"
+from = "literal"
+file = "app/settings.py"
+name = "TIMEOUT"
+
+[[tool.pyeye.docs_facts.facts]]
+id = "demo.backends"
+from = "literal"
+file = "app/settings.py"
+name = "BACKENDS"
+
+[[tool.pyeye.docs_facts.facts]]
+id = "demo.region"
+from = "json"
+file = "app/deploy.json"
+key = "deploy.region"
+
+[[tool.pyeye.docs_facts.facts]]
+id = "demo.workers"
+from = "yaml"
+file = "app/workers.yaml"
+key = "pool.size"
+
+[[tool.pyeye.docs_facts.docs]]
+path = "docs/overview.md"
+audience = "human"
+kind = "prose"

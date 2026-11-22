@@ -1,0 +1,118 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "In a git worktree, `.git` points at `.git/worktrees/<name>`, which has no `hooks/` directory. Worktrees share the main repository's hooks, and `pre-commit install` writes them there (`git rev-parse --git-path hooks` gives `<main>/.git/hooks`). Following the gitdir path sends the reader to a directory that doesn't exist. A separate issue to file: `scripts/setup_dogfooding.sh` makes the same mistake in its hook check (`$GIT_DIR/hooks` taken from the `.git` file), so the setup reports 'Git hooks not properly installed' and exits 1 when run from a worktree, which contradicts 'The setup handles git worktrees automatically'.",
+    "replacement": "```bash\n# Find the hooks directory (worktrees share the main repository's hooks)\ngit rev-parse --git-path hooks\n```",
+    "section": "worktree-issues",
+    "subject": "# Follow the gitdir path and check hooks there"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "In a git worktree `.git` is a file, not a directory, so this command fails with 'Not a directory', even when the hook is installed correctly in the shared hooks directory.",
+    "replacement": "head -2 \"$(git rev-parse --git-path hooks)/post-checkout\"",
+    "section": "git-hooks-not-working",
+    "subject": "head -2 .git/hooks/post-checkout"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "The sample summary shows MCP queries being counted, but nothing this setup installs records any. A session's MCP count comes only from `dogfooding_metrics.py mcp <tool>` (called by `scripts/mcp_wrapper.sh`), and neither the aliases nor the git hooks call it. After following this page, the count is 0 and the adoption rate is 0%. The MCP calls Claude makes are counted by the separate Claude Code hooks (docs/DOGFOODING_INTEGRATION.md).",
+    "replacement": "Add one sentence after the sample: \"MCP queries count only what you log with `uv run --frozen python scripts/dogfooding_metrics.py mcp <tool>`. The MCP calls Claude makes are counted by the Claude Code hooks; see [Dogfooding integration](DOGFOODING_INTEGRATION.md).\"",
+    "section": "3-session-handover",
+    "subject": "# MCP queries: 12"
+  },
+  {
+    "anchor": {
+      "id": "contradictory-directive",
+      "kind": "audience_rule"
+    },
+    "assessment": "unanchored: judgment only. Renaming removes the ambiguity at its source; a note only describes it.",
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "a code change, and existing users must re-run the alias setup",
+        "text": "Rename this setup's alias (e.g. `dogfood-report`) in setup_aliases.sh, and update this page."
+      },
+      {
+        "cost": "the collision stays; readers must manage it themselves",
+        "text": "Keep both names, and add a note on each page that the two aliases collide and the later definition wins."
+      }
+    ],
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "This page's `mcp-report` is the `setup_aliases.sh` alias for `dogfooding_metrics.py report`. docs/DOGFOODING_INTEGRATION.md (and the root CLAUDE.md) tell readers to use `mcp-report` for the Claude Code hooks' reports, an alias that `scripts/claude_hooks/setup_mcp_monitoring.sh` defines as `mcp_analytics.py`. A reader who sets up both gets whichever alias was defined last, and one page's instruction silently runs the other tool.",
+    "question": "Which tool should `mcp-report` name?",
+    "section": "-manual-commands",
+    "subject": "mcp-report --days 7"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "The `mcp-*` aliases and the `grep`/`cd` functions run `scripts/dogfooding_metrics.py` by a relative path, so the `mcp-*` commands work, and the functions track, only when the current directory is the project root. In any subdirectory, `mcp-report` fails with a missing file. 'MCP projects' is also undefined.",
+    "replacement": "- The `mcp-*` commands, and the `grep`/`cd` tracking, run `scripts/dogfooding_metrics.py` relative to the current directory, so use them from the project root",
+    "section": "-important-notes",
+    "subject": "Shell aliases work across all directories but only track in MCP projects"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "An absolute privacy guarantee with no record behind it. What the scripts can actually be seen to do is narrower: they write to `~/.pyeye/metrics/`.",
+    "replacement": "- The metrics scripts write their data only to `~/.pyeye/metrics/` on your machine",
+    "section": "-important-notes",
+    "subject": "All tracking is local to your machine - no data leaves your system"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "The list reads as complete, but it leaves out the `grep`, `egrep`, `fgrep` and `rg` wrappers in `~/.local/bin`, and the `export PATH=\"$HOME/.local/bin:$PATH\"` line that `setup_grep_tracking.sh` appends to `~/.bashrc`/`~/.zshrc`. Those are the files a reader needs to know about to undo the setup.",
+    "replacement": "Add a subsection: \"### Search wrappers\" listing `~/.local/bin/{grep,egrep,fgrep,rg}` and the `# Added by PyEye dogfooding setup` PATH line in `~/.bashrc`/`~/.zshrc`.",
+    "section": "-files-created",
+    "subject": "The setup creates these files:"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "page_hash": "5aa10825",
+    "problem": "Refers to a team chat the page never identifies, and to 'logs' that the setup doesn't produce (it writes metrics JSON, not logs).",
+    "replacement": "Delete the line, and make step 3: \"Open an issue at https://github.com/okeefeco/pyeye-mcp/issues with the failing command and its output\".",
+    "section": "-getting-help",
+    "subject": "Ask in team chat with logs"
+  }
+]

@@ -1,0 +1,57 @@
+# PR 869 docs(history): clear the honest-claims seeds on four history pages (#830)
+## Description
+
+Part of #830, slice 3, which covers the four history pages the docs site held back while they had honest-claims (D12) seeds (`site` gate, C16):
+- `docs/METRICS_BASELINE.md` (12 seeds)
+- `benchmarks/BASELINE_RESULTS.md` (25)
+- `docs/migration-guide.md` (13)
+- `docs/api-redesign.md` (3)
+
+This is the first real run of the internal `/docs-review`: one fresh reviewer per page, 38 findings, all of which pass `scripts/docs_review.py validate`. The maintainer decided the four needs-decision findings; the rest are applied as proposed.
+
+- **BASELINE_RESULTS** (decision: remove the figures). Nothing records how they were made: the page gave no date, command or commit, and `benchmark_simple.py` only prints min, median and max for a small project. It is now a figure-free note of the 2025-08-20 baseline (f840b8b5, #45), taken before the async I/O work, and what it led to.
+- **METRICS_BASELINE:** the unbacked figures, targets and projections are removed, along with the sections that were nothing but numbers, and two "would have found all" counterfactuals are trimmed. The header now says what was removed (#830). The contribution step that sent humans to CLAUDE.md now says "Describe it in the issue or PR".
+- **migration-guide:**
+  - it says it covers 0.1.x to 0.2.0, and that some APIs shown were later removed;
+  - the unsourced "2.5x faster" benchmarks, the "50% reduction" memory claim and Future Deprecations are removed;
+  - `invalidate_scope` is deleted (decision);
+  - the old default-scope block is deleted and the page links the live defaults (decision, C15);
+  - the "scope was required before 0.2.0" claim, which was false even then, is fixed, along with the wrong signature block, `find_routes` (a plugin method, never an analyzer one) and the invalid rollback `pip install`.
+- **api-redesign** (decision (b)): a note under the title says the page records the redesign's design, with current shapes in `docs/reference/tools.md`, `edges.md` and the python-explore skill; no sections were added. The outright-wrong examples are fixed:
+  - the `GranularCache` examples, a class deleted in #628;
+  - relative `file` paths;
+  - the `module` edge row;
+  - the TypeRef cache sentence;
+  - a stale line reference and a private `~/.claude` cross-reference.
+
+  The wire-size figures are removed. The reviewer's own replacement still carried them, so the paragraph now points at the conformance test that keeps the baseline (`LSP_BRIDGE_BASELINE_BYTES` in `tests/conformance/test_spec_acceptance.py`).
+- **Seeds:** all 53 for these pages are removed from `claim_seeds.py` (190 to 137). The site gate now publishes all four pages. `test_docs_facts_site` now asserts the gate as a property (a history page is published exactly when it has no seeds), not a fixed list.
+
+Fragment: `changes/830-3.fixed.md`.
+
+## Related Issue
+Refs #830
+
+## Type of Change
+- [x] Documentation update
+
+## Checklist
+- [x] My code follows the project's style guidelines
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+- [x] I have checked for security vulnerabilities
+
+## Testing
+- `docs_facts check`: 76 files match, with no honest-claims findings left on the four pages.
+- `mkdocs build --strict`: no warnings. All four pages are built (`site/docs/migration-guide/`, `site/docs/api-redesign/`, `site/docs/METRICS_BASELINE/`, `site/benchmarks/BASELINE_RESULTS/`).
+- The docs-facts, docs-examples and sphinx-retired tests: 634 pass. `decisions.py check`, `changelog.py check` and `no-breaking` (prints 0) all pass.
+- Full suite not re-run: the change is docs, the seed data and one docs test.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/869?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/architecture/resolution.md",
+    "page_hash": "ffda1eae",
+    "problem": "The bullet hand-writes the not-found response shape (C15). It is correct today, but no bound fact or executed example carries it, so it can drift from the tools' actual miss responses without any check failing.",
+    "replacement": "Replace the hand-written shape with an executed example that shows a miss, e.g. a ```json pyeye-example tool=resolve``` block with {\"identifier\": \"no_such_symbol_xyz\"} and its ```json pyeye-output``` block, and keep only the why in prose: \"Every primitive except `trace` answers a miss with one not-found shape (the example below), with `reason` drawn from a closed per-operation set and `detail` naming the next step (#626).\"",
+    "section": "saying-i-dont-know-honestly",
+    "subject": "`{found: false, <lookup echo>, reason, detail}`"
+  },
+  {
+    "anchor": {
+      "id": "D12-volatile",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/resolution.md",
+    "page_hash": "ffda1eae",
+    "problem": "\"now\" is a status word that goes stale; the sentence describes the current behaviour, which the issue references (#713) already date.",
+    "replacement": "pyeye recovers a missing entry from the module's own tree, with an identical answer, and bounds the cache with an LRU of its own (#713, `pyeye._parso_cache`).",
+    "section": "the-environment-the-resolver-sees",
+    "subject": "pyeye now recovers a missing entry"
+  }
+]

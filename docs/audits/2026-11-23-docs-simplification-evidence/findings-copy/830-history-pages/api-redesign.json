@@ -1,0 +1,143 @@
+[
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api-redesign.md",
+    "problem": "Lines 21-24 state the ~17,500 bytes / ~527 bytes / 0.03x wire-cost comparison with no linked record, and present GranularCache as if it still exists. The record is tests/conformance/test_spec_acceptance.py (the hard-coded LSP_BRIDGE_BASELINE_BYTES = 17_500 and the 'As of 2026-05-02: actual ratio ~0.030x (527 bytes ...)' note). GranularCache was deleted in #628, and that test now measures pyeye.analyzers.jedi_analyzer.JediAnalyzer against a 0.30x floor, not a 0.03x result.",
+    "replacement": "Measurement from 2026-05-02: `mcp-language-server`'s `definition` call for `GranularCache` (a 234-line class, since deleted in #628) returned ~17,500 bytes per copy, and `inspect` on the same class returned ~527 bytes, roughly 0.03x the wire cost. Both figures are recorded in `tests/conformance/test_spec_acceptance.py`, which keeps the 17,500-byte baseline as a fixed literal and now checks that `inspect` on a large live class (`JediAnalyzer`) stays at or under 0.30x of it.",
+    "section": "why-a-redesign"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api-redesign.md",
+    "problem": "Lines 41-44 call `members` / `callees` / `imported_by` / `subclasses` / `superclasses` / `imports` / `enclosing_scope` 'the complete static edge set'. EDGE_RESOLVERS in src/pyeye/mcp/operations/edges.py also registers `submodules` and `re_exports` (the skill's edge list at skills/python-explore/SKILL.md:138 has all nine). The 'complete' claim is wrong as written. (This is C-S2, listed here because the absolute wording makes it wrong, not just incomplete; the decision finding below covers whether to restate the edge list at all.)",
+    "replacement": "`expand()` and `trace()` are also shipped, live MCP tools. The full primitive set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) is implemented. For the edges they traverse, see the live edge list in `skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page doesn't repeat it.",
+    "section": "current-status"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "The ResolveResult block (lines 68-99) is tagged ```json but contains // comments, and two of its three shapes are wrong. Not-found: the real response is {found: false, identifier, reason, detail} with reason from the closed set unresolved / file_not_found / no_symbol_at_position (src/pyeye/mcp/operations/not_found.py). There is no `handle: null`, and no reason text like \"no match for 'UnknownClass'\". Ambiguous: the real shape is `found: true, ambiguous: true, candidates` (resolve.py _AmbiguousResult), not `found: \"ambiguous\"`. The success example's location.file is relative; pyeye returns absolute paths (C-S4). Verified live: resolve('UnknownClass') returns the shape below.",
+    "replacement": "Change the fence to ```jsonc (or split it into three ```json blocks with the labels as prose) and replace the shapes with:\n\n// Success\n{\n  \"found\": true,\n  \"handle\": \"mypackage._impl.config.Config\",\n  \"kind\": \"class\",\n  \"scope\": \"project\",\n  \"location\": {\n    \"file\": \"/abs/path/to/project/src/mypackage/_impl/config.py\",\n    \"line_start\": 10, \"line_end\": 22, \"column_start\": 6, \"column_end\": 12\n  }\n}\n\n// Not found (reason is one of \"unresolved\", \"file_not_found\", \"no_symbol_at_position\")\n{\n  \"found\": false,\n  \"identifier\": \"UnknownClass\",\n  \"reason\": \"unresolved\",\n  \"detail\": \"'UnknownClass' did not resolve to a symbol. Check the spelling, or call resolve('UnknownClass') with the bare name to search the whole project.\"\n}\n\n// Ambiguous (a bare name matches several definitions)\n{\n  \"found\": true,\n  \"ambiguous\": true,\n  \"candidates\": [\n    {\"handle\": \"pkg_a.Widget\", \"kind\": \"class\", \"scope\": \"project\", \"location\": {...}},\n    {\"handle\": \"pkg_b.Widget\", \"kind\": \"class\", \"scope\": \"project\", \"location\": {...}}\n  ]\n}",
+    "section": "resolveidentifier-project_path"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "The example resolves to `pyeye.cache.GranularCache`. That class was deleted in #628 (src/pyeye/cache.py now defines only CodebaseWatcher), so the example can't be reproduced (C-W2).",
+    "replacement": "Use the page's own running example instead:\n\nresolve_at(\"src/mypackage/_impl/config.py\", 10, 6) \u2192\n{\n  \"found\": true,\n  \"handle\": \"mypackage._impl.config.Config\",\n  \"kind\": \"class\",\n  \"scope\": \"project\",\n  \"location\": {...}\n}",
+    "section": "resolve_atfile-line-column-project_path"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "The inspect example uses the deleted `pyeye.cache.GranularCache` (C-W2), a relative `file` (C-S4; locations are absolute), and leaves out `found: true`, which every successful inspect node carries (inspect.py, the node dict starts with \"found\": True; C-M2). It also shows a class signature as `class GranularCache(ProjectCache)`; inspect actually gives a class signature in constructor form, e.g. `JediAnalyzer(project_path: str=\".\", ...)`.",
+    "replacement": "inspect(\"mypackage._impl.config.Config\") \u2192\n{\n  \"found\": true,\n  \"handle\": \"mypackage._impl.config.Config\",\n  \"kind\": \"class\",\n  \"scope\": \"project\",\n  \"location\": {\n    \"file\": \"/abs/path/to/project/src/mypackage/_impl/config.py\",\n    \"line_start\": 10,\n    \"line_end\": 22,\n    \"column_start\": 6,\n    \"column_end\": 12\n  },\n  \"docstring\": \"Project configuration.\",\n  \"signature\": \"Config(path: str)\",\n  \"superclasses\": [\"mypackage._impl.base.BaseConfig\"],\n  \"edge_counts\": {\"members\": 12, \"superclasses\": 1},\n  \"re_exports\": [\"mypackage.Config\"]\n}",
+    "section": "inspecthandle-project_path"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "The location example uses `\"file\": \"src/pyeye/cache.py\"`, a relative path to the deleted GranularCache's span. pyeye returns absolute file paths, in the caller's spelling of the project root (verified: resolve('pyeye.cache') returns /home/.../src/pyeye/cache.py; path_utils respell_paths) (C-S4, C-W2).",
+    "replacement": "{\n  \"file\": \"/abs/path/to/project/src/mypackage/_impl/config.py\",\n  \"line_start\": 10,\n  \"line_end\": 22,\n  \"column_start\": 6,\n  \"column_end\": 12\n}\n\nand add to the bullet list: \"- `file` is an absolute path, spelled the way you spelled `project_path`.\"",
+    "section": "location-shape"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api-redesign.md",
+    "problem": "The table lists `module` as measuring only `members`. _build_edge_counts (src/pyeye/mcp/operations/inspect.py) also counts `submodules` for a package (present, possibly 0, for a package; absent for a plain module, #423). The table also doesn't say that an edge which overruns the per-measurement budget (default 2 s) is left out of edge_counts.",
+    "replacement": "Change the module row to: | `module` | `members`; also `submodules` for a package (absent for a plain module) |. Add after the table: \"An edge whose measurement overruns its time budget is left out of `edge_counts`, not reported as `0`.\"",
+    "section": "measured-edges-per-kind"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api-redesign.md",
+    "problem": "States TypeRef builds are cached per `(file_path, mtime_ns, raw)` in a per-process dict (C-S3). In src/pyeye/mcp/operations/typeref.py the key is (project_root, file, mtime_ns, lineno, col, end_lineno, end_col, source), the store is an LRU OrderedDict capped at _TYPEREF_CACHE_MAX = 4096 entries, and the module docstring notes the key covers only the annotation's own file, so an edit elsewhere that changes what a head resolves to is handled separately.",
+    "replacement": "TypeRef builds are cached in a bounded, per-process LRU keyed on the project root, the annotation's file and its `mtime_ns`, the annotation's position, and its source text (see `_typeref_cache` in `src/pyeye/mcp/operations/typeref.py`). An edit to that file changes `mtime_ns`, so the old entry is never hit again and the next `inspect` rebuilds it. This keeps repeated `inspect` calls on heavily typed modules cheap.",
+    "section": "caching"
+  },
+  {
+    "anchor": {
+      "id": "broken-link",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "Points at the spec's \"Type fields as `TypeRef` trees\" section at \"lines ~395-475\". The heading is now at line 439 and the section runs to line 517, so the line range is stale.",
+    "replacement": "Full normative discussion lives in `docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`, section \"Type fields as `TypeRef` trees\". (Drop the line numbers; the section heading is the stable anchor.)",
+    "section": "spec-cross-reference"
+  },
+  {
+    "anchor": {
+      "id": "broken-link",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api-redesign.md",
+    "problem": "Line 556 points readers to `~/.claude/projects/okeefeco/pyeye-mcp.md` (a memory entry). That is a private, per-user file outside the repo; it doesn't exist on this machine either. Readers of the published page can't open it (C-N9). The principle it names is written down in the repo, in the spec's \"1. Layering \u2014 semantic vs. content\" section.",
+    "replacement": "- Layering principle: `docs/superpowers/specs/2026-05-02-progressive-disclosure-api-design.md`, section \"1. Layering \u2014 semantic vs. content\" (pyeye returns pointers and structural facts, never file content)",
+    "section": "cross-references"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "Makes this page a third hand-written copy of the contract, next to docs/reference/ and the skill. Nothing generates or checks it, so it drifts again, which is how the current rows arose. It also blurs the page's kind: history.",
+        "text": "(a) Bring the page up to date: add max_candidates/truncation, found: true, the unparseable and budget caveats, the scope rule, a not-found/tool-error section, a deprecation note for re_exports, and the full edge list."
+      },
+      {
+        "cost": "The page is no longer a complete current reference. A reader who wants truncation, scope or error details clicks through to one more page.",
+        "text": "(b) Add a short note under the title: 'This page records the design of the resolve / inspect redesign (Phases 1-8). For the response shapes as they are now, see docs/reference/tools.md, docs/reference/edges.md and skills/python-explore/SKILL.md.' Keep the narrative. Apply only the clear fixes for wrong statements (the other findings on this page), plus a one-line note in the Re-exports section and at the `re_exports` table row: 'Deprecated: use `expand(handle, \"re_exports\")`; the field is removed in v3.0 (#749).'"
+      },
+      {
+        "cost": "The biggest rewrite of a history page, and it removes worked examples that explain the design choices (absence-vs-zero, spans, TypeRef).",
+        "text": "(c) Cut the detailed shape sections (the intake operation examples, the Node response shape, the measured-edges table) down to design rationale only, and link the reference for every shape."
+      }
+    ],
+    "page": "docs/api-redesign.md",
+    "problem": "This history page restates current response shapes in detail, and those copies have drifted from the code. Missing or out of date: resolve's `max_candidates` cap with `truncated` / `truncation_reasons` / `total` (C-M1); `found: true` on every successful node in the universal-fields table (C-M2); `re_exports` absent when a package file can't be parsed, while edge_counts can drop a budget-overrun edge (C-M3); what `scope: \"project\"` covers, which is anything under the project's source roots, including configured packages, namespaces and standalone dirs (scope.classify_scope -> project_roots; C-M4); no section on the shared not-found shape and tool errors (C-M5); `re_exports` shown as a current field with no note that it is deprecated in favour of `expand(handle, \"re_exports\")` and goes away in v3.0 (#393/#749; C-S1); and the edge list without `submodules` / `re_exports` (C-S2). The page's own intro already says the conformance-tested reference is skills/python-explore/SKILL.md, and docs/reference/ (tools.md, edges.md) is generated from the code.",
+    "question": "Should this design record keep restating the current response shapes, or should it mark itself as the redesign's design rationale and send readers to the generated reference and the skill for the shapes?",
+    "recommendation_anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "recommended": 1,
+    "section": "the-node-response-shape"
+  }
+]

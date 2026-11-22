@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "DOCUMENTATION.md",
+    "page_hash": "c5bbf4e7",
+    "problem": "Absolute claim without its real scope: the tool reference shows the admin tools (`get_connection_diagnostics`, `get_performance_metrics`, registered when PYEYE_ENABLE_PERFORMANCE_METRICS is set) take no `project_path`. Only the core and plugin analysis tools do.",
+    "replacement": "Claude Desktop doesn't start the server in your project, so ask for the project explicitly: the analysis tools (core and plugin) take a `project_path` argument (see the [tool reference](docs/reference/tools.md)).",
+    "section": "configure-for-claude-desktop",
+    "subject": "every tool takes a `project_path` argument"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "page_hash": "c5bbf4e7",
+    "problem": "The first paragraph ends with a colon introducing the `claude mcp add` commands, but the uv-prerequisite paragraph sits between the colon and the code block, so the colon points at unrelated text.",
+    "replacement": "Move the paragraph \"These commands need [uv](https://docs.astral.sh/uv/). After a pip install, use the installed `pyeye-mcp` command instead (see the README's [Installation](README.md#installation)).\" above the paragraph that starts \"pyeye analyzes the directory the server starts in\", so the colon-terminated paragraph leads straight into the code block.",
+    "section": "configure-for-claude-code",
+    "subject": "These commands need [uv](https://docs.astral.sh/uv/). After a pip install, use"
+  }
+]

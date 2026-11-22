@@ -70,9 +70,9 @@ def expand(ids: Iterable[str], facts: Mapping[str, Bindable]) -> set[str]:
     return out
 
 
-def load(root: Path) -> Ledger | None:
+def load(root: Path, record: str = UNCOVERED) -> Ledger | None:
     """The committed ledger, or None before it's first created."""
-    path = root / UNCOVERED
+    path = root / record
     if not path.is_file():
         return None
     data = json.loads(path.read_text(encoding="utf-8"))

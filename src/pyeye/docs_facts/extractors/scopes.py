@@ -6,8 +6,9 @@ Read from :data:`pyeye.scope_utils.SCOPE_FORMS`, the one list of scope forms
 default is its ``scope`` parameter fact (``tool.<name>.param.scope``, from the
 ``mcp_surface`` extractor); this extractor owns only the policy.
 
-It imports nothing from :mod:`pyeye.mcp.server`, so tool descriptions can be
-filled from it while the server module loads (:mod:`pyeye.docs_facts.describe`).
+It imports nothing from pyeye: it reads the source (#1098, C19). The server's
+tool descriptions render the same facts from the live constants through
+:func:`scope_facts` (:func:`pyeye.docs_facts.describe.live_facts`).
 """
 
 from __future__ import annotations
@@ -15,7 +16,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from ...scope_utils import PLUGIN_FALLBACK_SCOPE, SCOPE_FORMS
 from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
@@ -33,25 +33,15 @@ def extract(root: Path) -> Iterator[Bindable]:
     """
     forms = static.call_args(root, "pyeye.scope_utils", "SCOPE_FORMS", 3)
     fallback = static.constant(root, "pyeye.scope_utils", "PLUGIN_FALLBACK_SCOPE")
-    return _facts([(n, s, m) for n, s, m in forms], fallback)
+    return scope_facts([(n, s, m) for n, s, m in forms], fallback)
 
 
-def _extract_imported(_root: Path) -> Iterator[Bindable]:
-    """The live path the server's descriptions read, until #1098 Q1 decides."""
-    return extract_code()
+def scope_facts(scope_forms: list[tuple[str, str, str]], fallback: str) -> Iterator[Bindable]:
+    """The scope facts from ``(name, syntax, meaning)`` forms and the plugin fallback.
 
-
-def extract_code() -> Iterator[Bindable]:
-    """The scope facts, from the installed code alone; reads no file (#851).
-
-    The server fills its tool descriptions from these while it loads
-    (:mod:`pyeye.docs_facts.describe`); whether that stays live or reads the
-    installed source too is #1098's Q1.
+    ``extract`` passes what it reads from the source; the server's tool
+    descriptions pass the imported constants (:func:`..describe.live_facts`, #1098 Q1).
     """
-    return _facts([(f.name, f.syntax, f.meaning) for f in SCOPE_FORMS], PLUGIN_FALLBACK_SCOPE)
-
-
-def _facts(scope_forms: list[tuple[str, str, str]], fallback: str) -> Iterator[Bindable]:
     forms = [
         Fact(
             f"scope.option.{name}",

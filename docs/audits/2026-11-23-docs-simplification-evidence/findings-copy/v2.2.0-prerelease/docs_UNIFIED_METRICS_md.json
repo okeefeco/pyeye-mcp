@@ -1,0 +1,39 @@
+[
+  {
+    "anchor": {
+      "id": "env.PYEYE_ISSUE",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/UNIFIED_METRICS.md",
+    "page_hash": "955bb003",
+    "problem": "Hand-writes the variable's deprecation status (\"accepted and ignored\"), which is the env.PYEYE_ISSUE fact's own `deprecated` text from pyeye/settings.py, instead of pointing at where the fact is rendered.",
+    "replacement": "`PYEYE_ISSUE` and `PYEYE_PARENT_SESSION` are deprecated; their status is listed in the [environment variable reference](reference/env-vars.md).",
+    "section": "unified-metrics-deprecated"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_PARENT_SESSION",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/UNIFIED_METRICS.md",
+    "page_hash": "955bb003",
+    "problem": "Hand-writes the variable's deprecation status (\"accepted and ignored\"), which is the env.PYEYE_PARENT_SESSION fact's own `deprecated` text from pyeye/settings.py, instead of pointing at where the fact is rendered.",
+    "replacement": "`PYEYE_ISSUE` and `PYEYE_PARENT_SESSION` are deprecated; their status is listed in the [environment variable reference](reference/env-vars.md).",
+    "section": "unified-metrics-deprecated"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/UNIFIED_METRICS.md",
+    "page_hash": "955bb003",
+    "problem": "Points readers at get_performance_metrics as if it were always available, but admin tools are registered only when PYEYE_ENABLE_PERFORMANCE_METRICS is set (src/pyeye/mcp/server.py ADMIN_TOOLS registration), and that variable is off by default. A reader following this page won't find the tool.",
+    "replacement": "The server's in-process performance metrics are available through the opt-in `get_performance_metrics` admin tool, registered only when `PYEYE_ENABLE_PERFORMANCE_METRICS` is set (default: bind env.PYEYE_ENABLE_PERFORMANCE_METRICS.default in a fact block); see the [tool reference](reference/tools.md).",
+    "section": "where-mcp-usage-is-measured-now",
+    "subject": "`get_performance_metrics` admin tool"
+  }
+]

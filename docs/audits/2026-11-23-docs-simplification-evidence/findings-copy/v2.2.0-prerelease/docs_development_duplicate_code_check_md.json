@@ -1,0 +1,65 @@
+[
+  {
+    "anchor": {
+      "id": "duplication.command.review",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/development/duplicate-code-check.md",
+    "page_hash": "0e77cd9a",
+    "problem": "Hand-writes the `review` subcommand in `python -m pyeye.duplication review` instead of binding the registered fact.",
+    "replacement": "Bind the subcommand name through a fact block for duplication.command.review (e.g. `python -m pyeye.duplication <fact:duplication.command.review>`), rather than typing `review` by hand.",
+    "section": "what-it-does"
+  },
+  {
+    "anchor": {
+      "id": "precommit.hook.duplicate-code-report",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/development/duplicate-code-check.md",
+    "page_hash": "0e77cd9a",
+    "problem": "Names the pre-commit hook ID `duplicate-code-report` by hand; it is a registered repo_config fact.",
+    "replacement": "Show the hook ID through a fact block for precommit.hook.duplicate-code-report instead of writing it by hand.",
+    "section": "it-is-a-blocking-ratchet"
+  },
+  {
+    "anchor": {
+      "id": "D12-measurement",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/development/duplicate-code-check.md",
+    "page_hash": "0e77cd9a",
+    "problem": "A measurement (an out-of-memory run on a third-party package) with no dated, reproducible record behind it.",
+    "replacement": "Link the issue or record where the out-of-memory run was observed (e.g. the #495 comment with the command and versions), or delete the sentence and keep only the reason for the cap (the pair loop stays linear on repeated data).",
+    "section": "what-it-does",
+    "subject": "All-pairs on one emoji table in `rich` ran out of memory."
+  },
+  {
+    "anchor": {
+      "id": "D12-measurement",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/development/duplicate-code-check.md",
+    "page_hash": "0e77cd9a",
+    "problem": "States pylint's result counts on these files with no date, commit, pylint version or command to reproduce them; the files have changed since (#623 removed most copies).",
+    "replacement": "Either link the dated record of the pylint comparison (the #616 issue or PR comment with the command and commit), or reword to the reason alone: pylint compares normalised lines, so copies that renamed their locals are not matched, while the AST check is insensitive to local names.",
+    "section": "why-not-pylint-duplicate-code",
+    "subject": "found 1 block at a 4-line minimum and none at 6"
+  },
+  {
+    "anchor": {
+      "id": "D12-volatile",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/development/duplicate-code-check.md",
+    "page_hash": "0e77cd9a",
+    "problem": "A current-status claim about `BASELINE` that goes stale the moment an entry is added; nothing binds it to the code.",
+    "replacement": "Delete the sentence (the history above stays), and point to `BASELINE` in `scripts/duplicate_code_report.py` as the place that lists the current sites.",
+    "section": "baseline-636-2026-11-15",
+    "subject": "The baseline is empty."
+  }
+]

@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "page_hash": "fff8ade4",
+    "problem": "The sample `ls dist/` output names a wheel for a package called python_code_intelligence_mcp, the project's old name. pyproject.toml's [project] name is pyeye-mcp, so `uv build` produces a pyeye_mcp-<version> wheel and a reader comparing their output to this one will think the build went wrong.",
+    "replacement": "Drop the hard-coded wheel filename and say only that the wheel and sdist in dist/ carry the tag's version with no .dev or local suffix (or show a placeholder such as `<dist-name>-<version>-py3-none-any.whl`).",
+    "section": "in-tagged-releases",
+    "subject": "python_code_intelligence_mcp-0.3.0-py3-none-any.whl"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/RELEASE.md",
+    "page_hash": "fff8ade4",
+    "problem": "The command runs bare `python`. pyeye is installed only in the uv-managed .venv, so outside an activated venv this fails with ModuleNotFoundError. The line just above it uses `uv run python -m setuptools_scm`.",
+    "replacement": "uv run python -c \"from pyeye import __version__; print(__version__)\"",
+    "section": "during-development",
+    "subject": "python -c \"from pyeye import __version__; print(__version__)\""
+  }
+]

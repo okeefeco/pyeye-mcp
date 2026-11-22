@@ -1,0 +1,15 @@
+[
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "changes/README.md",
+    "page_hash": "f869d9aa",
+    "problem": "The category/heading table hand-copies scripts.changelog.CATEGORIES (the mapping and its order). It is correct today, but no fact carries it, so a new or renamed category would leave the table stale while `changelog.py check` enforces the code's list.",
+    "replacement": "Replace the hand-written table with a fact block bound to a new extractor that reads scripts/changelog.py CATEGORIES (category -> heading, in release order); keep the introducing sentence.",
+    "section": "changelog-fragments",
+    "subject": "The categories, with the `CHANGELOG.md` heading each one fills, are:"
+  }
+]

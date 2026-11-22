@@ -1,0 +1,122 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "The `plugins` namespace lists glob entries (`./plugins/*`, `~/repos/community-plugins/*`). Glob entries under `namespaces` are not expanded for the namespace: ProjectConfig.get_namespaces returns the literal pattern, NamespaceResolver.register_namespace logs 'Path does not exist: .../plugins/*' and registers the namespace with no paths (reproduced: resolver gives {'myapp.plugins': []}). The matched directories only reach the analyzer as plain package paths, so the namespace (and a `namespace:` scope on it) holds nothing. The example does not work as written.",
+    "replacement": "List each repository of the `plugins` namespace explicitly (e.g. `\"./plugins/core\"`, `\"~/repos/community-plugins/auth\"`) and keep globs only under `packages`. Separately, file a bug that `namespaces` entries with `*` are not glob-expanded in ProjectConfig.get_namespaces.",
+    "section": "configuration-file-pyeyejson",
+    "subject": "\"./plugins/*\","
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "Every entry of the `myapp.plugins` namespace is a glob (`./plugins/builtin/*`, `~/repos/community-plugins/*`, `~/my-plugins/*`). Namespace entries are not glob-expanded (get_namespaces returns the pattern; register_namespace drops it as a missing path), so this use case configures a namespace with no repositories.",
+    "replacement": "Replace the three glob entries with explicit repository paths for the `myapp.plugins` namespace (one per repository that holds part of it), matching the fix in the Configuration File section.",
+    "section": "3-plugin-based-application",
+    "subject": "\"myapp.plugins\": ["
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "Both commands need uv, but Prerequisites offers 'uv (recommended) or pip' and Install from Source offers `pip install -e .`. A reader who installed with pip has no working command here.",
+    "replacement": "Add one sentence before the commands: \"These commands need uv. If you installed with pip, register the `pyeye-mcp` command from that environment instead; the [entry points](docs/reference/cli.md) list it.\"",
+    "section": "configure-for-claude-code",
+    "subject": "`uv run --project` uses pyeye's checkout for the environment"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "The previous section explains that pyeye analyzes the directory the server starts in, but Claude Desktop does not start the server in a project directory and this config sets none. As written, pyeye analyzes whatever directory Claude Desktop launches it from, and the page never says how to point it at a project.",
+    "replacement": "Add after the JSON: \"Claude Desktop doesn't start the server in your project, so give your project's path in each call's `project_path` (see the [tool reference](docs/reference/tools.md)).\"",
+    "section": "configure-for-claude-desktop",
+    "subject": "\"args\": [\"run\", \"--project\", \"/path/to/pyeye-mcp\", \"pyeye-mcp\"]"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "A third-party config path, given as the only location although it is macOS-only (Windows and Linux differ) and Anthropic may move it. It needs checking against Claude Desktop's current docs.",
+    "replacement": "Edit Claude Desktop's config file (`claude_desktop_config.json`; on macOS, `~/Library/Application Support/Claude/`; Claude Desktop's own docs give the other platforms):",
+    "section": "configure-for-claude-desktop",
+    "subject": "~/Library/Application Support/Claude/claude_desktop_config.json"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "The page's recommended install is `uv sync --frozen` and the server runs under `uv run --project`; `pip show` queries whichever pip is on PATH, not pyeye's uv environment, so it can report watchdog missing (or present) for the wrong environment. watchdog is also a required dependency in pyproject.toml, so a working install always has it.",
+    "replacement": "Delete step 1 and renumber; start the list at \"Check file system supports inotify (Linux) or FSEvents (macOS)\".",
+    "section": "file-changes-not-detected",
+    "subject": "`pip show watchdog`"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "DOCUMENTATION.md",
+    "problem": "A third-party UI command that may be stale. `/permissions` governs tool approval, not whether the server connects; Claude Code's `/mcp` shows server status and reconnects. Needs checking against Claude Code's current docs.",
+    "replacement": "Check the server's status in Claude Code: `/mcp` (see Claude Code's MCP docs)",
+    "section": "mcp-connection-issues",
+    "subject": "`/permissions` in Claude"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "DOCUMENTATION.md",
+    "problem": "Hand-writes env var names (and what PYEYE_LOG_FILE does) in prose, which C15 reserves for bound facts or links; a rename would leave this stale with no check.",
+    "replacement": "Bind the names with `env.PYEYE_LOG_LEVEL` and `env.PYEYE_LOG_FILE` fact blocks, and link the [environment variables reference](docs/reference/env-vars.md) for what each does, keeping the how-to (set it on the server entry).",
+    "section": "server-not-starting",
+    "subject": "set `PYEYE_LOG_LEVEL=DEBUG` on the server entry, and `PYEYE_LOG_FILE` to write them to a file"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "DOCUMENTATION.md",
+    "problem": "Hand-writes the env var name in prose instead of binding it (C15).",
+    "replacement": "Bind the name with an `env.PYEYE_CACHE_TTL` fact block and link the [environment variables reference](docs/reference/env-vars.md).",
+    "section": "stale-results",
+    "subject": "lower `PYEYE_CACHE_TTL`"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "DOCUMENTATION.md",
+    "problem": "Hand-writes the env var name in prose instead of binding it (C15).",
+    "replacement": "Bind the name with an `env.PYEYE_CACHE_TTL` fact block and link the [environment variables reference](docs/reference/env-vars.md).",
+    "section": "performance-issues",
+    "subject": "Increase cache TTL (`PYEYE_CACHE_TTL`)"
+  }
+]

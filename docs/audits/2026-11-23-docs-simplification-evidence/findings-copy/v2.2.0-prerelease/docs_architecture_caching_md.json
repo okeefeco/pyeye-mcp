@@ -1,0 +1,15 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/architecture/caching.md",
+    "page_hash": "70139a8b",
+    "problem": "Points readers at a list that isn't there. The README's Performance Settings section does not list the variables: it links the generated reference (docs/reference/env-vars.md), which is the page that lists every PYEYE_* variable with its default. Three of this page's caps (PYEYE_RESOLVE_CACHE_MAX_ENTRIES, PYEYE_SCRIPT_CACHE_MAX_ENTRIES, PYEYE_PARSO_CACHE_MAX_ENTRIES) appear nowhere in the README section.",
+    "replacement": "(the [generated reference](../reference/env-vars.md) lists every one, with its default and range)",
+    "section": "configuration",
+    "subject": "(the README's \"Performance Settings\" lists them all)"
+  }
+]

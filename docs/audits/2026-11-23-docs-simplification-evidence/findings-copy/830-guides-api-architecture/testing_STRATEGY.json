@@ -1,0 +1,158 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "States a 70/20/10 unit/integration/E2E distribution as fact. Nothing measures it, and most test files sit at the top level of tests/, outside tests/unit/, tests/integration/ and tests/e2e/.",
+    "replacement": "Reword as an aim without numbers: 'We aim for a pyramid: many fast unit tests, fewer integration tests, few end-to-end tests.' and drop the percentages from the diagram and the three headings.",
+    "section": "testing-pyramid",
+    "subject": "We follow the testing pyramid approach with the following distribution:"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "Presents per-component 'Minimum' coverage figures as requirements. Nothing enforces them: only the single overall threshold is enforced.",
+    "replacement": "Delete the Per-Component Coverage table, or retitle its column 'Aim' and say they are not enforced.",
+    "section": "per-component-coverage",
+    "subject": "| Core modules | 90% | 95% |"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "The command repeats the threshold by hand (and lacks `uv run`). pyproject's addopts already passes --cov and --cov-fail-under.",
+    "replacement": "Make the command `uv run pytest` (comment: '# Fails below the threshold'), and state the threshold once in prose: 'pytest fails when coverage drops below <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->.'",
+    "section": "coverage-enforcement",
+    "subject": "pytest --cov=src/pyeye --cov-fail-under=85"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "An absolute claim nothing checks; thresholds exist only for the operations with entries in tests/utils/performance.py's CommonThresholds.",
+    "replacement": "Performance tests compare timings against `PerformanceThresholds`, which give a separate limit for local runs and each CI platform. Shared ones live in `CommonThresholds` (`tests/utils/performance.py`):",
+    "section": "performance-thresholds",
+    "subject": "All performance-critical operations have defined thresholds:"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "tests/performance/load_tests/ doesn't exist; tests/performance/ holds only benchmarks/.",
+    "replacement": "Delete the Load Testing section (burst and concurrency checks live in tests/performance/benchmarks/).",
+    "section": "load-testing",
+    "subject": "Located in `tests/performance/load_tests/`:"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "ProjectFactory.create takes a required `root` path as its first argument; the example omits it, so it raises TypeError as written.",
+    "replacement": "def test_with_project(tmp_path):\n    project = ProjectFactory.create(tmp_path, name=\"test_project\", modules=10)",
+    "section": "fixture-factories",
+    "subject": "project = ProjectFactory.create("
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "PENDING-CONFIG: lists separate unit, integration, E2E and main-only performance stages with time budgets. ci.yml has no such stages: one test job runs the whole suite per OS/Python, and there is no main-only performance job.",
+    "replacement": "1. **Pre-commit**: linting, formatting, security, docs facts\n2. **Tests**: the full suite with coverage, on each OS and Python in the CI matrix",
+    "section": "test-stages",
+    "subject": "**Performance Tests**: Regression detection (main branch only)"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "PENDING-CONFIG: `-n auto` needs pytest-xdist, which isn't a dependency, and ci.yml has no test-type matrix (its matrix is OS by Python).",
+    "replacement": "Delete the Parallel Execution section.",
+    "section": "parallel-execution",
+    "subject": "- run: pytest tests/${{ matrix.test-type }} -n auto"
+  },
+  {
+    "anchor": {
+      "id": "ci.coverage_threshold",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "Restates the coverage threshold by hand instead of binding it.",
+    "replacement": "- [ ] Coverage \u2265 <!-- fact:begin ci.coverage_threshold -->85%<!-- fact:end -->",
+    "section": "pull-request-requirements",
+    "subject": "Coverage \u2265 85%"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "PENDING-CONFIG: pytest-mock is not in pyproject's dev group, so a test using its `mocker` fixture fails. pytest-timeout, which is installed and used, is missing from the list.",
+    "replacement": "- **pytest-timeout**: per-test timeout, so a hang fails instead of stalling",
+    "section": "core-tools",
+    "subject": "- **pytest-mock**: Enhanced mocking"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "PENDING-CONFIG: none of the five Additional Tools (hypothesis, pytest-benchmark, pytest-xdist, factory-boy, faker) is a project dependency. Test data factories are the hand-written tests/fixtures/factories.py.",
+    "replacement": "Delete the Additional Tools section; if factories are worth naming, say 'Test data factories: `tests/fixtures/factories.py`'.",
+    "section": "additional-tools",
+    "subject": "- **hypothesis**: Property-based testing"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "States a monthly/quarterly/bi-annual review cadence with no record that it happens.",
+    "replacement": "Delete the Regular Reviews section.",
+    "section": "regular-reviews",
+    "subject": "- Monthly: Review and update slow tests"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "problem": "The repository has no Makefile, so every `make test-*` command fails.",
+    "replacement": "# Run all tests (with coverage, via pyproject's addopts)\nuv run pytest\n\n# Run one directory\nuv run pytest tests/unit\nuv run pytest tests/integration\nuv run pytest tests/e2e\n\n# HTML coverage report\nuv run pytest --cov-report=html",
+    "section": "running-tests",
+    "subject": "make test-all"
+  }
+]

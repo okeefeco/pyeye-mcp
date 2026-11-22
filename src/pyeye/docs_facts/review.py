@@ -1519,9 +1519,9 @@ def scope(
 # ---------------------------------------------------------------------------
 
 
-def load(root: Path) -> dict[str, Any]:
+def load(root: Path, state: str = STATE_PATH) -> dict[str, Any]:
     """The committed review state, or an empty one."""
-    return review_state.load_state(root / STATE_PATH)
+    return review_state.load_state(root / state)
 
 
 def save(root: Path, state: dict[str, Any]) -> None:

@@ -1,0 +1,246 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "a rewrite of most of the page",
+        "text": "Rewrite: keep the why (CI tolerance, warm medians over p95 on few samples), link tests/utils/performance.py and tests/performance/benchmarks/ for the API and the real tests, and drop every aspirational section."
+      },
+      {
+        "cost": "loses the generic profiling advice",
+        "text": "Retire the page: move the CI-aware-threshold explanation into STRATEGY.md with a link to tests/utils/performance.py, and delete the rest."
+      }
+    ],
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "The page describes a performance suite that does not exist: tests/performance/load_tests/, tests/performance/conftest.py, measure_operation/calculate_percentiles, a baseline.json, .github/workflows/performance.yml, scripts/check_performance_regression.py and scripts/performance_report.py are all absent, and pytest-benchmark and memory_profiler are not dependencies. What exists is tests/utils/performance.py (PerformanceThresholds, CommonThresholds, assert_performance_threshold) and tests/performance/benchmarks/ (test_performance_regression.py, test_scope_performance.py).",
+    "question": "Rewrite the page around the helpers and benchmarks that exist, or retire it and keep only the PerformanceThresholds rule elsewhere?",
+    "recommendation_anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "recommended": 0,
+    "section": "overview",
+    "subject": "Performance testing ensures the PyEye Server maintains acceptable response times and resource usage across different environments and load conditions."
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "States response-time targets as requirements, but nothing enforces them: no test checks Symbol Search, Project Load or Max values, the Find References tool was removed in v2.0 (#505), and the limits the suite does enforce (CommonThresholds in tests/utils/performance.py, e.g. WARM_FIND_SYMBOL_MS as a warm median) differ from these numbers.",
+    "replacement": "Delete the table. Say that the enforced limits are the CommonThresholds entries the benchmarks use, and link tests/utils/performance.py.",
+    "section": "response-time-targets",
+    "subject": "| Operation | P50 (median) | P95 | P99 | Max |"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "The concurrent, sustained and burst throughput targets are stated as fact, but no test measures them; CONCURRENT_OPS_P95, BURST_LOAD_P99 and SUSTAINED_LOAD_P95 exist in CommonThresholds but no test uses them.",
+    "replacement": "Delete the Concurrent Requests, Sustained Load and Burst Load bullets.",
+    "section": "throughput-targets",
+    "subject": "**Sustained Load**: 1000 requests/second for read operations"
+  },
+  {
+    "anchor": {
+      "id": "imprecise-limit",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "10 is the default of PYEYE_MAX_PROJECTS (the LRU size of the project manager), not a fixed capacity target.",
+    "replacement": "Delete the bullet, or say the number of cached projects is set by PYEYE_MAX_PROJECTS and link docs/reference/env-vars.md for its default.",
+    "section": "throughput-targets",
+    "subject": "**Project Capacity**: Manage 10 active projects simultaneously"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "Memory, CPU, cache-size and file-handle limits are stated as limits, but no test or record backs any of them.",
+    "replacement": "Delete the Resource Limits section.",
+    "section": "resource-limits",
+    "subject": "**Memory**: < 500MB for typical project"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "Restates CommonThresholds' attributes, and has gone stale: SYMBOL_SEARCH_P95 was removed in #773 (the symbol-search limit is now WARM_FIND_SYMBOL_MS, a warm median, with WARM_FIND_SYMBOL_BASELINE_MS and METRICS_OVERHEAD_US alongside). A copied line raises AttributeError.",
+    "replacement": "Replace the code block with one sentence saying CommonThresholds collects the shared thresholds, and link tests/utils/performance.py for the current names.",
+    "section": "common-thresholds",
+    "subject": "CommonThresholds.SYMBOL_SEARCH_P95     # Symbol search 95th percentile"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "tests/utils/performance.py has no measure_operation (it defines PerformanceThresholds, CommonThresholds, assert_performance_threshold and small env helpers), percentile is undefined, the file tests/performance/benchmarks/test_symbol_search_benchmark.py does not exist, and `assert percentile(times, 50) < 50` is the hard-coded timing assertion the page's own DON'T list forbids.",
+    "replacement": "Replace the example with one built on what exists: measure with time.perf_counter, take a median over repeated runs, and assert with assert_performance_threshold against a CommonThresholds entry; or link tests/performance/benchmarks/test_performance_regression.py as the worked example.",
+    "section": "1-microbenchmarks",
+    "subject": "from tests.utils.performance import measure_operation"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "The labelled file tests/performance/benchmarks/test_refactoring_benchmark.py does not exist, timer() and create_large_project are not defined anywhere in tests/, and the hard-coded 2000 ms assertion contradicts the page's own rule to use PerformanceThresholds.",
+    "replacement": "Drop the file-path comment and the undefined helpers, and assert through assert_performance_threshold with a PerformanceThresholds value.",
+    "section": "2-integration-benchmarks",
+    "subject": "assert t.elapsed_ms < 2000  # Complete in < 2 seconds"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "This is the exact naive timing assertion the project forbids (`assert elapsed < 0.2`); percentile and create_project are undefined, and tests/performance/load_tests/ does not exist.",
+    "replacement": "Delete the load-test example, or rewrite it to assert through assert_performance_threshold and drop the tests/performance/load_tests/ path.",
+    "section": "3-load-tests",
+    "subject": "assert percentile(times, 95) < 0.2  # P95 < 200ms"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "async_find_symbol is not defined anywhere, find_symbol is no longer an MCP tool, tests/performance/load_tests/test_stress.py does not exist, and `assert elapsed < 5.0` is a hard-coded timing assertion.",
+    "replacement": "Delete the stress-test example; no stress test exists in the repo.",
+    "section": "4-stress-tests",
+    "subject": "tasks.append(async_find_symbol(\"Test\", project))"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "There is no tests/performance/conftest.py; the timer, performance_project and profiler fixtures exist nowhere in tests/.",
+    "replacement": "Drop the path comment and present the fixtures as patterns, or delete the section.",
+    "section": "performance-fixtures",
+    "subject": "# tests/performance/conftest.py"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "The block is labelled `# tests/utils/performance.py` but that module contains none of measure_operation, calculate_percentiles or assert_percentiles; it restates a module that does not match it.",
+    "replacement": "Delete the block and link tests/utils/performance.py for the helpers that exist.",
+    "section": "benchmark-utilities",
+    "subject": "def measure_operation(operation: Callable, iterations: int = 100) -> List[float]:"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "The benchmark fixture comes from pytest-benchmark, which is not in the dev dependency group, so the examples error with `fixture 'benchmark' not found`; find_symbol and Cache are also not importable as written.",
+    "replacement": "Delete the section (and the pytest-benchmark reference link), or state that pytest-benchmark is not used by this project.",
+    "section": "pytest-benchmark-integration",
+    "subject": "def test_symbol_search_benchmark(benchmark):"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "pytest.config was removed in pytest 5, --update-baseline is not a registered option, pytest is not imported, measure_operation/calculate_percentiles do not exist, and there is no tests/performance/baseline.json. The real regression suite is tests/performance/benchmarks/test_performance_regression.py, which compares against CommonThresholds, not a baseline file.",
+    "replacement": "Replace the example with a short description of how the real regression tests guard against slowdowns, and link tests/performance/benchmarks/test_performance_regression.py.",
+    "section": "regression-detection",
+    "subject": "if pytest.config.getoption(\"--update-baseline\"):"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "StatsProfile.func_profiles is a dict, so slicing it raises TypeError, and FunctionProfile has cumtime, not cumulative.",
+    "replacement": "Delete the assertion part and keep only the cProfile/pstats print_stats usage, or sort `func_profiles.items()` by `cumtime`.",
+    "section": "cpu-profiling",
+    "subject": "top_functions = stats.get_stats_profile().func_profiles[:10]"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "memory_profiler is not a project dependency, and find_all_symbols, cache_symbols and cleanup_project exist nowhere in the repo.",
+    "replacement": "Use tracemalloc (stdlib) as in the earlier section, or say memory_profiler must be installed separately; drop the undefined helpers.",
+    "section": "memory-profiling",
+    "subject": "from memory_profiler import profile"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "PENDING-CONFIG: there is no performance.yml workflow (the workflows are ci.yml, docs-site.yml, release.yml and tag-release.yml), no benchmark-action step, and no scripts/check_performance_regression.py. The block reads as the project's CI.",
+    "replacement": "Delete the section, or replace it with a sentence on how tests/performance/benchmarks/ runs inside the normal test job and a link to .github/workflows/ci.yml.",
+    "section": "github-actions-workflow",
+    "subject": "# .github/workflows/performance.yml"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "pyeye.unified_metrics has no MetricsCollector (it defines UnifiedMetricsCollector); MetricsCollector lives in pyeye.metrics and has get_stats, not get_metrics. The file tests/performance/test_metrics.py does not exist.",
+    "replacement": "Import from pyeye.metrics and call collector.get_stats(), or link tests/performance/benchmarks/test_performance_regression.py, which uses MetricsCollector.",
+    "section": "metrics-collection",
+    "subject": "from pyeye.unified_metrics import MetricsCollector"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/PERFORMANCE.md",
+    "problem": "There is no scripts/performance_report.py, matplotlib is not a dependency, and the benchmark.json it reads is never produced.",
+    "replacement": "Delete the Performance Dashboard section.",
+    "section": "performance-dashboard",
+    "subject": "# scripts/performance_report.py"
+  }
+]

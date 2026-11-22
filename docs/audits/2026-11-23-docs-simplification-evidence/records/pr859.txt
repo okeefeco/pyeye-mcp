@@ -1,0 +1,59 @@
+# PR 859 docs(security): describe pyeye's real subprocess, write and validation behaviour (#830)
+## Description
+
+This is the first #830 PR: SECURITY.md, fixed by hand because wrong security claims shouldn't wait. Every claim was checked against the code at main `93eaffb5`, using pyeye's `inspect` and the source, and by running it where possible.
+
+| Claim | Was | Now | Evidence |
+|---|---|---|---|
+| Subprocesses | "The only subprocess it starts is `ripgrep`" | The server starts none of its own. Jedi starts one helper subprocess (the same interpreter, no shell) and loads compiled modules only from the server's environment. | `grep -rnE "subprocess\|Popen\|multiprocessing\|os\.system" src/pyeye` finds nothing outside the dev-only `docs_facts.changed`. A live `ps --ppid` after a Jedi `infer` shows exactly one child, `python …/jedi/inference/compiled/subprocess/__main__.py`. `pyeye._jedi_project.make_project` never sets `load_unsafe_extensions`; it defaults to False, and Jedi's `_load_builtin_module` then restricts compiled imports to the base `sys.path`. |
+| `configure_packages` writes | "`.pyeye.json` in the server's working directory" | In its `project_path`, replacing any existing file. `save` defaults to true. Written only when the call adds something. It holds the merged config. | `pyeye.mcp.server.configure_packages` signature (`save: bool=True`, `project_path`); `ProjectConfig.save_config` (`project_path / ".pyeye.json"`, mode `w`); #618 |
+| Path validation | "Path inputs are validated (…)" | *Some* inputs are checked (null bytes, `...`, `/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`). Still "not a sandbox". The gaps #856 tracks are stated. | `pyeye.validation.PathValidator.validate_path`; #856 |
+| Metrics | "stored under `~/.pyeye/`" | `~/.pyeye/metrics/`: tool names, counts, durations, error counts and timestamps. No arguments, paths or source. | `constants.METRICS_DIR`; `UnifiedMetricsCollector.record_mcp_operation` takes only tool name, success and duration; `SessionMetrics` fields |
+| Network | "No network access is needed" | The same, plus "the server makes no network requests", scoped to the server | No `urllib`, `requests`, `httpx`, `socket` or `http.client` in `src/pyeye` |
+| Security checks | "Every commit runs detect-secrets, bandit and pip-audit" | `detect-secrets` and `bandit` run on every commit. `pip-audit` runs only when `pyproject.toml` or `uv.lock` changes (the hook's `files:` filter). CI runs all three. | `.pre-commit-config.yaml` (pip-audit `files: '(requirements.*\.txt\|pyproject\.toml\|uv\.lock)$'`); CI runs `pre-commit/action`, on all files |
+| Response times (D12) | "within 7 days", "within 14 days" | Goals without numbers ("no service-level commitment"). No policy backs a number, and GitHub's private reporting sets none. | design D12 |
+
+**Validation wording and #852:** the text describes the current behaviour on main. #852 (relative `project_path` anchoring) doesn't change which inputs are checked; #856 does. So the "#856 tracks closing those gaps" bullet is what changes when #856 lands.
+
+**Candidates for facts, under the user's (c) ruling:**
+- the subprocesses the server starts (empty today; Jedi's helper is Jedi's);
+- the paths the server writes (`<project_path>/.pyeye.json`, `~/.pyeye/metrics/`, `PYEYE_LOG_FILE`);
+- the validator's deny-list (`/etc/`, `/root/`, `/proc/`, `/sys/`, `/dev/`).
+
+All three are read straight from the code. As facts they would make this page's Security Model drift-proof. I'll leave the extractor for the (c) follow-up.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have run pre-commit hooks successfully
+- [x] I have checked for security vulnerabilities
+
+## Testing
+
+- No code changed.
+- `scripts/docs_facts.py check`: 74 files match.
+- `scripts/changelog.py check`: OK. `no-breaking` prints 0.
+- The pre-commit hooks pass.
+- Fragment: `changes/830.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+📚 **Documentation-only change detected**
+
+No source, test, or workflow files changed in this PR, so the
+test matrix, type-checking, and coverage jobs were skipped.
+
+Pre-commit hooks, security scanning, and file validation still ran.
+---
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/859?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

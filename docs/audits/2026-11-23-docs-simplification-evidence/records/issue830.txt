@@ -1,0 +1,316 @@
+Part of epic #818, sub-issue 8 of 9. Design: docs/superpowers/specs/2026-11-17-docs-built-on-facts-design.md (PR #822), C3 and C6. Depends on #818 2/9–7/9.
+
+## Scope
+- Re-check the 183 sweep findings (the #818 comments) against current main: still wrong, fixed, or generated away.
+- Fix what's left as prose, rebasing `docs/api/*` on the generated reference pages and executed examples.
+- Triage the ledger's `baseline` section once.
+- `fixed` fragments. This is the internal skill's first real run. Can be split into several PRs.
+
+**Scope addition from design rule D12, honest claims (PR #832, which the maintainer calls critical).** Docs make only claims the code or a dated, reproducible record can back, on every registered page, history included.
+---
+#830's part: expect real removals, for example migration-guide.md's unsourced "2.5x faster" table, METRICS_BASELINE.md's projections ("90% reduction in refactoring bugs") and COVERAGE.md's stale figures. TOKEN_SAVINGS_VERIFICATION.md is open with the maintainer.
+---
+Note for #830's owner (from designer): #824 binds COVERAGE.md's "CI Threshold" line to `ci.coverage_threshold`, and generation changed it from 75% to 85%. Still to do here: remove "Current Coverage: 79%" and the phase and target text (D12), and make the `--cov-fail-under=75` commands in code fences come from the same fact, through a fact block or by dropping the number. Don't hand-edit them to 85.
+---
+Addendum (designer, endorsing worker-3's option 1): fact markers inside code fences are plain text by design, so a fenced command can't hold a fact block. Instead:
+- Drop the number from documented commands, e.g. `uv run pytest --cov=src/pyeye`. `pyproject.toml`'s addopts already sets `--cov-fail-under=85`, so the bare command still enforces it.
+- State the threshold once in prose, with an inline `ci.coverage_threshold` block.
+
+This applies to every page that repeats `--cov-fail-under=…` in a command: COVERAGE.md, CONTRIBUTING.md and `.claude/instructions/` 01, 06, 07 and 11.
+---
+Maintainer ruling (via designer): TOKEN_SAVINGS_VERIFICATION.md is **deleted**, not archived, because its 40–90% token-reduction claim, for a removed tool through a deleted test, can't be reproduced. That's being folded into #824 (worker-3) with its registry entry and links, so #830 doesn't need to do it.
+---
+Maintainer ruling (C10, PR #839): the unenforced ">90% new-code coverage" policy line is **removed** from the instructions, not bound to a fact. Enforcing diff coverage in CI would be a separate issue, and none has been requested.
+---
+Ruling (C11, PR #841): the env-var and server-command fact rules **apply to history pages** such as `docs/migration-guide.md`, so #830's fix-up of that page must leave no unknown or removed env vars or commands outside released CHANGELOG sections.
+---
+Note for #830's owner (agreed with the maintainer, 2026-11-17): some env-var and server-command names that pages mention were **never** read or never worked, such as `PYEYE_PACKAGES` (packages were never configurable through env vars, #556) and `uv run pyeye`. They aren't in `docs/facts/removed.json`, so the env-name and server-command rules fail them everywhere, **even on a line that says "removed"**. This includes history pages like `migration-guide.md` (C11).
+- Don't call them "removed"; that's an inaccurate claim under D12. Reword to what's true, e.g. "never supported; configure packages in `.pyeye.json`".
+- Unreleased fragments (`changes/*.md`) aren't exempt either, so describing a removal there needs the word "removed" on that line.
+---
+Note for #830's owner (from worker-3, while building #828): the "Returns" TypeScript blocks in `docs/api/*-tools.md` are stale against the real responses.
+- `find_pydantic_models` returns `base_classes`/`handle`/`location`/`scope`, not `base_class`/`config_class`/`schema_extra`.
+- `find_flask_routes` returns `path`/`name`/`handle`, not `route`/`endpoint`/`function`.
+
+#828 replaced only the one pydantic example. Converting the rest to `pyeye-example`/`pyeye-output` pairs would catch this mechanically, and replacing the hand-written Returns blocks with executed examples (or a fact) avoids a second copy of the schema.
+---
+Leftovers in Claude's instructions for #830 (outside the user's approval in #847, from worker-2): `.claude/instructions/08`'s "5min TTL" and "17+ core tools", `09`'s "5-10 minute", and the fenced `--cov-fail-under=85` in `06-workflow-commits.md`. Editing `.claude/` files needs the user's direct approval in the editing worker's session.
+---
+**#830 step 1 (design C6): the 183 sweep findings re-checked against `origin/main` `77584a66`** (the sweep was taken at `95c7b40b`). This was read-only: no edits and no test runs. Each slice was checked by grep, file reads and code spot-checks at main. I re-verified a sample by hand: the SECURITY.md ripgrep line, the untouched `docs/api/`, the `ci.python_versions` block, the deleted `docs/source/`, and #792's shutdown-import fix landing after the sweep.
+
+| status | A | B | C | D | **total** |
+|---|---|---|---|---|---|
+| still-wrong | 53 | 14 | 52 | 28 | **147** |
+| fixed (PR cited) | 1 | 7 | 0 | 3 | **11** |
+| generated (fact block / slot / reference page) | 0 | 0 | 0 | 4 | **4** |
+| moot (page or passage deleted) | 1 | 19 | 0 | 0 | **20** |
+| unclear | 1 | 0 | 0 | 0 | **1** |
+| **total** | 56 | 40 | 52 | 35 | **183** |
+
+Most of the fixes come from #823 (the Sphinx retirement and the architecture ports) and from #840/#834 (tool-description fact slots and the `ci.python_versions` block). Outside those, the prose is largely untouched since the sweep:
+- `docs/api/` has no commits since `95c7b40b`.
+- In slice C, every page except five is byte-identical to the sweep.
+- Slice A has no fact blocks yet.
+
+**Still-wrong (plus unclear) by page area**, counted once per page a finding spans:
+
+| area | pages (count) |
+|---|---|
+| README / DOCUMENTATION / CONTRIBUTING / SECURITY / examples | README 30, DOCUMENTATION 21, CONTRIBUTING 5, examples/ 5, SECURITY 2 |
+| docs/api, docs/architecture | pydantic-tools 8, django-tools 7, flask-tools 6, api/README 3, architecture/resolution 2, architecture/caching 1 |
+| docs/*.md guides, testing, development | api-redesign 12, TROUBLESHOOTING 9, migration-guide 5, namespace-packages 5, UNIFIED_METRICS 4, debugging-connection-drops 4, RELEASE 4, testing/PERFORMANCE 3, testing/FIXTURES 2, testing/CONVENTIONS 2, test_generation_guidelines 2, 7 more at 1 each |
+| skills, tool descriptions, .claude | src/pyeye/mcp/server.py 7, .claude/instructions/08 5, skills/python-explore 4, .claude/skills/pyeye-verify 2, .claude/skills/pyeye-scenarios 2, architecture-review/auditor 2, .claude/instructions/06 2, 8 more at 1 each (incl. CLAUDE.md, instructions 04 and 11) |
+
+**Proposed split into four PR-sized slices** (fixed fragments; each slice runs the internal `/docs-review` over its pages):
+
+1. **docs/api and docs/architecture** (B, 14 still-wrong; no `.claude/`).
+   - Rebase the three `*-tools.md` pages on `docs/reference/tools.md` and `pyeye-example`/`pyeye-output` pairs. This replaces the invented Returns blocks and the 18 "searches entire project" scope lines.
+   - Fix the ported pages: `resolution.md` (the private-stdlib step, `unparseable_files` on `re_exports`, the standalone dirs in scope) and `caching.md` (the per-project class and import graphs).
+2. **README, CONTRIBUTING, DOCUMENTATION, SECURITY, examples/** (A, 54; no `.claude/`).
+   - SECURITY.md first: the ripgrep subprocess and the `save` default are the most user-facing errors.
+   - Bind README's env and tool tables to facts, or link `docs/reference/`.
+   - DOCUMENTATION.md contradicts itself on env vars as a config source.
+   - This is the largest slice; if it's too big, split README from the other four.
+3. **docs/*.md guides, docs/testing, docs/development** (C, 52; no `.claude/`).
+   - History pages `api-redesign.md` and `migration-guide.md`: D12 and C11 apply (env and server-command rules), so remove the unsourced figures and the never-existed names.
+   - COVERAGE.md now contradicts its own `ci.coverage_threshold` block.
+   - RELEASE.md: the wheel name and the v2.0.0 example versions.
+   - `make test-*` in STRATEGY.md: the repo has no Makefile any more.
+4. **skills/, MCP tool descriptions, and `.claude/` + CLAUDE.md** (D, 28). ⚠ **Touches `.claude/`**: instructions 04, 06, 08 and 11, `.claude/skills/pyeye-verify` and `pyeye-scenarios`, and CLAUDE.md, about 14 findings. It needs the user's direct approval in the editing worker's session.
+   - The non-`.claude/` half: `server.py` descriptions (hand-written prose for `inspect`, `resolve`, `outline`, `expand` and the model-lookup tools; the fact slots cover only edges and scopes), plus `skills/python-explore` and `architecture-review/auditor.md`.
+   - It can split into 4a (no approval needed) and 4b (`.claude/`, approval needed). 4b should also take the leftovers listed in this issue: 08's "5min TTL" and "17+ core tools", 09's "5-10 minute", and 06's fenced `--cov-fail-under`.
+
+**Out-of-slice items still open:**
+- `.claude-plugin/plugin.json` still advertises "trace call hierarchies".
+- `tests/test_get_type_info_integration_tiktoken.py` still targets the removed `get_type_info`.
+
+These are now resolved:
+- the tree-sitter dependency (#806);
+- the shutdown-import bug (#792).
+
+**Notes:**
+- `find_symbol`, `get_type_info`, `list_modules` and `find_subclasses` in prose aren't flagged by #826's rule. They're `match: heading` (they live on as `JediAnalyzer` methods), so only an API heading fails. The pages that use them as tool names (debugging-connection-drops, UNIFIED_METRICS, DOGFOODING_INTEGRATION) are still-wrong rows in slice 3.
+- A-N8 (the README VS Code/Copilot config) is the one unclear finding. It needs current VS Code docs, which weren't fetched.
+
+
+<details><summary>Slice A: full table</summary>
+
+| id | page:line (now) | status | evidence |
+|---|---|---|---|
+| A-W1 | SECURITY.md:71-72 | still-wrong | Still says "The only subprocess it starts is `ripgrep` for text search". There is no ripgrep or Popen in src. The only `subprocess` use is the git call in docs_facts/changed.py:42, which is a dev CLI, plus Jedi's own inference subprocess. |
+| A-W2 | SECURITY.md:82-83 | still-wrong | Still says "`configure_packages(save=True)` writes `.pyeye.json` in the server's working directory". The code has `save: bool = True` (mcp/server.py:674). |
+| A-W3 | DOCUMENTATION.md:54, 59, 75-76 | still-wrong | `uv --directory ~/GitHub/pyeye-mcp run python -m pyeye.mcp`, and `"--directory", "/path/to/pyeye-mcp"` in the JSON. |
+| A-W4 | DOCUMENTATION.md:309, 311 | still-wrong | "Rejects paths containing `../`" and "Resolves all paths to absolute form". The code only rejects `...` (validation.py:53) and the system-directory list (validation.py:58). |
+| A-W5 | DOCUMENTATION.md:325, 330 | still-wrong | Still says "All user inputs are sanitized" and "String Sanitization: Control characters are removed". `grep sanitize_string src` is empty. |
+| A-W6 | DOCUMENTATION.md:367-371 | still-wrong | `PathValidator.is_safe_to_read(path, max_size=...)`, "default 10MB". `grep is_safe_to_read\|max_size src` is empty, and PYEYE_MAX_FILE_SIZE is in settings.py:13 DEPRECATED_ENV_VARS. |
+| A-W7 | DOCUMENTATION.md:355-359 | still-wrong | "Restrict Base Directory: Use the `base_path` parameter". `base_path` exists only on the internal `validate_path` (validation.py:28). |
+| A-W8 | DOCUMENTATION.md:159-163 | still-wrong | The precedence list still has "3. Environment variables" and no override file. It now contradicts the page's own line 141 ("Environment variables only tune performance and…"). |
+| A-W9 | DOCUMENTATION.md:240, 283 | still-wrong | The diagram still has the `Env Vars` box, and the text still says "Environment variable support". |
+| A-W10 | DOCUMENTATION.md:245-246 | fixed | #806 (5aa4cf6b). The diagram now reads "Python ast (Structural)", and pyproject.toml has no tree-sitter. |
+| A-W11 | DOCUMENTATION.md:287, 552-554, 591, 611 | still-wrong | "File-based result caching (5min TTL)", "`rm -rf .pyeye_cache/`", "Reduce cache TTL in config", "Check disk space", "default 100MB max" and "Cache stored locally in project directory" are all still there. `cache` is still an ignored key (config.py:21). |
+| A-W12 | DOCUMENTATION.md:541 | still-wrong | "Check logs: Run with `--debug` flag". The mcp entry point has no argparse; the only argparse in src is in duplication.py and docs_facts/cli.py. |
+| A-W13 | DOCUMENTATION.md:603 | still-wrong | "Exclude test and build directories". `exclude` and `exclude_patterns` are still ignored keys (config.py:23-24). |
+| A-W14 | DOCUMENTATION.md:511-530 | still-wrong | `load_plugins(...)` with `FastAPIPlugin(project_path),  # Coming soon` is still there. Plugins are still a fixed `_PLUGIN_CLASSES` tuple (mcp/server.py:264). |
+| A-W15 | README.md:547-564; DOCUMENTATION.md:501 | still-wrong | Both examples still centre on `find_patterns`. Its only occurrence in src is the definition at plugins/base.py:120. README has no `register_tools`. |
+| A-W16 | README.md:591-599 | still-wrong | The table "baselines are enforced in CI" still has `symbol_search` and `goto_definition` p50/p95/p99. |
+| A-W17 | README.md:605 | still-wrong | `uv add --dev pytest black ruff mypy` |
+| A-W18 | README.md:214 | still-wrong | `python -m pyeye.mcp --help`. The server still has no argument parsing. |
+| A-W19 | examples/configurations/enterprise.json:85, 45, 60, 66 | still-wrong | The file still has `"global": "namespace:company"` and `namespace:company.sdk`, but its namespace keys are only company.core, company.libs, company.services and company.tools. `_namespace_scope_paths` (scope_utils.py:200-215) looks up `namespace_paths.get(...)` for the name and each of its prefixes, and `company` is not a key, so both return an empty set. |
+| A-W20 | examples/configurations/monorepo.json:11, 17 | still-wrong | The aliases are still `"./packages/app-*"` and `"./tools/*"`, which reach "Unknown scope specification" (scope_utils.py:196). |
+| A-W21 | TOKEN_SAVINGS_VERIFICATION.md | moot | Deleted in #834 (8df816c8; the commit body says "Deletes TOKEN_SAVINGS_VERIFICATION.md (maintainer ruling, design C9)"). |
+| A-S1 | README.md:523 | still-wrong | "Granular cache (5min TTL with smart invalidation)". `grep GranularCache src` is empty. |
+| A-S2 | README.md:536 | still-wrong | "Dependency tracking & circular detection". `grep dependency_tracker src` is empty. |
+| A-S3 | README.md:542 (also :29) | still-wrong | "Release automation agent". Line 29 also still says "Release automation". |
+| A-S4 | README.md:539 | still-wrong | "Async utilities (concurrent operations)" |
+| A-S5 | README.md:538 | still-wrong | "Scope management (main/all/namespace scoping)" |
+| A-S6 | README.md:507; DOCUMENTATION.md:289, 296 | still-wrong | "Maintains separate watchers per project", "Per-project cache isolation" and "Per-project watchers" are all still there. |
+| A-S7 | README.md:23 | still-wrong | "Flexible configuration via files, env vars, or auto-discovery" |
+| A-S8 | README.md:28 | still-wrong | "Secure parameter validation and path checking" |
+| A-S9 | README.md:528-529 | still-wrong | "Path security checks" and "Safe file operations" |
+| A-S10 | README.md:297-300 | still-wrong | The README's Deprecated rows still list only the 3 pool vars, and settings.py:10-18 has 7. Partly mitigated: #834 added a link at README.md:285 to the generated docs/reference/env-vars.md, which lists all 7 (e.g. env-vars.md:15, :22). |
+| A-S11 | CONTRIBUTING.md:236-249 | still-wrong | The tree still has `├── server.py  # Main MCP server implementation` and `cache.py  # Caching and file watching`, and none of the newer modules. |
+| A-S12 | DOCUMENTATION.md:389 | still-wrong | `uv run pytest tests/test_validation.py -v`. Only tests/unit/core/test_validation.py exists. |
+| A-S13 | DOCUMENTATION.md:548 | still-wrong | "Check environment variables if using them", under Packages Not Found. |
+| A-S14 | DOCUMENTATION.md:577-583 | still-wrong | The link to the README is still followed by a subset of 3 env vars. A low-value duplicate. |
+| A-S15 | examples/configurations/enterprise.json:37-41 | still-wrong | The `"performance": {...}` block is still present. |
+| A-S16 | examples/configurations/enterprise.json:35 | still-wrong | `"~/.venv/lib/python3.11/site-packages"` |
+| A-S17 | examples/configurations/{monorepo,microservices,plugin-system,enterprise}.json | still-wrong | All four still carry a `"description"` key. Nit-level; it's harmless. |
+| A-M1 | README.md:424 | still-wrong | Still a one-liner, with no `save`/`project_path`/`activated_plugins`/`warnings`. The params now exist on the generated docs/reference/tools.md:11-18 (`save` = `true`), but README doesn't link it. |
+| A-M2 | README.md:443-472; DOCUMENTATION.md:186-213 | still-wrong | Plugin tool lists only. `grep envelope README.md DOCUMENTATION.md` is empty, and neither page mentions `scope` or `project_path`. |
+| A-M3 | README.md:17, 435-436 | still-wrong | The edge lists still omit `enclosing_scope` and `re_exports`. Both are on the generated docs/reference/edges.md, which README doesn't link. |
+| A-M4 | README.md:413-418 | still-wrong | There is no `max_stubs`/`max_candidates`/`truncat` text in README. The defaults are on docs/reference/tools.md:28, :52, which README doesn't link. |
+| A-M5 | README.md:257-262 | still-wrong | The source list is unchanged. `grep 'pyeye.yaml\|extraPaths' README.md` is empty. |
+| A-M6 | README.md:21 | still-wrong | There's still no `"standalone"` config snippet (grep is empty). |
+| A-M7 | README.md:238-314 | still-wrong | There's still no `scope_defaults`/`scope_aliases` section (grep is empty). |
+| A-M8 | README.md:296 | still-wrong | `PYEYE_ENABLE_PERFORMANCE_METRICS` is listed, but `grep get_performance_metrics README.md` is empty. |
+| A-M9 | README.md:14-22 | still-wrong | No kind-vocabulary or location-contract mention (`grep enum_member` is empty). Optional per the sweep. |
+| A-N1 | DOCUMENTATION.md:92-111; README.md:268-270 | still-wrong | Both are still ```` ```json ```` fences containing `//` comments. |
+| A-N2 | README.md:366 | still-wrong | "This file is automatically ignored by git and takes precedence over all other configuration sources." It still sits under Performance Tuning. |
+| A-N3 | CONTRIBUTING.md:37 | still-wrong | Still links `[Code of Conduct](CODE_OF_CONDUCT.md)`, and the file doesn't exist. #794 rewrote nearby text and the TOC but kept this. |
+| A-N4 | CONTRIBUTING.md:136, 199 | still-wrong | Still links `docs/development-setup.md` and `docs/testing-guide.md`, and neither exists. |
+| A-N5 | CONTRIBUTING.md:257 | still-wrong | Still says "GitHub Discussions", but `gh api ... --jq .has_discussions` returns `false`. |
+| A-N6 | CONTRIBUTING.md:120-124 | still-wrong | Step 3 is `pre-commit install` with no step to install pre-commit itself (pyproject.toml:66 says "install at user level instead"). |
+| A-N7 | README.md:516 | still-wrong | README still says "Multi-project support (LRU cache, max 10)". The DOCUMENTATION half is not an issue: DOCUMENTATION.md:267 reads "max 10 projects by default", and that line is unchanged since 95c7b40b, so the sweep misread it. |
+| A-N8 | README.md:125, 165-183, 199 | unclear | "As of 2025", `github.copilot.chat.mcpServers` and `@mcp list` are all still present. Whether they're wrong depends on current VS Code docs, which I didn't check (no web access was used). |
+| A-N9 | DOCUMENTATION.md:610 | still-wrong | "No code execution capabilities" still duplicates SECURITY.md. |
+
+</details>
+
+<details><summary>Slice B: full table</summary>
+
+| id | page:line (now) | status | evidence |
+|---|---|---|---|
+| B-W1 | docs/api/flask-tools.md:58,159,269,394,505,631,779,883; pydantic-tools.md:57,323,423,527,813; django-tools.md:55,225,366,500,649 | still-wrong | Still says "None - searches entire project in current directory". The scope default chain ends at `"main"` (flask-tools.md:9 itself says so; server.py:388-390 `plugin_tool_default`). `envelope` and `project_path` are wrapper kwargs (server.py:378). |
+| B-W2 | flask-tools.md:63-80 (examples :121-128); pydantic-tools.md:59-78, :162+, :643+, :815+; django-tools.md Returns blocks | still-wrong | No change. For example, the code emits route `{name,file,line,path,methods,type:"route"}` (flask.py:140-146); there is no `route`/`endpoint`/`auth_required`/`is_async`. Pydantic emits `base_classes` (pydantic.py:213), not `base_class`/`config_class`/`schema_extra`; trace still has `"mro": []` (pydantic.py:412). Plus the #627 handle/location/scope fields. |
+| B-W3 | docs/api/README.md:55-60 | still-wrong | Still says a new framework needs a restart. The server re-detects on configure_packages and returns `activated_plugins` (server.py:694, :770). |
+| B-W4 | (docs/source/api/index.rst deleted) | moot | #823 deleted the file. |
+| B-W5 | (docs/source/index.rst deleted) | moot | #823. |
+| B-W6 | (docs/source/quickstart.rst deleted) | moot | #823. |
+| B-W7 | (docs/source/examples/index.rst deleted) | moot | #823. |
+| B-W8 | (docs/source/contributing.rst deleted) | moot | #823. |
+| B-W9 | docs/architecture/plugin-system.md:87-98 | fixed | #823: contributing.rst is gone, and the ported "Adding a plugin" section has no `find_imports_in_files`. |
+| B-W10 | docs/architecture/plugin-system.md:10-25, 66-85 | fixed | #823 ported page. There is no `augment_symbol_results` section. Tools are listed by their MCP names (`find_pydantic_models`, ...). The table says `register_tools` "Defaults to `{}`". The error rule (#622) is at :23-25. The wrong `all` scope list is dropped. |
+| B-W11 | (configuration.rst, overview.rst deleted) | moot | #823. The surviving list in docs/api/README.md:104-107 was already right. |
+| B-W12 | (configuration.rst deleted) | moot | #823. |
+| B-W13 | docs/architecture/resolution.md:116-120 | fixed | #823 port: "bounds the cache with an LRU of its own (#713, `pyeye._parso_cache`)", and eviction is harmless. |
+| B-W14 | docs/architecture/resolution.md:56-75 | still-wrong | "every tool reports that handle" (:57) still has no exception. Step 5 (:68-74) still omits the static private-stdlib step; resolver.py:22-25 and :408-414 call `_stdlib_static.stdlib_definition`, and `relocate_platform` is used for os.path. |
+| B-W15 | docs/architecture/caching.md:115-119, 136-142 | fixed | #823 port. The watcher "records `.py` files and directories"; there is no "configuration files" and no glob claim. The memory-lever paragraph now names `PYEYE_SCRIPT_CACHE_MAX_ENTRIES` within the parsed-file cache. Caveat: it still calls the artifact cache "the main memory lever", while settings.py:71-75 credits the script cap. That is defensible, because the script cap sits within the combined cap. |
+| B-W16 | (overview.rst, quickstart.rst deleted) | moot | #823. None of the ported pages claim concurrency, sanitisation or timeouts. |
+| B-S1 | (contributing.rst, quickstart.rst deleted) | moot | #823. |
+| B-S2 | (contributing.rst deleted) | moot | #823. |
+| B-S3 | (contributing.rst deleted) | moot | #823 also deleted the docs Pages workflow. |
+| B-S4 | (index/quickstart/overview.rst deleted) | moot | #823. caching.md:101-104 now states that the caps are entry counts, with no numbers. |
+| B-S5 | (overview.rst deleted) | moot | #823. |
+| B-S6 | flask-tools.md:140, :487, :865; pydantic-tools.md:139, :304, :405, :620, :795, :910; django-tools.md:207 | still-wrong | Unchanged "Caches results..." / "Cached with model analysis". Plugins parse through the shared file_artifact_cache (base.py:61-80). Nuance: find_pydantic_models goes through the class graph, which is "cached per generation" (pydantic.py:81), so :139 is half-true for that one tool. |
+| B-S7 | docs/api/django-tools.md:200, :808 (and the `applied` field at :709) | still-wrong | Unchanged. Detection is static (manage.py, requirements files, imports; plugin-system.md:75-78), and django.py emits no `applied`. |
+| B-S8 | docs/architecture/plugin-system.md:29-39, 45-62, 75-78 | fixed | #823 port. Django detection lists manage.py, requirements and imports. Detection on packages and namespaces (#659) is at :31-32. `register_plugin_tools` and `_plugin_tool` (scope, envelope, project_path) are described. |
+| B-S9 | flask-tools.md:3; pydantic-tools.md:3; django-tools.md:3; docs/api/README.md:14-17 | still-wrong | Unchanged "activated when X is detected in your project". There is no mention of package detection (#659) or of `project_path` running the tools undetected (server.py:276 PLUGIN_PROJECT_PATH_NOTE). |
+| B-S10 | (docs/source/architecture/index.rst deleted) | moot | #823. |
+| B-S11 | (quickstart.rst deleted) | moot | #823. |
+| B-S12 | docs/architecture/caching.md:144-148 | fixed | #823 port: per batch it drops the "scoped cache, name index, TypeRef cache and re-export index". |
+| B-M1 | flask-tools.md:7; pydantic-tools.md:7; django-tools.md:7 | still-wrong | Still "these two optional parameters". `project_path: str \| None = None` is on every plugin tool (server.py:378). It is documented only in docs/architecture/plugin-system.md:55-57. |
+| B-M2 | docs/api/README.md:69-81 | still-wrong | The Returns block has no `activated_plugins`, which server.py sets at :770. |
+| B-M3 | the "Error Conditions" sections on all three plugin pages (20 of them) | still-wrong | There is no tool-error, skipped-file or "[] = searched, none" paragraph; a grep of *-tools.md for "tool error" finds nothing. |
+| B-M4 | docs/api/pydantic-tools.md:641 | still-wrong | Still "Name of the Pydantic model class to trace". trace_model_inheritance is in `_MODEL_LOOKUP_TOOLS` (server.py:462), so it takes a handle, as :160 documents for get_model_schema. |
+| B-M5 | docs/architecture/caching.md:125-132 | still-wrong | Partly fixed by #823. It now covers the parso cap (:121), the script cap (:117), mtime and size (:118) and catch-up sweeps (#738, :150-152). It still omits the per-project class-graph and reverse-import-graph caches (#397; project_graph.py:22-30). The configuration.rst half is moot. |
+| B-M6 | docs/architecture/resolution.md:138-141 and :78-80 | still-wrong | (a) Only `subclasses` / `imported_by` list `unparseable_files`, but `re_exports` returns it too (edges.py:1734-1758). The expand.py:63 docstring has the same omission. (b) The scope rule omits standalone dirs; SCOPE roots include `standalone_paths` (project_layout.py:91-93, #690). |
+| B-M7 | (configuration.rst deleted) | moot | #823. |
+| B-N1 | docs/api/pydantic-tools.md:297, :786 | still-wrong | Still "the answer below". The Returns blocks come first (:162, :643). |
+| B-N2 | (.rst files deleted) | moot | #823. |
+| B-N3 | (docs/source/conf.py deleted) | moot | #823. |
+| B-N4 | docs/architecture/caching.md | fixed | #823 port has no watcher code snippet. |
+| B-N5 | (configuration.rst deleted) | moot | #823. |
+
+</details>
+
+<details><summary>Slice C: full table</summary>
+
+| id | page:line (now) | status | evidence |
+|---|---|---|---|
+| C-W1 | docs/api-redesign.md:84-89 | still-wrong | Still `"handle": null, "reason": "no match for 'UnknownClass'"` (line 87). |
+| C-W2 | docs/api-redesign.md:121, 139-152 | still-wrong | Still uses `pyeye.cache.GranularCache`; `grep GranularCache src` is empty. |
+| C-W3 | docs/migration-guide.md:3 | still-wrong | Still "upgrade to the latest version"; the content is still 0.1.x to 0.2.0. |
+| C-W4 | docs/migration-guide.md:106, 122-123, 155 | still-wrong | `invalidate_scope`, `analyzer.list_modules` and `analyzer.find_routes` are all still shown. ScopedCache has only `invalidate_all` (scope_utils.py:659), and there is no `def list_modules` in src. |
+| C-W5 | docs/namespace-packages.md:175, 220 | still-wrong | `analyzer.find_models(...)` is still there. `find_models` exists only at plugins/pydantic.py:75 and plugins/django.py:54. |
+| C-W6 | docs/namespace-packages.md:214; docs/migration-guide.md:26, 162, 251 | still-wrong | The "Lazy Loading" section and the "50% reduction" claim are still there. LazyNamespaceLoader is deprecated (scope_utils.py:670-679). |
+| C-W7 | docs/TROUBLESHOOTING.md:319-326 | still-wrong | The "Analysis timeout" section is still there. settings.py:12 says `PYEYE_ANALYSIS_TIMEOUT`: "nothing ever used it (#592)". |
+| C-W8 | docs/TROUBLESHOOTING.md:531-532, 629-632 | still-wrong | The exclusion, timeout and worker-count advice is unchanged. settings.py:11-12 marks MAX_WORKERS and ANALYSIS_TIMEOUT as unused. |
+| C-W9 | docs/TROUBLESHOOTING.md:237 | still-wrong | Still says "Ensure `__init__.py` files exist in namespace directories". |
+| C-W10 | docs/TROUBLESHOOTING.md:557-562 | still-wrong | "Check installed packages in environment" (560) and "happens when project loads" (562) are unchanged. |
+| C-W11 | docs/debugging-connection-drops.md:29 | still-wrong | Still labels `~/.config/claude/claude_desktop_config.json` as the Claude Code settings. |
+| C-W12 | docs/debugging-connection-drops.md:262 | still-wrong | Still says modify `src/pyeye/mcp/server.py`. The call is `start_heartbeat_monitor(interval_seconds=30)` at mcp/__main__.py:156. |
+| C-W13 | docs/COVERAGE.md:5, 22, 71, 153, 158-165 | still-wrong | Partly generated: line 6 is now `<!-- fact:begin ci.coverage_threshold -->85%` (#824, 8df816c8). Still wrong: "Current Coverage 79%" (5, 22), `--cov-fail-under=75` (71), "When We Reach 85%… Update from 75" (158-164), and "baseline (currently 79%)" (153). The page now contradicts its own fact block. |
+| C-W14 | docs/testing/PERFORMANCE.md:67; docs/development/test_generation_guidelines.md:62 | still-wrong | Both still use `CommonThresholds.SYMBOL_SEARCH_P95`. No match in tests/. |
+| C-W15 | docs/testing/PERFORMANCE.md:83, 272-309 | still-wrong | Still shows `measure_operation` and `calculate_percentiles` as the repo helpers. tests/utils/performance.py defines only PerformanceThresholds, get_ci_tolerance_factor, is_ci_environment, get_platform_name, format_threshold_message, CommonThresholds and assert_performance_threshold. |
+| C-W16 | docs/testing/FIXTURES.md:30-143, 471 | still-wrong | Still labels `temp_project`, `mock_analyzer` and the others "# tests/conftest.py". The real conftest has `temp_project_dir`, `sample_python_project` and so on. There is no unit/, integration/ or performance/ conftest.py. |
+| C-S1 | docs/api-redesign.md:35, 158, 188, 276-278 | still-wrong | `re_exports` is still presented as current, with no deprecation note and no mention of unparseable packages. |
+| C-S2 | docs/api-redesign.md:42-43 | still-wrong | The edge list still omits `submodules` and `re_exports`. |
+| C-S3 | docs/api-redesign.md:499-500 | still-wrong | Still says "`(file_path, mtime_ns, raw)` in a per-process dict". |
+| C-S4 | docs/api-redesign.md:76, 145, 194 | still-wrong | Still shows relative `"file": "src/..."` paths. |
+| C-S5 | docs/migration-guide.md:118-122, 244-246 | still-wrong | find_symbol, find_subclasses and list_modules defaults and benchmarks are still there, with no "historical" label. |
+| C-S6 | docs/migration-guide.md:214 | still-wrong | Still `-> list[dict]`. |
+| C-S7 | docs/namespace-packages.md:206-212 | still-wrong | Still lists the three old caching layers. |
+| C-S8 | docs/TROUBLESHOOTING.md:147-151 | still-wrong | Still lists "Environment variables (`PYEYE_*`)" as a config location. `.pyeye.override.json` is still not mentioned. |
+| C-S9 | docs/TROUBLESHOOTING.md:66 | still-wrong | Still `grep -E "jedi\|fastmcp\|mcp"`. |
+| C-S10 | docs/TROUBLESHOOTING.md:731 | still-wrong | Still "Last updated: August 2025". |
+| C-S11 | docs/debugging-connection-drops.md:88-89, 101 | still-wrong | Still shows `tool_call: find_symbol` / `get_type_info`. The #826 removed-name rule doesn't catch these. |
+| C-S12 | docs/debugging-connection-drops.md:101-102, 119-124 | still-wrong | Still uses the `pyeye.metrics_hook` and `pyeye.mcp.server` logger names. The connection_diagnostics lines (88-89) were already correct. |
+| C-S13 | docs/UNIFIED_METRICS.md:42, 55, 278, 294-300 | still-wrong | Still gives the path as `~/.pyeye/unified_metrics/`. |
+| C-S14 | docs/UNIFIED_METRICS.md:208 | still-wrong | Still says "`fcntl` file locking". |
+| C-S15 | docs/UNIFIED_METRICS.md:219, 248-251 | still-wrong | Still names tests/test_unified_metrics.py and the other two, none of which exist. Cleanup is still called a "future enhancement". |
+| C-S16 | docs/RELEASE.md:179 | still-wrong | Still `python_code_intelligence_mcp-0.3.0-...whl` (it moved from line 173). |
+| C-S17 | docs/testing/STRATEGY.md:162, 259, 307-315, 339-342; PERFORMANCE.md:15, 457, 497; FIXTURES.md:147-163, 293; CONVENTIONS.md:8-26 | still-wrong | All sub-claims remain: load_tests/, `-n auto`, pytest-mock/hypothesis/benchmark/factory-boy/faker, `make test-*`, performance.yml, check_performance_regression.py, Find References, Factory Boy, 3.10 params, and the stale tree. One sub-point changed under it: #823 (8ffb1291) deleted docs/Makefile and build-deploy-docs.yml, so there is no Makefile at all now and the workflows are ci, release and tag-release. |
+| C-M1 | docs/api-redesign.md:91-98 | still-wrong | There is still no `max_candidates` or `truncated`/`truncation_reasons`/`total`. The code is at resolve.py:405, 426. |
+| C-M2 | docs/api-redesign.md:139-141, 166-175 | still-wrong | The inspect example and the universal-fields table still omit `found: true`. The resolve examples (71, 120) do have it. |
+| C-M3 | docs/api-redesign.md:211-221 | still-wrong | Still "always present", with class/module → `members`. There is no unparseable caveat. |
+| C-M4 | docs/api-redesign.md:174, 296-318 | still-wrong | Still only `"project"` or `"external"`. It doesn't say that configured packages, namespaces and standalone dirs are "project". |
+| C-M5 | docs/api-redesign.md (whole) | still-wrong | There is no tool-error and not-found section. |
+| C-M6 | docs/namespace-packages.md:45-53 | still-wrong | The scope list still lacks `standalone`, and there are no `packages` or sub-namespace notes. |
+| C-M7 | docs/namespace-packages.md:120-161 | still-wrong | There is no mention of `project_path` or `envelope` (grep finds nothing). |
+| C-M8 | docs/TROUBLESHOOTING.md:254-277, 551 | still-wrong | There is no tool-error or unparseable entry, and "Python 2.7+" is still at 551. High Memory Usage (254-277) still mentions only PYEYE_MAX_PROJECTS. ARTIFACT_CACHE appears only in the Project Limit Tuning example at 618. The SCRIPT and PARSO caps aren't mentioned. |
+| C-M9 | docs/TROUBLESHOOTING.md:279-288 | still-wrong | Still "Force cache refresh by modifying a file" (285). |
+| C-N1 | docs/RELEASE.md:115 | still-wrong | Still "the commit `changelog.py prepare` creates" (it moved from line 109). |
+| C-N2 | docs/RELEASE.md:17-18, 53-63, 164 | still-wrong | Still v2.0.0 and 0.2.x examples. #826 edited this block but kept 2.0.0. |
+| C-N3 | docs/RELEASE.md:135-141 | still-wrong | "Manual tag (fallback)" still doesn't say it is only for when tag-release.yml failed. |
+| C-N4 | docs/CLAUDE_AGENTS.md:16-20 | still-wrong | `general-purpose` is still listed as a repo agent. .claude/agents/ has only smart-commit.md and smart-commit-examples.md. |
+| C-N5 | docs/LABELS.md | still-wrong | `gh label list` still shows `python:uv`, which LABELS.md doesn't mention. |
+| C-N6 | docs/DOGFOODING_INTEGRATION.md:63; docs/UNIFIED_METRICS.md:92 | still-wrong | Both still use `"find_symbol"`. |
+| C-N7 | docs/DOGFOODING_SETUP.md:72-73 | still-wrong | Still "Found all references…" and "caught circular dependency…". |
+| C-N8 | docs/METRICS_BASELINE.md:100 | still-wrong | Still "Document it in CLAUDE.md". |
+| C-N9 | docs/api-redesign.md:556 | still-wrong | Still cross-references `~/.claude/projects/okeefeco/pyeye-mcp.md`. |
+| C-N10 | docs/testing/CONVENTIONS.md:308; docs/development/test_generation_guidelines.md:162 | still-wrong | `flaky(reruns=3)` is still used, and pytest-rerunfailures is not in pyproject. `scripts/validate_test_code.py` is still referenced but is absent. |
+
+</details>
+
+<details><summary>Slice D: full table</summary>
+
+| id | page:line (now) | status | evidence |
+|---|---|---|---|
+| D-W1 | src/pyeye/plugins/{pydantic,flask,django}.py scope Args | generated | #840 (b44aecf1): `_plugin_tool` runs `fill()` on the docstring (server.py:457). The live description lists main/packages/standalone/namespace:<name>/package:<path>/all, lists, and scope_aliases. |
+| D-W2 | src/pyeye/plugins/pydantic.py:222, 383 | still-wrong | Live text still says only `model_name: Name of the model to get schema for` / `…to trace`. It mentions neither the handle form nor the not-found/ambiguous shapes from `_lookup_model`. |
+| D-W3 | src/pyeye/mcp/server.py:1139 | generated | `<<fact:edges.implemented>>` slot (#840). The live list now includes `submodules` and `re_exports`. |
+| D-W4 | src/pyeye/mcp/server.py:1013-1017 | fixed | #840 (b44aecf1) added a hand-written `submodules` bullet to "Supported edges" (`git log -S`). |
+| D-W5 | src/pyeye/mcp/server.py:1027 | generated | `<<fact:edges.implemented:applies_to>>` slot (#840). The live table includes `re_exports → attribute, class, enum_member, …` and `submodules → module`. |
+| D-W6 | .claude/instructions/07-validation.md:182 | generated | `<!-- fact:begin ci.python_versions -->3.11, 3.12, 3.13, 3.14<!-- fact:end -->`, #834 (8df816c8). |
+| D-W7 | .claude/instructions/08-project-specific.md:21 | still-wrong | Still "Find symbols, go to definitions, find references using Jedi". |
+| D-W8 | .claude/instructions/08-project-specific.md:38-48, 140, 142 | still-wrong | The tree still has `server.py … 17+ core tools` at the src/pyeye root, `cache.py # Caching and file watching` and no `mcp/`. The refs `src/server.py:125` and `src/plugins/flask.py:find_routes` are unchanged. |
+| D-S1 | src/pyeye/mcp/server.py:894-895, 903 | still-wrong | Still "Edge counts and highlights come in later phases" and `edge_counts={}`. |
+| D-S2 | src/pyeye/mcp/server.py:818 | still-wrong | The success shape is still `{found, handle, kind, scope}` with no `location`. The `max_candidates` Args entry was added by #840 (server.py:813), so this is only partly fixed. |
+| D-S3 | src/pyeye/mcp/server.py:1392 | still-wrong | "Signal handler status" is still listed. The return value is `{connection, errors, pattern_warning, status}` (1407-1412), with no signal field. |
+| D-S4 | .claude/instructions/08-project-specific.md:31, 33 | still-wrong | Still "LRU caching (max 10)" and "result cache (5min TTL)", with no env names and no caps. |
+| D-S5 | .claude/instructions/08-project-specific.md:120, 124 | still-wrong | Still "configured globally … via `claude mcp add`" and "Plugins auto-activate based on project detection". |
+| D-S6 | .claude/skills/pyeye-scenarios/SKILL.md:94 | fixed | #796 (d7625f40) re-recorded django row 2 as `re_exports:["django.db.models.Model"]` and noted #712. The row still probes the deprecated `inspect` field rather than `expand(…,"re_exports")`. |
+| D-S7 | .claude/skills/pyeye-scenarios/SKILL.md:192-204 | still-wrong | The jaraco round-trip is still "captured 2026-11-15", with "don't round-trip **22**" and "A drop toward 0 is the #623 acceptance signal". |
+| D-S8 | .claude/skills/pyeye-scenarios/SKILL.md:180-190; .claude/skills/pyeye-verify/SKILL.md:128 | still-wrong | Partly fixed: #796 re-recorded the django rows (`members:67`). The jaraco probe suite is still "captured 2026-06-22", and the pyeye-verify rubric still cites "django `members:68`". |
+| D-S9 | src/pyeye/mcp/operations/stubs.py:12-13, 45-49 | still-wrong | The kind list has no `enum_member`. The text still says a class-body attribute "can report the enclosing class's end line". |
+| D-S10 | src/pyeye/mcp/operations/trace.py:22 | still-wrong | Still "present iff subclasses/imported_by walked". |
+| D-S11 | skills/architecture-review/SKILL.md:233 | still-wrong | Still "propose → draft → confirm → append". |
+| D-S12 | skills/architecture-review/auditor.md:150 | still-wrong | Still "silently drop a real import (#494)", with no pointer to `unresolved_imports`. |
+| D-S13 | .claude/instructions/11-pr-requirements.md:43-44; 06-workflow-commits.md:108 | still-wrong | Bare `pytest --cov=…` without `uv run`. The "ProjectCache/GranularCache" comment is still at 11:43. |
+| D-S14 | scripts/claude_hooks/setup_mcp_monitoring.sh:118 | still-wrong | Still `mcp__pyeye__find_symbol`. |
+| D-M1 | src/pyeye/mcp/server.py:283-285 | fixed | #840 (b44aecf1) added the ``envelope`` paragraph (`{scope, searched, unsearched_scopes, results}`) to `PLUGIN_PROJECT_PATH_NOTE` (`git log -S`). It does not include the advice to retry with "all". |
+| D-M2 | src/pyeye/mcp/server.py:276-285 | still-wrong | The shared note covers only project_path and envelope. No plugin description mentions the record fields `handle`/`location`/`scope`/`unresolved`. |
+| D-M3 | src/pyeye/mcp/server.py:1044-1056, 1077-1079 | still-wrong | The supported-branch shape block still lacks `transitive_hint`, `truncated`/`truncation_reasons`/`total` and `bindings`. "Each Stub carries" also omits `bindings`. These fields are mentioned only in the bullets and Args. |
+| D-M4 | src/pyeye/mcp/server.py:902-909 | still-wrong | The `inspect` Returns section still lacks the deprecated `re_exports` field and the superclasses-omitted-when-unparseable rule. Only expand's bullet, at 979, mentions the deprecation. |
+| D-M5 | skills/python-explore/SKILL.md:525 | still-wrong | There is still no note on the caller's spelling of project_path. The example `location: { file: "myapp/cache.py", … }` is still relative. |
+| D-M6 | skills/python-explore/SKILL.md (Notes) | still-wrong | No mention of `collections.abc`, `os.path` or typeshed (grep finds none). |
+| D-M7 | skills/python-explore/SKILL.md:451-454; src/pyeye/mcp/server.py:1310-1314 | still-wrong | Both root-`truncation_reasons` paragraphs still split reasons into budget and boundary only. `unparseable` appears only in the per-node list (server.py ~1291) and the skill's general note (SKILL.md:121-125). |
+| D-M8 | .claude/skills/pyeye-verify/SKILL.md:126 | still-wrong | "Right altitude" still cites only `max_nodes`. |
+| D-N1 | skills/python-explore/SKILL.md:159-160 | still-wrong | Still "pointers (handle + location + kind)". |
+| D-N2 | skills/architecture-review/auditor.md:35-36 | still-wrong | Still "a file-path handle returns junk". |
+| D-N3 | .claude/instructions/08-project-specific.md:141 | still-wrong | Still `tests/test_validation.py:45-89`. |
+| D-N4 | .claude/instructions/04-agent-triggers.md:15, 134; 06-workflow-commits.md:117 | still-wrong | Still "Task tool". |
+| D-N5 | CLAUDE.md:60-68 | still-wrong | The aliases are still listed with no source (`aliases.sh` / `setup_mcp_monitoring.sh`). |
+
+</details>
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+---
+Candidate **facts** from the README slice (PR #866, worker), needed before README items A-M5/M6/M7 can be fixed under C15:
+- **config sources:** the files pyeye reads (`.pyeye.json`, `pyproject.toml [tool.pyeye]`, `.pyeye.override.json`, the global config, and the YAML and `.claude/pyeye.json` sources if they're real), as a `config.files` fact from the config loader;
+- **config keys:** `standalone`, `scope_defaults`, `scope_aliases` and the rest, from the config schema.
+
+Prose should then link to or bind these rather than describe them. Also from that slice: the sizing advice keeps a qualitative "slower and uses more memory" citing #768 (no number, so D12 allows it); and the dead `PERFORMANCE_BASELINES` code is filed separately.
+---
+All #830 slices have merged: guide pages (#880), skills and tool descriptions (#881), .claude/ and CLAUDE.md (#883, #902, with the maintainer's approval in the editing session), skill facts (#886), repo-config facts and link-not-restate (#889), scenario baselines as dated records (#903, C18), and the last claim seeds (#924). `claim_seeds.SEEDS` is empty on main, and a test pins it there. The D12 honest-claims rule now runs with no allowances.

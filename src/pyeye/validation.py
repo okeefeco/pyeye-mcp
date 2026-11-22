@@ -297,9 +297,26 @@ _RESTRICTED_DIRS: tuple[str, ...] = tuple(
 #: Every proper ancestor of a restricted directory: "/" and, for macOS's
 #: /private/etc, "/private". A scan rooted at one would walk into a restricted
 #: directory, so :meth:`PathValidator.validate_scan_root` refuses it.
+#:
+#: Declared as a literal so docs-facts can read it without running code (#1098
+#: Q2, C19). It must equal :func:`restricted_ancestors` of :data:`_RESTRICTED_DIRS`;
+#: a unit test holds the two together, so a new restricted directory fails it.
 _RESTRICTED_ANCESTORS: frozenset[str] = frozenset(
-    parent.as_posix() for d in _RESTRICTED_DIRS for parent in PurePosixPath(d).parents
+    {
+        "/",
+        "/private",
+        "/private/var",
+        "/private/var/run",
+        "/run",
+        "/var",
+        "/var/run",
+    }
 )
+
+
+def restricted_ancestors(directories: tuple[str, ...]) -> frozenset[str]:
+    """Every proper ancestor of each of *directories* (POSIX spellings)."""
+    return frozenset(parent.as_posix() for d in directories for parent in PurePosixPath(d).parents)
 
 
 class _CredentialStores:
