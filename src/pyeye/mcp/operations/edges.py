@@ -433,7 +433,12 @@ CEILING_MEANINGS: dict[str, str] = {
         "try/except shim, or rebound by an if/else) is not listed under any of its "
         "candidates (#1057). "
         "Classes built with type(), class factories or __init_subclass__ registration "
-        "are not included"
+        "are not included. "
+        "The scan skips virtual environments (a directory holding pyvenv.cfg, "
+        "whatever its name) and directories named like caches or build output "
+        "(build, dist, env, venv, .tox and the like) unless they hold __init__.py "
+        "or __init__.pyi; a PEP 420 namespace package with such a name is not "
+        "scanned (#1104)"
     ),
     "declared_bases": (
         "the bases written in the class statement; bases added at runtime are not "
@@ -445,7 +450,12 @@ CEILING_MEANINGS: dict[str, str] = {
         "import statements written in source; importlib / __import__ with a computed "
         "name is not included. A stub's (.pyi) own imports are declarations, not "
         "runtime imports: imported_by doesn't count them, while imports on a stub "
-        "module lists them (#933)"
+        "module lists them (#933). For imported_by, "
+        "the scan skips virtual environments (a directory holding pyvenv.cfg, "
+        "whatever its name) and directories named like caches or build output "
+        "(build, dist, env, venv, .tox and the like) unless they hold __init__.py "
+        "or __init__.pyi; a PEP 420 namespace package with such a name is not "
+        "scanned (#1104)"
     ),
     "static_calls": (
         "calls whose target static analysis resolves; dynamic calls are counted in "
