@@ -10,7 +10,9 @@ like an import reference (``package.module:attr``) is refused wherever it
 appears. The keys:
 
 - ``facts``: a list of ``{id, from, file, key}`` tables, ``from`` one of the
-  built-in kinds (:mod:`.data_facts`);
+  built-in data-file kinds (:mod:`.data_facts`);
+- ``extractors``: a list of ``{kind, <options>}`` tables, ``kind`` a built-in
+  kind (:data:`~.kinds.BUILT_IN_KINDS`), the rest its options;
 - ``docs``: a list of ``{path, audience, kind, allow?, covers?, site?}`` tables,
   the doc registry (:class:`~.docs.DocEntry`);
 - ``rules``: ``"all"`` (the default) or a list of rule IDs (:data:`~.rules.RULES`);
@@ -30,12 +32,12 @@ from typing import Any, get_args
 
 from .. import _data_files
 from ..path_utils import relative_within
-from . import data_facts, rules
+from . import data_facts, kinds, rules
 from .docs import Audience, DocEntry, Kind
 from .setup import Paths, Setup
 
 SECTION = "docs_facts"
-KEYS = frozenset({"facts", "docs", "rules", "changelog", "paths"})
+KEYS = frozenset({"facts", "extractors", "docs", "rules", "changelog", "paths"})
 _FACT_KEYS = frozenset({"id", "from", "file", "key"})
 _DOC_KEYS = frozenset({"path", "audience", "kind", "allow", "covers", "site"})
 _PATH_KEYS = frozenset(Paths.__dataclass_fields__)
@@ -77,8 +79,9 @@ def load(root: Path) -> Setup:
     _refuse_code_refs(raw, SECTION)
     _only(raw, KEYS, SECTION)
     facts = tuple(_fact(entry, i, root) for i, entry in enumerate(_list(raw, "facts")))
+    built = tuple(_kind(entry, i) for i, entry in enumerate(_list(raw, "extractors")))
     return Setup(
-        extractors=(data_facts.extractor(facts),) if facts else (),
+        extractors=((data_facts.extractor(facts),) if facts else ()) + built,
         docs=tuple(_doc(entry, i) for i, entry in enumerate(_list(raw, "docs"))),
         rules=_rules(raw.get("rules", "all")),
         pages={},
@@ -151,6 +154,23 @@ def _fact(entry: Any, i: int, root: Path) -> data_facts.DataFact:
     if relative_within(root / file, root) is None:
         raise ConfigError(f"{where}: {file!r} is outside the repository")
     return data_facts.DataFact(fact_id, kind, file, _str(table, "key", where))
+
+
+def _kind(entry: Any, i: int) -> Any:
+    """A built-in kind's extractor, built from its config table (:mod:`.kinds`)."""
+    where = f"{SECTION}.extractors[{i}]"
+    table = _table(entry, where)
+    name = _str(table, "kind", where)
+    factory = kinds.BUILT_IN_KINDS.get(name)
+    if factory is None:
+        raise ConfigError(
+            f"{where}: kind {name!r} isn't built in; known: {sorted(kinds.BUILT_IN_KINDS)}"
+        )
+    options = MappingProxyType({k: v for k, v in table.items() if k != "kind"})
+    try:
+        return factory(options)
+    except kinds.KindOptionsError as error:
+        raise ConfigError(f"{where} ({name}): {error}") from error
 
 
 def _doc(entry: Any, i: int) -> DocEntry:

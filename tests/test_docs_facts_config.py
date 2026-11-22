@@ -233,3 +233,46 @@ class TestPaths:
         assert cli.main(["generate"], root=root) == 0
         assert (root / "build/facts.json").is_file()
         assert not (root / "docs/facts/facts.json").exists()
+
+
+class TestBuiltInKinds:
+    """``extractors`` tables name a built-in kind and give it options (#1091, #1092)."""
+
+    @pytest.fixture
+    def echo(self, monkeypatch: pytest.MonkeyPatch) -> list[dict[str, object]]:
+        """A registered test kind that records its options and yields one fact."""
+        from pyeye.docs_facts import kinds
+        from pyeye.docs_facts.registry import Extractor
+
+        seen: list[dict[str, object]] = []
+
+        def factory(options: object) -> Extractor:
+            opts = dict(options)  # type: ignore[call-overload]
+            if "bad" in opts:
+                raise kinds.KindOptionsError("unknown option 'bad'")
+            seen.append(opts)
+            prefix = str(opts.get("prefix", "echo"))
+            return Extractor("echo", (prefix,), lambda _root: iter([Fact(f"{prefix}.n", 1, "`1`")]))
+
+        monkeypatch.setitem(kinds.BUILT_IN_KINDS, "echo", factory)
+        return seen
+
+    def _with(self, tmp_path: Path, table: str) -> Path:
+        return _repo(tmp_path, PYPROJECT + "\n[[tool.pyeye.docs_facts.extractors]]\n" + table)
+
+    def test_options_reach_the_factory(self, tmp_path: Path, echo: list[dict[str, object]]) -> None:
+        root = self._with(tmp_path, 'kind = "echo"\nprefix = "arch"\ninclude = ["pkg/**"]\n')
+        setup = config.load(root)
+        assert echo == [{"prefix": "arch", "include": ["pkg/**"]}]
+        assert [x.name for x in setup.extractors] == ["data", "echo"]
+
+    def test_an_unknown_kind_is_refused(self, tmp_path: Path) -> None:
+        root = self._with(tmp_path, 'kind = "nope"\n')
+        with pytest.raises(config.ConfigError, match="'nope' isn't built in"):
+            config.load(root)
+
+    @pytest.mark.usefixtures("echo")
+    def test_a_kinds_option_error_says_where(self, tmp_path: Path) -> None:
+        root = self._with(tmp_path, 'kind = "echo"\nbad = 1\n')
+        with pytest.raises(config.ConfigError, match=r"extractors\[0\] \(echo\): unknown option"):
+            config.load(root)
