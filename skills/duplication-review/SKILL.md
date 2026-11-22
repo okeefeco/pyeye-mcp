@@ -47,11 +47,16 @@ the list. To exclude a directory, list its siblings instead of its parent.
 Claude Code plugin, run it through the plugin's environment:
 
 ```bash
+[ -n "${CLAUDE_PLUGIN_ROOT}" ] && [ -n "${CLAUDE_PLUGIN_DATA}" ] || {
+  echo "Not loaded through the pyeye plugin. With pyeye-mcp installed, run: python -m pyeye.duplication ..." >&2; false; } &&
 UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
   uv run --project "${CLAUDE_PLUGIN_ROOT}" --no-sync --frozen \
   python -m pyeye.duplication review src/mypkg --state .pyeye/duplication-review.json
 ```
 
+Claude Code fills in the two `${CLAUDE_PLUGIN_…}` paths when it loads the
+skill from the plugin. The first line stops with a hint when they are empty
+(the command was copied out of the plugin), instead of failing on `/.venv`.
 Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.duplication review …`.
 Run it from the project root: locations are relative to `--root` (default: the
 current directory), and the state file's keys use them. A scope outside
@@ -124,6 +129,8 @@ Filters, always on and stated in every run:
      `else` the other lacks): that is the finding to lead with.
    - **Dismiss** — boilerplate or a deliberate copy. Record it with `dismiss`
      and the right `--reason`. Ask the human before dismissing; it's their call.
+     A family with more than two sites can bundle unrelated pairs (see
+     Dismissals): read every pair, not only the longest, before you dismiss it.
 3. **Report** the families you looked at, the verdict on each, the drift you
    found, and the threshold and filters used. Never present a family as a fact.
 
@@ -139,6 +146,14 @@ A dismissal is keyed on the family's sorted member locations plus the fact
   new sites are shown (a bridging copy can add a site with no new member).
 - **Expiry:** none by default. With `--review-after`, it re-surfaces as
   `review-due` once the `--today` you pass reaches that date.
+
+**A dismissal covers the whole family.** A family with three or more sites can
+join pairs that have nothing to do with each other: copies connect through a
+shared member, so a real copy and an unrelated idiom can land in one family. One
+`dismiss` suppresses every pair in it, including the real copy. Before
+dismissing a family of more than two sites, read each pair. If any pair is a
+copy worth consolidating, don't dismiss the family: consolidate that copy first,
+and run the review again: the remaining pairs show as their own family.
 
 Each dismissal records its reason and date. Commit the state file so the whole
 team shares the dismissals.
