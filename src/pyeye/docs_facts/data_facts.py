@@ -5,7 +5,10 @@ configured by data in its docs-facts config. Each reads a file; none imports
 or runs one. This module holds the data-file kinds:
 
 - ``toml``, ``json``, ``yaml``: the value at a dotted key path in a data file,
-  read through :mod:`pyeye._data_files` (YAML with ``safe_load`` only).
+  read through :mod:`pyeye._data_files` (YAML with ``safe_load`` only);
+- ``literal``: a module-level constant in a Python file, folded from its syntax
+  tree (:func:`~.static.file_constant`): literals, names bound in that file,
+  f-strings and set or string operators. The file is never imported.
 
 A fact's ID is the repository's choice; its first segment is its prefix, and
 the prefixes of all a repository's data facts are owned by one extractor. A
@@ -22,16 +25,24 @@ from pathlib import Path
 from typing import Any
 
 from .. import _data_files
+from . import static
 from .facts import Bindable, ExtractionError, Fact, code, code_list
 from .registry import Extractor
 
-#: The data-file kinds, by the name a config's ``from`` uses.
+#: The data-file kinds, which take a ``key``, by the name a config's ``from`` uses.
 DATA_KINDS = _data_files.FORMATS
+#: The kind that reads a Python constant, which takes a ``name``.
+LITERAL = "literal"
+#: Every kind a ``facts`` entry can name.
+FACT_KINDS = (*DATA_KINDS, LITERAL)
 
 
 @dataclass(frozen=True)
 class DataFact:
-    """One configured fact: the value at *key* in *file*, read as *kind*."""
+    """One configured fact: the value at *key* in *file*, read as *kind*.
+
+    For the ``literal`` kind, *key* is the constant's name.
+    """
 
     id: str
     kind: str
@@ -62,7 +73,10 @@ def _read(root: Path, fact: DataFact) -> Fact:
     path = root / fact.file
     if not path.is_file():
         raise ExtractionError(f"{fact.id}: {fact.file} doesn't exist")
-    value = _at(_data_files.read(path, fact.kind), fact)
+    if fact.kind == LITERAL:
+        value = static.file_constant(root, fact.file, fact.key)
+    else:
+        value = _at(_data_files.read(path, fact.kind), fact)
     return Fact(fact.id, value, _markdown(value))
 
 

@@ -280,3 +280,28 @@ def test_the_static_edge_registry_classifies_every_status(tmp_path: Path) -> Non
     assert list(reg.EDGE_RESOLVERS) == ["members"]
     with pytest.raises(AttributeError):
         reg.__wrapped__  # noqa: B018 - the lookup is the test
+
+
+class TestAnyFile:
+    """``file_constant`` folds a constant in any repository's file (#1091's literal kind)."""
+
+    def test_folds_within_the_file(self, tmp_path: Path) -> None:
+        (tmp_path / "app").mkdir()
+        (tmp_path / "app/settings.py").write_text(
+            "BASE = 8\nCONCURRENT = 16\nNAMES = ('a', 'b') + ('c',)\nURL = f'http://x/{BASE}'\n",
+            encoding="utf-8",
+        )
+        assert static.file_constant(tmp_path, "app/settings.py", "CONCURRENT") == 16
+        assert static.file_constant(tmp_path, "app/settings.py", "NAMES") == ("a", "b", "c")
+        assert static.file_constant(tmp_path, "app/settings.py", "URL") == "http://x/8"
+
+    def test_never_follows_an_import(self, tmp_path: Path) -> None:
+        (tmp_path / "other.py").write_text("X = 1\n", encoding="utf-8")
+        (tmp_path / "m.py").write_text("from other import X\nY = X\n", encoding="utf-8")
+        with pytest.raises(ExtractionError, match="no module-level 'X'"):
+            static.file_constant(tmp_path, "m.py", "Y")
+
+    def test_refuses_what_it_would_have_to_run(self, tmp_path: Path) -> None:
+        (tmp_path / "m.py").write_text("import os\nY = os.environ.get('Y')\n", encoding="utf-8")
+        with pytest.raises(ExtractionError, match=r"m\.py:2"):
+            static.file_constant(tmp_path, "m.py", "Y")

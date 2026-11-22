@@ -276,3 +276,41 @@ class TestBuiltInKinds:
         root = self._with(tmp_path, 'kind = "echo"\nbad = 1\n')
         with pytest.raises(config.ConfigError, match=r"extractors\[0\] \(echo\): unknown option"):
             config.load(root)
+
+
+class TestLiteralKind:
+    """``from = "literal"`` reads a module-level constant from source, never importing it."""
+
+    def test_a_settings_default(self, tmp_path: Path) -> None:
+        root = _repo(
+            tmp_path,
+            PYPROJECT
+            + '\n[[tool.pyeye.docs_facts.facts]]\nid = "settings.concurrent"\nfrom = "literal"\n'
+            'file = "app/settings.py"\nname = "CONCURRENT_REQUESTS"\n',
+        )
+        (root / "app").mkdir()
+        (root / "app/settings.py").write_text("CONCURRENT_REQUESTS = 16\n", encoding="utf-8")
+        facts = {
+            f.id: f
+            for x in config.load(root).extractors
+            for f in x.extract(root)
+            if isinstance(f, Fact)
+        }
+        assert (facts["settings.concurrent"].value, facts["settings.concurrent"].markdown) == (
+            16,
+            "`16`",
+        )
+
+    @pytest.mark.parametrize(
+        ("fields", "message"),
+        [
+            ('from = "literal"\nfile = "a.py"\nkey = "X"\n', "'name'"),  # literal needs name
+            ('from = "toml"\nfile = "a.toml"\nname = "X"\n', "'key'"),  # data kinds need key
+        ],
+    )
+    def test_each_kind_takes_its_own_field(self, tmp_path: Path, fields: str, message: str) -> None:
+        root = _repo(
+            tmp_path, PYPROJECT + '\n[[tool.pyeye.docs_facts.facts]]\nid = "x.y"\n' + fields
+        )
+        with pytest.raises(config.ConfigError, match=message):
+            config.load(root)

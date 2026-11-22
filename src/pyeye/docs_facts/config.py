@@ -9,8 +9,9 @@ facts): every key is data, and nothing names code to import. A value shaped
 like an import reference (``package.module:attr``) is refused wherever it
 appears. The keys:
 
-- ``facts``: a list of ``{id, from, file, key}`` tables, ``from`` one of the
-  built-in data-file kinds (:mod:`.data_facts`);
+- ``facts``: a list of ``{id, from, file, key | name}`` tables, ``from`` one
+  of the built-in kinds (:mod:`.data_facts`): ``toml``/``json``/``yaml`` read a
+  dotted ``key``, ``literal`` a Python constant's ``name``;
 - ``extractors``: a list of ``{kind, <options>}`` tables, ``kind`` a built-in
   kind (:data:`~.kinds.BUILT_IN_KINDS`), the rest its options;
 - ``docs``: a list of ``{path, audience, kind, allow?, covers?, site?}`` tables,
@@ -38,7 +39,7 @@ from .setup import Paths, Setup
 
 SECTION = "docs_facts"
 KEYS = frozenset({"facts", "extractors", "docs", "rules", "changelog", "paths"})
-_FACT_KEYS = frozenset({"id", "from", "file", "key"})
+_FACT_KEYS = frozenset({"id", "from", "file", "key", "name"})
 _DOC_KEYS = frozenset({"path", "audience", "kind", "allow", "covers", "site"})
 _PATH_KEYS = frozenset(Paths.__dataclass_fields__)
 #: ``package.module:attr``: the shape of a code reference, refused anywhere.
@@ -145,15 +146,19 @@ def _fact(entry: Any, i: int, root: Path) -> data_facts.DataFact:
     table = _table(entry, where)
     _only(table, _FACT_KEYS, where)
     kind = _str(table, "from", where)
-    if kind not in data_facts.DATA_KINDS:
-        raise ConfigError(f"{where}: 'from' must be one of {list(data_facts.DATA_KINDS)}")
+    if kind not in data_facts.FACT_KINDS:
+        raise ConfigError(f"{where}: 'from' must be one of {list(data_facts.FACT_KINDS)}")
+    # A data file is read at a ``key`` path; a Python file's constant by its ``name``.
+    field_name, other = ("name", "key") if kind == data_facts.LITERAL else ("key", "name")
+    if other in table:
+        raise ConfigError(f"{where}: a {kind!r} fact takes {field_name!r}, not {other!r}")
     fact_id = _str(table, "id", where)
     if "." not in fact_id:
         raise ConfigError(f"{where}: id {fact_id!r} needs a prefix (``prefix.name``)")
     file = _str(table, "file", where)
     if relative_within(root / file, root) is None:
         raise ConfigError(f"{where}: {file!r} is outside the repository")
-    return data_facts.DataFact(fact_id, kind, file, _str(table, "key", where))
+    return data_facts.DataFact(fact_id, kind, file, _str(table, field_name, where))
 
 
 def _kind(entry: Any, i: int) -> Any:
