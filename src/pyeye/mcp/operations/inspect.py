@@ -321,6 +321,21 @@ def _signature_from_source_ast(jedi_name: Any) -> str | None:
     return f"{name}({args}){ret}"
 
 
+def _infers_as_classmethod(jedi_name: Any) -> bool:
+    """Whether Jedi infers *jedi_name* as the ``builtins.classmethod`` descriptor (#1128).
+
+    A ``@property`` infers ``builtins.property`` and is deliberately not matched:
+    a property is read, not called, so it stays unsigned.
+    """
+    try:
+        return any(
+            getattr(inferred, "full_name", None) == "builtins.classmethod"
+            for inferred in jedi_name.infer()
+        )
+    except Exception:
+        return False
+
+
 def _build_signature(jedi_name: Any) -> str | None:
     """Extract a single-line signature string from a Jedi Name object.
 
@@ -354,6 +369,11 @@ def _build_signature(jedi_name: Any) -> str | None:
             # the same name (``parse: CallbackT`` beside ``def parse``, #1106),
             # so it has no signature of its own. The def as written is its
             # signature, as for a decorator's wrapper (#437).
+            return _signature_from_source_ast(jedi_name)
+        if not raw and _infers_as_classmethod(jedi_name):
+            # Jedi infers a classmethod's ``def`` as the ``builtins.classmethod``
+            # descriptor, which has no call signature (#1128). The def as
+            # written is its signature, ``cls`` shown as ``self`` is.
             return _signature_from_source_ast(jedi_name)
         # ``None`` isn't callable: Jedi's ``NoneType()`` for it is dropped (#1126).
         sigs = [s for s in raw if not _restricted_signature(s) and not is_none_signature(s)]
