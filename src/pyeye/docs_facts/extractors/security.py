@@ -262,6 +262,7 @@ class _Sources:
     restricted_targets: tuple[str, ...]
     credential_paths: tuple[str, ...]
     user_homes: tuple[str, ...]
+    restricted_ancestors: frozenset[str]
     check_forms_doc: str | None
     config_file: str
     unsafe_extensions: bool
@@ -278,6 +279,8 @@ def _static_sources(root: Path) -> _Sources:
         restricted_targets=validator("RESTRICTED_TARGETS"),
         credential_paths=validator("CREDENTIAL_PATHS"),
         user_homes=validator("USER_HOMES"),
+        # A literal since #1098 Q2; a unit test holds it to its derivation.
+        restricted_ancestors=static.constant(root, "pyeye.validation", "_RESTRICTED_ANCESTORS"),
         check_forms_doc=static.docstring(root, "pyeye.validation", "PathValidator.check_forms"),
         config_file=static.constant(root, "pyeye.constants", "CONFIG_FILE"),
         unsafe_extensions=static.constant(root, "pyeye._jedi_project", "LOAD_UNSAFE_EXTENSIONS"),
@@ -314,10 +317,7 @@ def _path_checks(src: _Sources) -> Iterator[Bindable]:
         list(src.user_homes),
         code_list(src.user_homes),
     )
-    # Still imported: deriving or declaring it is #1098's Q2, with the designer.
-    from ...validation import _RESTRICTED_ANCESTORS
-
-    ancestors = sorted(_RESTRICTED_ANCESTORS)
+    ancestors = sorted(src.restricted_ancestors)
     yield Fact("security.path_checks.ancestors", ancestors, code_list(ancestors))
     yield from (rejected, targets, credentials, homes, forms)
     yield view(

@@ -1,7 +1,9 @@
 """Edge facts: every edge the matrix knows, its status, kinds and ceiling.
 
-Read from the edge registry in :mod:`pyeye.mcp.operations.edges`, the one table
-``expand``, ``trace``, ``inspect`` and ``outline`` all consult.
+Read from the source of the edge registry, :mod:`pyeye.mcp.operations.edges`,
+the one table ``expand``, ``trace``, ``inspect`` and ``outline`` all consult. It
+is never imported here (#1098, C19); the server's tool descriptions render the
+same facts from the imported registry through :func:`registry_facts`.
 """
 
 from __future__ import annotations
@@ -53,7 +55,7 @@ _REGISTRY = "pyeye.mcp.operations.edges"
 
 
 class _StaticRegistry:
-    """The edge registry's names ``extract_code`` reads, from the source (#1098, C19).
+    """The edge registry's names :func:`registry_facts` reads, from the source (#1098, C19).
 
     Constants are folded (:mod:`..static`); ``EDGE_RESOLVERS`` is its literal
     keys (the resolvers are never touched); :meth:`edge_status` is the
@@ -85,36 +87,17 @@ def extract(root: Path) -> Iterator[Bindable]:
 
     Read from the source, never imported (#1098, C19).
     """
-    yield from _registry_facts(_StaticRegistry(root))
+    yield from registry_facts(_StaticRegistry(root))
     unmeasured = inspect_unmeasured(root)
     yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
 
 
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # the live path #1098 Q1 decides
-    yield from extract_code()
-    unmeasured = inspect_unmeasured(root)
-    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
+def registry_facts(reg: Any) -> Iterator[Bindable]:
+    """The edge and ceiling facts, from *reg*: the static registry, or the live one.
 
-
-def extract_code() -> Iterator[Bindable]:
-    """The edge and ceiling facts, from the installed code alone; reads no file (#851).
-
-    The server fills its tool descriptions from these while it loads
-    (:mod:`pyeye.docs_facts.describe`), in every install: a wheel has no
-    ``tests/`` and no repo, so a file read here would stop the server starting.
+    ``extract`` passes the registry read from the source; the server's tool
+    descriptions pass the imported module (:func:`..describe.live_facts`, #1098 Q1).
     """
-    # Imported here, not at module level: ``pyeye.mcp``'s package ``__init__``
-    # imports the server, which fills its tool descriptions from this extractor
-    # while it loads (#827). A module-level import would make that a cycle.
-    # docs-facts reads the static registry instead (#1098); the server's own
-    # descriptions read the live one until #1098's Q1 is ruled.
-    from ...mcp.operations import edges as reg
-
-    return _registry_facts(reg)
-
-
-def _registry_facts(reg: Any) -> Iterator[Bindable]:
-    """The edge and ceiling facts, from *reg*: the live registry or its static twin."""
     implemented = sorted(reg.EDGE_RESOLVERS)
     known = (
         set(implemented) | reg._NOT_YET_IMPLEMENTED_EDGES | reg._DEFERRED_REFERENCE_BACKEND_EDGES

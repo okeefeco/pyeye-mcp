@@ -26,20 +26,17 @@ the hand-list rule (:func:`hand_lists`) can check exactly the hand-written part.
 from __future__ import annotations
 
 import functools
-import importlib
 import re
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import Any, TypeVar
 
 from .facts import Bindable, Fact, View, index
 
 #: Extractor modules (under :mod:`pyeye.docs_facts.extractors`) whose facts can
-#: fill a slot, through each one's ``extract_code()``. That reads the installed
-#: code only, never a repo file: the server fills its descriptions while it
-#: loads, in a wheel install too, where there is no repo (#851). Neither reads
-#: :mod:`pyeye.mcp.server`. They are imported on the first fill, not here:
-#: ``edges`` imports :mod:`pyeye.mcp`, whose package ``__init__`` imports the
-#: server, which imports this module.
+#: fill a slot. The extractors read the source (#1098, C19); a slot is filled
+#: from the same facts rendered over the live constants (:func:`live_facts`),
+#: so the server describes the code it runs (#1098 Q1). A CI test holds the
+#: two equal. Neither extractor reads :mod:`pyeye.mcp.server`.
 LOAD_TIME_EXTRACTORS = ("edges", "scopes")
 
 #: ``<<fact:ID>>`` or ``<<fact:ID:FORM>>``. ``<<`` never occurs naturally in a
@@ -60,13 +57,28 @@ class SlotError(ValueError):
     """A slot names a fact, view or form that doesn't exist, or can't render."""
 
 
+def live_facts() -> Iterator[Bindable]:
+    """The slot facts, rendered from the installed code's live constants; reads no file.
+
+    The server fills its descriptions while it loads, in a wheel install too,
+    where there is no repo (#851), and from the code it is running (#1098 Q1).
+    The registry and ``scope_utils`` are imported here, not at module level:
+    ``pyeye.mcp``'s package ``__init__`` imports the server, which imports this
+    module (#827).
+    """
+    from ..mcp.operations import edges as registry
+    from ..scope_utils import PLUGIN_FALLBACK_SCOPE, SCOPE_FORMS
+    from .extractors import edges, scopes
+
+    yield from edges.registry_facts(registry)
+    forms = [(f.name, f.syntax, f.meaning) for f in SCOPE_FORMS]
+    yield from scopes.scope_facts(forms, PLUGIN_FALLBACK_SCOPE)
+
+
 @functools.cache
 def load_time_facts() -> Mapping[str, Bindable]:
     """Every fact and view a slot can name, indexed by ID (built once, from code only)."""
-    modules = [
-        importlib.import_module(f"{__package__}.extractors.{n}") for n in LOAD_TIME_EXTRACTORS
-    ]
-    return index(item for module in modules for item in module.extract_code())
+    return index(live_facts())
 
 
 def _members(item: Bindable, facts: Mapping[str, Bindable]) -> list[Fact]:

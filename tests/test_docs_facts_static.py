@@ -115,12 +115,10 @@ def test_a_module_namespace_folds_on_access(tmp_path: Path) -> None:
 _TOOLS = ("pyeye.docs_facts", "pyeye.path_utils", "pyeye.async_utils")
 
 #: The fact sources still imported, each with the ruling that removes it. A
-#: ratchet: it only shrinks, and an entry no longer imported fails too.
-STILL_IMPORTED = {
-    ("edges", "pyeye.mcp.operations"): "#1098 Q1: the server's descriptions read it live",
-    ("scopes", "pyeye.scope_utils"): "#1098 Q1: the server's descriptions read it live",
-    ("security", "pyeye.validation"): "#1098 Q2: _RESTRICTED_ANCESTORS",
-}
+#: ratchet: it only shrinks, and an entry no longer imported fails too. Empty
+#: since #1098's closer: the server's live descriptions live in
+#: ``pyeye.docs_facts.describe``, not in an extractor (Q1).
+STILL_IMPORTED: dict[tuple[str, str], str] = {}
 
 
 def _pyeye_imports(path: Path) -> set[str]:

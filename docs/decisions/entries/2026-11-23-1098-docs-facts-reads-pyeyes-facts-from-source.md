@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "docs-facts reads pyeye's facts from its source, never by importing it: a constant folder, twins proven equal, a ratchet (#1098, C19)"
 issues: [1098, 1091, 1083, 818, 851, 827]
 anchors: ["pyeye.docs_facts.static", "pyeye.duplication.COMMANDS", "tests/test_docs_facts_static.py", "tests/test_docs_facts_static_twins.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1098-the-server-describes-its-live-code-docs-facts-reads-the-source.md"]
 superseded_by: []
 ---
 

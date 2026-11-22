@@ -291,20 +291,40 @@ def test_load_time_extractors_never_read_the_server(extractor: str) -> None:
 
 
 def test_load_time_facts_are_the_registry_facts() -> None:
-    """A slot shows exactly what the docs show: one fact layer (#818 Goal 1)."""
+    """A slot shows exactly what the docs show: one fact layer (#818 Goal 1).
+
+    The slots render the live constants and the docs read the source (#1098
+    Q1), so this is also what holds the server's self-description equal to the
+    static facts: a constant the static reader misreads fails here.
+    """
     registry = build(_ROOT)
-    for fact_id, item in describe.load_time_facts().items():
+    live = describe.load_time_facts()
+    for fact_id, item in live.items():
         assert registry[fact_id] == item, fact_id
+
+
+def test_every_static_load_time_fact_is_live() -> None:
+    """The other direction: the docs' edge and scope facts all reach the slots.
+
+    Only ``edges.inspect_unmeasured`` is docs-only: it is read from a test file,
+    which a wheel install doesn't have (#851).
+    """
+    prefixes = {p for n in describe.LOAD_TIME_EXTRACTORS for p in _prefixes(n)}
+    static_ids = {i for i in build(_ROOT) if i.split(".", 1)[0] in prefixes}
+    assert static_ids - set(describe.load_time_facts()) == {"edges.inspect_unmeasured"}
+
+
+def _prefixes(extractor: str) -> tuple[str, ...]:
+    module = importlib.import_module(f"pyeye.docs_facts.extractors.{extractor}")
+    return tuple(module.PREFIXES)
 
 
 # --- #851: the load-time facts come from code, never from repo files ----------
 
 
-@pytest.mark.parametrize("extractor", describe.LOAD_TIME_EXTRACTORS)
-def test_load_time_extractors_take_no_root(extractor: str) -> None:
-    """``extract_code()`` has no root to read files from, by construction."""
-    module = importlib.import_module(f"pyeye.docs_facts.extractors.{extractor}")
-    assert list(inspect.signature(module.extract_code).parameters) == []
+def test_the_live_facts_take_no_root() -> None:
+    """``live_facts()`` has no root to read files from, by construction."""
+    assert list(inspect.signature(describe.live_facts).parameters) == []
 
 
 def test_load_time_facts_need_no_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
