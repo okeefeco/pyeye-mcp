@@ -7,11 +7,11 @@ thresholds and its closed set of dismissal reasons.
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
-from ... import duplication as dup
+from .. import static
 from ..facts import Bindable, Fact, code, code_list, view
 
 PREFIXES = ("duplication",)
@@ -22,24 +22,27 @@ def _share(value: float) -> str:
     return f"{value:.0%}".replace("%", " %")
 
 
-def _vocabulary() -> dict[str, list[str]]:
-    """Each subcommand and long option -> the subcommands that accept it."""
+def _words(commands: dict[str, tuple[str, ...]]) -> dict[str, list[str]]:
+    """Each subcommand and long option -> the subcommands that accept it, in parser order."""
     words: dict[str, list[str]] = {}
-    for action in dup._parser()._actions:
-        if not isinstance(action, argparse._SubParsersAction):
-            continue
-        for command, sub in action.choices.items():
-            words.setdefault(command, [])
-            for option in sub._actions:
-                for flag in option.option_strings:
-                    if flag.startswith("--") and flag != "--help":
-                        words.setdefault(flag, []).append(command)
+    for command, flags in commands.items():
+        words.setdefault(command, [])
+        for flag in flags:
+            words.setdefault(flag, []).append(command)
     return words
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the package
-    """Yield the CLI vocabulary, its defaults, thresholds and dismissal reasons."""
-    words = _vocabulary()
+def extract(root: Path) -> Iterator[Bindable]:
+    """Yield the CLI vocabulary, its defaults, thresholds and dismissal reasons.
+
+    Read from the source, never imported: the vocabulary is the declared
+    :data:`pyeye.duplication.COMMANDS` (#1098, C19).
+    """
+    source = static.Module(root, "pyeye.duplication")
+    return _facts(_words(source.COMMANDS), source)
+
+
+def _facts(words: dict[str, list[str]], dup: Any) -> Iterator[Bindable]:
     commands = [Fact(f"duplication.command.{w}", {}, code(w)) for w in words if not words[w]]
     flags = [
         Fact(f"duplication.flag.{w[2:]}", {"commands": words[w]}, code(w))

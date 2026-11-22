@@ -871,3 +871,22 @@ def test_non_string_state_values_exit_2(
     assert dup.main(args) == 2
     err = capsys.readouterr().err
     assert match in err and "Traceback" not in err
+
+
+def test_the_declared_commands_match_the_parser() -> None:
+    """``COMMANDS`` is what docs-facts reads (#1098); the parser must agree with it."""
+    import argparse
+
+    from pyeye import duplication
+
+    built: dict[str, tuple[str, ...]] = {}
+    for action in duplication._parser()._actions:
+        if isinstance(action, argparse._SubParsersAction):
+            for command, sub in action.choices.items():
+                built[command] = tuple(
+                    flag
+                    for option in sub._actions
+                    for flag in option.option_strings
+                    if flag.startswith("--") and flag != "--help"
+                )
+    assert built == duplication.COMMANDS

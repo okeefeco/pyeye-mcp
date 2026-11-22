@@ -10,15 +10,26 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
-from ...architecture_review import ranking, taxonomy
+from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, view
 
 PREFIXES = ("review",)
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the package
-    """Yield a fact per axis and per grade, plus the views the skill binds."""
+def extract(root: Path) -> Iterator[Bindable]:
+    """Yield a fact per axis and per grade, plus the views the skill binds.
+
+    Read from the source, never imported (#1098, C19).
+    """
+    return _facts(
+        static.Module(root, "pyeye.architecture_review.taxonomy"),
+        static.Module(root, "pyeye.architecture_review.ranking"),
+    )
+
+
+def _facts(taxonomy: Any, ranking: Any) -> Iterator[Bindable]:
     axes: list[Fact] = []
     for name in taxonomy.SEED_AXES:
         fact = Fact(
