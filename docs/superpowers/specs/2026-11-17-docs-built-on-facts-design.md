@@ -297,6 +297,31 @@ Ordered so that nothing generation will produce gets hand-fixed:
     2. #1091 (the per-repo config) follows, data-only, with no import references;
     3. then the rest of the RFC.
   - **Security.** `SECURITY.md` can state, without qualification, that docs-facts never imports or runs the analysed code.
+- **C20. The source owns the procedure (maintainer, 2026-11-22; outline, not yet filed).** Its goal is to detect and prevent drift in install and run procedures, not hand-fix it (#994 was a hand fix). It starts after C19's static migration, because it needs C19's data readers.
+  - **The principle.**
+    - Code and config own the install and run procedures, using each tool's standard process.
+    - Facts bind only our choices (names, flags, hooks), each with its reason in the decision log. Tool behaviour is linked to, never encoded as a fact.
+    - Writers own the explanation, never a step, flag or name.
+    - A change at the source flags the pages that depend on it.
+  - **Procedure-source facts,** read statically: `plugin.json` (server command, args, env), `marketplace.json` (marketplace and plugin names), `hooks.json`, `pyproject` (scripts, dist name, `requires-python`), and `ci.yml` and the pre-commit config (C17).
+  - **Usage contexts.** A committed data file names each context (local dev, CI, plugin runtime, source checkout, end user) and which source owns its flags, never the flags themselves. Each context links to its reason. It generalises #573.
+  - **Routes as data.** A route is ordered steps: prerequisites, steps, and a verification. Every token in a step is a bound fact, and a literal name or flag fails the check. Pages render routes as fact blocks, and prose only explains when to choose which.
+  - **Prevention: the `unbound-command` rule.**
+    - A shell block on a registered page that installs or runs pyeye (`claude mcp add`, `/plugin`, `uv`/`uvx`/`pip` with pyeye, `python -m pyeye…`) outside a rendered route or fact block fails CI.
+    - Existing blocks go on a shrink-only allow-list.
+    - Scope is pyeye's install and run commands first. Developer commands (`uv run pytest …`) come later, once it's proven.
+  - **Detection.**
+    - A source change regenerates the routes, CI fails on stale pages, and the change triggers a review of the affected pages.
+    - CI runs the runnable routes (a source checkout; a locally built wheel via `uvx --from`), each ending in a short MCP handshake.
+    - Steps CI can't run (`/plugin install`) carry a dated manual-check record (date, commit, version). The record lapses when any fact its step uses changes after that commit.
+  - **Review and scoring:** the rules `route_incomplete` and `context_flag_mismatch`, and a "new user installs pyeye" task in #831's per-audience scoring.
+  - **Order:**
+    1. source facts;
+    2. `unbound-command`, with the README and DOCUMENTATION install blocks migrated into routes;
+    3. contexts;
+    4. CI execution;
+    5. manual-check records with lapse;
+    6. the review rules and the scoring task.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
