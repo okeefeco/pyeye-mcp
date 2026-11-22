@@ -462,6 +462,18 @@ class TestRulingAncestorScanRoots:
             "/var/run",
         } == (validation._RESTRICTED_ANCESTORS)
 
+    def test_the_declared_ancestors_equal_their_derivation(self) -> None:
+        """The literal docs-facts reads (#1098 Q2) can't drift from the deny list."""
+        from pyeye import validation
+
+        derived = validation.restricted_ancestors(validation._RESTRICTED_DIRS)
+        assert derived == validation._RESTRICTED_ANCESTORS
+
+    def test_the_derivation_takes_every_proper_ancestor(self) -> None:
+        from pyeye import validation
+
+        assert validation.restricted_ancestors(("/a/b/c", "/x")) == {"/", "/a", "/a/b"}
+
     @pytest.mark.parametrize("scope", ["package:/", "package:root_lnk"])
     def test_a_package_scope_at_an_ancestor(self, project: Path, scope: str) -> None:
         (project / "root_lnk").symlink_to("/", target_is_directory=True)
