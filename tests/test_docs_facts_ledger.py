@@ -107,6 +107,7 @@ class TestChanged:
 
         assert changed.bound_pages(tmp_path, FACTS) == {
             "x.a": ["a.md"],
+            "x.ab": ["a.md"],  # the view's own ID too, for a view gaining a member (#1108)
             "x.b": ["a.md"],
             "x.gone": ["a.md"],
         }

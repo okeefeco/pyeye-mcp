@@ -1471,7 +1471,8 @@ def scope(
         docs,
         ledger,
     )
-    from .cli import SNAPSHOT, _committed_snapshot
+    from .cli import SNAPSHOT, _committed_snapshots, base_snapshots
+    from .setup import pyeye_setup
 
     wanted = list(pages)
     if not (wanted or audience or base):
@@ -1483,14 +1484,15 @@ def scope(
     changed_ids: set[str] = set()
     uncovered: list[str] = []
     if base is not None:
-        before = changed_facts.base_snapshot(root, base, SNAPSHOT)
+        paths = pyeye_setup().paths
+        before = base_snapshots(root, base, paths)
         if before is None:
             raise ValueError(
                 f"can't read {SNAPSHOT} at {base!r}: give a git revision that has it "
                 "(e.g. origin/main), or name pages instead"
             )
-        diff = changed_facts.diff(before, _committed_snapshot(root), {})
-        changed_ids = set(diff.added) | set(diff.changed)
+        diff = changed_facts.diff(before, _committed_snapshots(root, paths), {}, facts)
+        changed_ids = set(diff.added) | set(diff.changed) | set(diff.grown)
         current = ledger.load(root)
         uncovered = sorted(current.new) if current is not None else []
     state = load(root)

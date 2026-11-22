@@ -371,4 +371,8 @@ def test_the_cli_refuses_a_repo_with_no_config(
 
 def test_this_repository_declares_the_preset() -> None:
     root = Path(__file__).resolve().parents[1]
-    assert config.find(root) == {"preset": "pyeye", "changelog": "CHANGELOG.md"}
+    assert config.find(root) == {
+        "preset": "pyeye",
+        "changelog": "CHANGELOG.md",
+        "reference_only": ["precommit"],
+    }

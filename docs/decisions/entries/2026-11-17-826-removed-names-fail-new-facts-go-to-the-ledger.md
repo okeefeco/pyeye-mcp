@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "A removed name in live prose fails; a newly uncovered fact goes to a non-blocking ledger (#826)"
 issues: [826, 818]
 anchors: ["pyeye.docs_facts.removed.updated", "pyeye.docs_facts.removed.mentions", "pyeye.docs_facts.ledger.updated", "pyeye.docs_facts.changed.diff", "pyeye.docs_facts.cli.plan", "scripts/changelog.py", "tests/test_docs_facts_removed.py", "tests/test_docs_facts_ledger.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1108-reference-only-fact-families-and-own-snapshots.md"]
 superseded_by: []
 ---
 

@@ -16,6 +16,9 @@ The ledger has two sections:
   release it first appeared uncovered in (``"unreleased"`` until
   ``scripts/changelog.py prepare`` stamps it).
 
+A fact in a reference-only family (:attr:`~.setup.Setup.reference_only`, #1108)
+is reference data, not a claim prose should make, and is never an entry.
+
 An entry leaves the ledger when its fact is covered or no longer exists, or when
 ``/docs-review`` records it as deliberately not covered (C13). That dismissal is
 stored once, in the review state (:mod:`.review`, ``docs/facts/review-state.json``),
@@ -36,7 +39,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .facts import Bindable, Fact
+from .facts import Bindable, Fact, family
 
 UNCOVERED = "docs/facts/uncovered.json"
 UNRELEASED = "unreleased"
@@ -86,15 +89,23 @@ def updated(
     facts: Mapping[str, Bindable],
     covered: set[str],
     dismissed: Mapping[str, Mapping[str, str]] | None = None,
+    *,
+    reference_only: frozenset[str] = frozenset(),
 ) -> Ledger:
     """The ledger for today's facts and coverage, given the committed one.
 
     *dismissed* is :func:`.review.dismissed_uncovered`: the facts a human recorded
     as deliberately not covered, whose dismissal still holds. They leave the
     uncovered entries and are listed in ``dismissed`` instead.
+
+    A fact in a *reference_only* family (#1108) is reference data, not a claim
+    prose should make, so it is never an entry.
     """
     held = dict(sorted((dismissed or {}).items()))
-    uncovered = {i for i, f in facts.items() if isinstance(f, Fact)} - covered - set(held)
+    uncovered = {
+        i for i, f in facts.items() if isinstance(f, Fact) and family(i) not in reference_only
+    }
+    uncovered -= covered | set(held)
     if old is None:
         return Ledger(tuple(sorted(uncovered)), {}, held)
     baseline = tuple(sorted(set(old.baseline) & uncovered))

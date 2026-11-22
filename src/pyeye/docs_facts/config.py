@@ -19,12 +19,15 @@ appears. The keys:
 - ``rules``: ``"all"`` (the default) or a list of rule IDs (:data:`~.rules.RULES`);
 - ``changelog``: the changelog's path; absent turns release-dependent behaviour off;
 - ``paths``: ``{snapshot, removed, uncovered, review_state}``, each defaulting to
-  today's ``docs/facts/...`` file (:class:`~.setup.Paths`).
+  today's ``docs/facts/...`` file, and ``snapshots``, a table giving a fact
+  family its own snapshot file (:class:`~.setup.Paths`, #1108);
+- ``reference_only``: fact families that are reference data, kept out of the
+  uncovered-fact ledger (#1108).
 
 - ``preset``: ``"pyeye"`` selects the engine's built-in pyeye setup (its
   extractors, doc registry, rules and pages), the bridge until that registry is
   data too (#1107). It can't be combined with ``facts``, ``extractors`` or
-  ``docs``; ``rules``, ``changelog`` and ``paths`` override it.
+  ``docs``; ``rules``, ``changelog``, ``paths`` and ``reference_only`` override it.
 
 No config is an error: there is nothing to check.
 """
@@ -40,6 +43,7 @@ from .. import _data_files
 from ..path_utils import relative_within
 from . import data_facts, kinds, rules
 from .docs import Audience, DocEntry, Kind
+from .facts import check_families
 from .setup import Paths, Setup, pyeye_setup
 
 #: Setups built into the engine, selected by ``preset`` (the bridge until
@@ -48,7 +52,9 @@ from .setup import Paths, Setup, pyeye_setup
 PRESETS = {"pyeye": pyeye_setup}
 
 SECTION = "docs_facts"
-KEYS = frozenset({"preset", "facts", "extractors", "docs", "rules", "changelog", "paths"})
+KEYS = frozenset(
+    {"preset", "facts", "extractors", "docs", "rules", "changelog", "paths", "reference_only"}
+)
 #: What a preset provides, so a config naming one can't also give it.
 _PRESET_PROVIDES = frozenset({"facts", "extractors", "docs"})
 _FACT_KEYS = frozenset({"id", "from", "file", "key", "name"})
@@ -102,11 +108,12 @@ def load(root: Path) -> Setup:
         pages={},
         changelog=_optional_str(raw, "changelog"),
         paths=_paths(raw.get("paths", {})),
+        reference_only=_reference_only(raw.get("reference_only", [])),
     )
 
 
 def _preset(raw: dict[str, Any]) -> Setup:
-    """A built-in setup, with the config's ``rules``, ``changelog`` and ``paths`` over it."""
+    """A built-in setup, overridden by the config's rules, changelog, paths and reference_only."""
     name = _str(raw, "preset", SECTION)
     build = PRESETS.get(name)
     if build is None:
@@ -124,6 +131,11 @@ def _preset(raw: dict[str, Any]) -> Setup:
         pages=base.pages,
         changelog=_optional_str(raw, "changelog") if "changelog" in raw else base.changelog,
         paths=_paths(raw["paths"]) if "paths" in raw else base.paths,
+        reference_only=(
+            _reference_only(raw["reference_only"])
+            if "reference_only" in raw
+            else base.reference_only
+        ),
     )
 
 
@@ -258,8 +270,27 @@ def _rules(value: Any) -> tuple[rules.Rule, ...]:
 
 
 def _paths(value: Any) -> Paths:
-    table = _table(value, f"{SECTION}.paths")
-    _only(table, _PATH_KEYS, f"{SECTION}.paths")
+    where = f"{SECTION}.paths"
+    table = dict(_table(value, where))
+    _only(table, _PATH_KEYS, where)
+    snapshots = table.pop("snapshots", {})
+    if not isinstance(snapshots, dict) or not all(
+        isinstance(v, str) and v for v in snapshots.values()
+    ):
+        raise ConfigError(f"{where}.snapshots must be a table of fact family = file")
     for key in table:
-        _str(table, key, f"{SECTION}.paths")
-    return Paths(**table)
+        _str(table, key, where)
+    try:
+        return Paths(**table, snapshots=MappingProxyType(snapshots))
+    except ValueError as error:
+        raise ConfigError(f"{where}.{error}") from error
+
+
+def _reference_only(value: Any) -> frozenset[str]:
+    if not isinstance(value, list):
+        raise ConfigError(f"{SECTION}.reference_only must be a list of fact families")
+    try:
+        check_families(value, f"{SECTION}.reference_only")
+    except ValueError as error:
+        raise ConfigError(str(error)) from error
+    return frozenset(value)

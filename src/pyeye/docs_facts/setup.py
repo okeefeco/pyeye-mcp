@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 from . import docs, ledger, pages, registry, removed, review, rules
-from .facts import Bindable
+from .facts import Bindable, check_families
 
 #: A reference page builder: the facts in, the page's Markdown out.
 PageBuilder = Callable[[Mapping[str, Bindable]], str]
@@ -32,12 +33,48 @@ class Paths:
         removed: The record of removed names.
         uncovered: The ledger of facts no page explains.
         review_state: The ``/docs-review`` state.
+        snapshots: Fact family -> its own snapshot file (#1108). The family's
+            facts leave :attr:`snapshot` for that file, so a large family (the
+            architecture facts, #1092) doesn't swamp its diffs.
+
+    Raises:
+        ValueError: If a key isn't a fact family, a file is one of the other
+            records, or two families share a file.
     """
 
     snapshot: str = "docs/facts/facts.json"
     removed: str = removed.REMOVED
     uncovered: str = ledger.UNCOVERED
     review_state: str = review.STATE_PATH
+    snapshots: Mapping[str, str] = field(default_factory=lambda: MappingProxyType({}))
+
+    def __post_init__(self) -> None:
+        """Validate :attr:`snapshots` and freeze it."""
+        check_families(self.snapshots, "snapshots")
+        records = {
+            self.snapshot: "is the main snapshot",
+            self.removed: "is the removed-name record",
+            self.uncovered: "is the uncovered-fact ledger",
+            self.review_state: "is the review state",
+        }
+        seen: dict[str, str] = {}
+        for name, path in self.snapshots.items():
+            if not isinstance(path, str) or not path:
+                raise ValueError(f"snapshots: {name!r} must name a file")
+            if path in records:
+                raise ValueError(f"snapshots: {name!r}'s file {path!r} {records[path]}")
+            if path in seen:
+                raise ValueError(f"snapshots: {seen[path]!r} and {name!r} share {path!r}")
+            seen[path] = name
+        object.__setattr__(self, "snapshots", MappingProxyType(dict(self.snapshots)))
+
+    def snapshot_of(self, fact_id: str) -> str:
+        """The snapshot file that records *fact_id*."""
+        return self.snapshots.get(fact_id.split(".", 1)[0], self.snapshot)
+
+    def snapshot_files(self) -> tuple[str, ...]:
+        """Every snapshot file: the main one, then each family's, sorted."""
+        return (self.snapshot, *sorted(self.snapshots.values()))
 
 
 @dataclass(frozen=True)
@@ -53,6 +90,11 @@ class Setup:
         changelog: The changelog, read for the current release (the
             removed-name sunset), or ``None`` to turn that behaviour off.
         paths: Where the records live (:class:`Paths`).
+        reference_only: Fact families that are reference data, not claims prose
+            should make (#1108): they stay out of the uncovered-fact ledger.
+
+    Raises:
+        ValueError: If a reference-only name isn't a fact family.
     """
 
     extractors: tuple[registry.Extractor, ...]
@@ -61,6 +103,11 @@ class Setup:
     pages: Mapping[str, PageBuilder]
     changelog: str | None = "CHANGELOG.md"
     paths: Paths = field(default_factory=Paths)
+    reference_only: frozenset[str] = frozenset()
+
+    def __post_init__(self) -> None:
+        """Validate :attr:`reference_only`."""
+        check_families(self.reference_only, "reference_only")
 
 
 def pyeye_setup() -> Setup:
