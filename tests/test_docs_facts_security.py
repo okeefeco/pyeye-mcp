@@ -211,9 +211,13 @@ class TestFacts:
     def test_a_changed_check_forms_docstring_fails_loudly(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(PathValidator.check_forms, "__doc__", "Checks things.", raising=False)
+        import dataclasses
+
+        _ = monkeypatch
+        sources = security._static_sources(Path(__file__).resolve().parents[1])
+        changed = dataclasses.replace(sources, check_forms_doc="Checks things.")
         with pytest.raises(ExtractionError, match="check_forms"):
-            list(security._path_checks())
+            list(security._path_checks(changed))
 
     def test_jedi_unsafe_extensions_is_what_make_project_passes(
         self, facts: dict[str, object], monkeypatch: pytest.MonkeyPatch

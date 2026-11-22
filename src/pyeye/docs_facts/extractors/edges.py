@@ -9,7 +9,9 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
+from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
 PREFIXES = ("edge", "edges", "ceiling", "ceilings", "determinism")
@@ -47,8 +49,48 @@ def inspect_unmeasured(root: Path) -> list[str]:
     raise ValueError(f"{LINTER} no longer assigns {_UNMEASURED} as a literal set")
 
 
+_REGISTRY = "pyeye.mcp.operations.edges"
+
+
+class _StaticRegistry:
+    """The edge registry's names ``extract_code`` reads, from the source (#1098, C19).
+
+    Constants are folded (:mod:`..static`); ``EDGE_RESOLVERS`` is its literal
+    keys (the resolvers are never touched); :meth:`edge_status` is the
+    registry's classification over the same declared sets.
+    """
+
+    def __init__(self, root: Path) -> None:
+        self._source = static.Module(root, _REGISTRY)
+        self.EDGE_RESOLVERS = dict.fromkeys(static.dict_keys(root, _REGISTRY, "EDGE_RESOLVERS"))
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return getattr(self._source, name)
+
+    def edge_status(self, edge: str) -> str:
+        """``edges.edge_status``, over the declared sets."""
+        if edge in self._source._IMPLEMENTED_EDGES:
+            return str(self._source.STATUS_IMPLEMENTED)
+        if edge in self._source._NOT_YET_IMPLEMENTED_EDGES:
+            return str(self._source.STATUS_NOT_YET_IMPLEMENTED)
+        if edge in self._source._DEFERRED_REFERENCE_BACKEND_EDGES:
+            return str(self._source.STATUS_DEFERRED_REFERENCE_BACKEND)
+        return str(self._source.STATUS_UNKNOWN_EDGE)
+
+
 def extract(root: Path) -> Iterator[Bindable]:
-    """Yield a fact per edge and per ceiling, plus the group views and ``inspect``'s unmeasured set."""
+    """Yield a fact per edge and per ceiling, plus the group views and ``inspect``'s unmeasured set.
+
+    Read from the source, never imported (#1098, C19).
+    """
+    yield from _registry_facts(_StaticRegistry(root))
+    unmeasured = inspect_unmeasured(root)
+    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
+
+
+def _extract_imported(root: Path) -> Iterator[Bindable]:  # the live path #1098 Q1 decides
     yield from extract_code()
     unmeasured = inspect_unmeasured(root)
     yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
@@ -64,8 +106,15 @@ def extract_code() -> Iterator[Bindable]:
     # Imported here, not at module level: ``pyeye.mcp``'s package ``__init__``
     # imports the server, which fills its tool descriptions from this extractor
     # while it loads (#827). A module-level import would make that a cycle.
+    # docs-facts reads the static registry instead (#1098); the server's own
+    # descriptions read the live one until #1098's Q1 is ruled.
     from ...mcp.operations import edges as reg
 
+    return _registry_facts(reg)
+
+
+def _registry_facts(reg: Any) -> Iterator[Bindable]:
+    """The edge and ceiling facts, from *reg*: the live registry or its static twin."""
     implemented = sorted(reg.EDGE_RESOLVERS)
     known = (
         set(implemented) | reg._NOT_YET_IMPLEMENTED_EDGES | reg._DEFERRED_REFERENCE_BACKEND_EDGES

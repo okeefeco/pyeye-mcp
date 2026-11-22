@@ -16,6 +16,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from ...scope_utils import PLUGIN_FALLBACK_SCOPE, SCOPE_FORMS
+from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
 PREFIXES = ("scope", "scopes")
@@ -24,20 +25,40 @@ PREFIXES = ("scope", "scopes")
 DEFAULT_ORDER = ("scope_defaults.methods.<tool name>", "scope_defaults.global")
 
 
-def extract(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - reads the live constants
-    """Yield a fact per scope form and for the default policy, plus the views."""
+def extract(root: Path) -> Iterator[Bindable]:
+    """Yield a fact per scope form and for the default policy, plus the views.
+
+    The ``ScopeForm(name, syntax, meaning)`` calls and the fallback are read
+    from the source, never imported (#1098, C19).
+    """
+    forms = static.call_args(root, "pyeye.scope_utils", "SCOPE_FORMS", 3)
+    fallback = static.constant(root, "pyeye.scope_utils", "PLUGIN_FALLBACK_SCOPE")
+    return _facts([(n, s, m) for n, s, m in forms], fallback)
+
+
+def _extract_imported(_root: Path) -> Iterator[Bindable]:
+    """The live path the server's descriptions read, until #1098 Q1 decides."""
     return extract_code()
 
 
 def extract_code() -> Iterator[Bindable]:
-    """The scope facts, from the installed code alone; reads no file (#851)."""
+    """The scope facts, from the installed code alone; reads no file (#851).
+
+    The server fills its tool descriptions from these while it loads
+    (:mod:`pyeye.docs_facts.describe`); whether that stays live or reads the
+    installed source too is #1098's Q1.
+    """
+    return _facts([(f.name, f.syntax, f.meaning) for f in SCOPE_FORMS], PLUGIN_FALLBACK_SCOPE)
+
+
+def _facts(scope_forms: list[tuple[str, str, str]], fallback: str) -> Iterator[Bindable]:
     forms = [
         Fact(
-            f"scope.option.{form.name}",
-            {"syntax": form.syntax, "meaning": form.meaning},
-            f"{code(form.syntax)}: {text(form.meaning)}",
+            f"scope.option.{name}",
+            {"syntax": syntax, "meaning": meaning},
+            f"{code(syntax)}: {text(meaning)}",
         )
-        for form in SCOPE_FORMS
+        for name, syntax, meaning in scope_forms
     ]
     yield from forms
     yield view("scopes.options", forms, code_list(f.value["syntax"] for f in forms))
@@ -50,9 +71,9 @@ def extract_code() -> Iterator[Bindable]:
         ),
     )
 
-    order = [*DEFAULT_ORDER, PLUGIN_FALLBACK_SCOPE]
+    order = [*DEFAULT_ORDER, fallback]
     yield Fact(
         "scope.default.plugin",
-        {"order": list(DEFAULT_ORDER), "fallback": PLUGIN_FALLBACK_SCOPE},
+        {"order": list(DEFAULT_ORDER), "fallback": fallback},
         ", else ".join(code(step) for step in order),
     )
