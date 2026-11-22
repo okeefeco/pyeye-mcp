@@ -231,6 +231,17 @@ def _seeded(entry: DocEntry) -> DocEntry:
 DOCS: tuple[DocEntry, ...] = tuple(_seeded(e) for e in _ENTRIES)
 
 
+def for_repo(root: Path) -> tuple[DocEntry, ...]:
+    """*root*'s own doc registry, from its docs-facts config (#1107).
+
+    What a caller that names no registry gets: the analysed repository's, not
+    pyeye's. Raises :class:`~.config.ConfigError` if *root* has no valid config.
+    """
+    from .config import load  # the config module imports this one
+
+    return load(root).docs
+
+
 def is_excluded(path: str) -> bool:
     """True if *path* (repo-relative, POSIX) is in an excluded history tree."""
     return any(path.startswith(tree) for tree in EXCLUDED_TREES)
@@ -257,9 +268,10 @@ def registered_files(
     """Every registered file that exists under *root*, with its entry, in path order.
 
     A pattern entry expands to its existing matches (with no exact entry of their
-    own). A missing exact entry is skipped here; ``check`` reports it.
+    own). A missing exact entry is skipped here; ``check`` reports it. *docs*
+    defaults to *root*'s own registry (:func:`for_repo`).
     """
-    docs = DOCS if docs is None else docs
+    docs = for_repo(root) if docs is None else docs
     found: dict[str, DocEntry] = {}
     for entry in docs:
         if entry.is_pattern:
@@ -273,6 +285,6 @@ def registered_files(
 
 
 def missing_files(root: Path, docs: tuple[DocEntry, ...] | None = None) -> list[str]:
-    """Exact entries with no file on disk."""
-    docs = DOCS if docs is None else docs
+    """Exact entries with no file on disk; *docs* defaults to *root*'s own registry."""
+    docs = for_repo(root) if docs is None else docs
     return [e.path for e in docs if not e.is_pattern and not (root / e.path).is_file()]

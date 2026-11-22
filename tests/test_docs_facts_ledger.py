@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from pyeye.docs_facts import changed, cli, docs, ledger
-from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Fact, View, index
 from pyeye.docs_facts.ledger import Ledger
 
@@ -95,21 +94,28 @@ class TestChanged:
     def test_summary_says_when_nothing_changed(self) -> None:
         assert "No fact changed." in changed.summary(changed.Changes(), "main")
 
-    def test_bound_pages_expands_views_and_keeps_removed_ids(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_bound_pages_expands_views_and_keeps_removed_ids(self, tmp_path: Path) -> None:
         (tmp_path / "a.md").write_text(
             "<!-- fact:begin x.ab -->\n<!-- fact:end -->\n"
             "<!-- fact:begin x.gone -->\n<!-- fact:end -->\n",
             encoding="utf-8",
         )
-        monkeypatch.setattr(docs, "DOCS", (DocEntry("a.md", "human", "prose"),))
+        _register(tmp_path, "a.md")
 
         assert changed.bound_pages(tmp_path, FACTS) == {
             "x.a": ["a.md"],
             "x.b": ["a.md"],
             "x.gone": ["a.md"],
         }
+
+
+def _register(root: Path, *pages: str) -> None:
+    """Give *root* a docs-facts config registering *pages* as human prose (#1107)."""
+    tables = "".join(
+        f'[[tool.pyeye.docs_facts.docs]]\npath = "{p}"\naudience = "human"\nkind = "prose"\n\n'
+        for p in pages
+    )
+    (root / "pyproject.toml").write_text(tables, encoding="utf-8")
 
 
 def _git(repo: Path, *args: str) -> None:

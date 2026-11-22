@@ -800,14 +800,14 @@ def run(
     Args:
         root: The repository root.
         facts: The registry's facts (:func:`~.registry.build`).
-        docs: The doc registry (default :data:`~.docs.DOCS`, read at call time).
+        docs: The doc registry (default: *root*'s own, :func:`~.docs.for_repo`).
         rules: The rules to run (default :data:`RULES`, read at call time).
         descriptions: Tool name -> description (default: the live registration).
         strings: The ``pyeye.mcp`` string literals (default :func:`code_strings`).
     """
     # A rule whose facts are absent doesn't run (#1091); :func:`skipped` reports it.
     rules = tuple(r for r in (RULES if rules is None else rules) if not missing_facts(r, facts))
-    entries = doc_registry.DOCS if docs is None else docs
+    entries = doc_registry.for_repo(root) if docs is None else docs
     problems = allow_problems(entries)
     for page, entry in pages(root, entries):
         problems.extend(_page_problems(page, entry, rules, facts))
