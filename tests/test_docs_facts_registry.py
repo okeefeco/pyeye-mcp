@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs, pages
+from pyeye.docs_facts import cli, config, docs, pages
 from pyeye.docs_facts.docs import DOCS, DocEntry, entry_for, is_excluded, registered_files
 from pyeye.docs_facts.extractors import ci
 from pyeye.docs_facts.facts import Fact, View, index
@@ -104,7 +104,8 @@ class TestDocRegistry:
 
 class TestRepoIsCurrent:
     def test_check_passes_on_the_repo(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = cli.check(ROOT)
+        """As the command runs it: with the repository's own config (#1091, #1108)."""
+        code = cli.check(ROOT, setup=config.load(ROOT))
 
         assert code == 0, capsys.readouterr().out
 

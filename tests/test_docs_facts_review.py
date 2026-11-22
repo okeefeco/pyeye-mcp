@@ -546,7 +546,7 @@ class TestScope:
         head = changed.base_snapshot(_ROOT, "HEAD", SNAPSHOT)
         assert head is not None
         # scope() imports it from cli when called, so patch it there.
-        monkeypatch.setattr(cli, "_committed_snapshot", lambda _root: head)
+        monkeypatch.setattr(cli, "_committed_snapshots", lambda _root, _paths: head)
 
         out = review.scope(_ROOT, repo_facts, base="HEAD")
 

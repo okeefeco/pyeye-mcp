@@ -22,6 +22,29 @@ from typing import Any
 FACT_ID = re.compile(r"[a-z][a-z0-9_]*(\.[A-Za-z0-9_][A-Za-z0-9_-]*)+")
 
 
+#: A fact family: a fact ID's first segment (``tool``, ``precommit``, ``arch``).
+FAMILY = re.compile(r"[a-z][a-z0-9_]*")
+
+
+def family(fact_id: str) -> str:
+    """The family a fact ID belongs to: its first segment."""
+    return fact_id.split(".", 1)[0]
+
+
+def check_families(names: Iterable[str], where: str) -> None:
+    """Refuse a name that isn't a fact family.
+
+    Raises:
+        ValueError: Naming the first bad one.
+    """
+    for name in names:
+        if not isinstance(name, str) or not FAMILY.fullmatch(name):
+            raise ValueError(
+                f"{where}: {name!r} isn't a fact family (a fact ID's first segment: "
+                "lower-case letters, digits and '_')"
+            )
+
+
 class ExtractionError(ValueError):
     """A source no longer has the shape its extractor reads, or two sources disagree.
 
