@@ -8,5 +8,6 @@
     "demo.requires_python": ">=3.11",
     "demo.timeout": 30,
     "demo.workers": 4
-  }
+  },
+  "views": {}
 }
