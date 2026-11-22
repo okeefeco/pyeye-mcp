@@ -47,6 +47,7 @@ def test_a_grep_tool_call_is_recorded_where_the_report_reads(tmp_path: Path) -> 
     assert record["context"] == "grep_tool"
     assert record["session_id"] == "s1"
     assert record["pattern"] == "def resolve"
+    assert (record["glob"], record["type"]) == ("", "")
     row = (monitoring / "grep_usage.csv").read_text(encoding="utf-8").strip().split(",")
     assert row[1:] == ["s1", "grep_tool", "direct"]
 
@@ -54,7 +55,8 @@ def test_a_grep_tool_call_is_recorded_where_the_report_reads(tmp_path: Path) -> 
 def test_the_report_counts_it(tmp_path: Path) -> None:
     _run_hook(tmp_path, {"tool_name": "Grep", "session_id": "s1", "tool_input": {"pattern": "x"}})
     analytics = MCPAnalytics(monitoring_dir=tmp_path / ".claude" / "mcp_monitoring")
-    assert analytics.calculate_adoption_rate(days=7)["grep_usage"] == 1
+    # No glob, type or file path: a search over the source tree, so a code search (#1130).
+    assert analytics.calculate_follow_through(days=7)["code_searches"] == 1
     assert analytics.get_grep_tool_breakdown() == {"grep_tool": 1}
 
 

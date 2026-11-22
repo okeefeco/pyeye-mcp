@@ -11,17 +11,19 @@ prompted #374).
 
 **CRITICAL**: We build PyEye — we MUST use it for our own development!
 
-We're developing a powerful semantic code analysis tool. Falling back to raw
-grep/glob for Python is like building a sports car and pushing it. ALL Python
-work in this project MUST prioritise pyeye's semantic operations over text search.
+We're developing a semantic code analysis tool, and its job is to turn text into
+facts. Use each tool for what it does best (#1130).
 
-## Core Principle: Semantic Over Text
+## Core Principle: Find with Text, Prove with Semantics
 
-**Always choose semantic understanding over text matching:**
-
-- Understand code structure, not just text patterns.
-- Navigate by meaning (canonical handles), not by string search.
-- Leverage type information and relationships.
+- **Discovery** of a concept or text ("is there a helper for X?", an error message,
+  a config key): grep MAY find it. Then turn each hit into a canonical handle with
+  `resolve_at` before relying on it.
+- **Names you know:** `resolve`, NEVER grep.
+- **Facts** (kind, signature, members, callees, imports, inheritance): ALWAYS from
+  pyeye (`inspect` / `outline` / `expand` / `trace`), never from a grep hit's text.
+- **Callers and references:** NEVER grep. pyeye defers them (#333); use the LSP,
+  or say plainly that they aren't available.
 
 ## The Tool Surface (redesigned API)
 
@@ -33,7 +35,7 @@ re-exported paths to the definition site.
 
 The v1 Jedi-shaped tools and the v2.0 legacy tools have been **removed** from the
 MCP surface. NEVER reach for a tool name you remember from before v2.0. The
-`python-explore` skill ("There is no legacy escape hatch") says which were removed
+`python-explore` skill ("No legacy escape hatch") says which were removed
 and why; `docs/api-redesign.md` has the redesign background.
 
 ## Tool mechanics live in the `python-explore` skill
@@ -53,10 +55,11 @@ its edge table explains every edge.
 
 ## Measuring Success
 
-We track pyeye adoption vs traditional search to make sure we actually drive the
-car we build. The signal is simple: **Python navigation, discovery, and
-relationship questions go through pyeye, not grep.** Adoption metrics are
-surfaced by the `mcp-report` / `mcp-logs` commands documented in the root
-`CLAUDE.md` ("Dogfooding Metrics Tracking").
+We track how searches turn into facts, to make sure we actually drive the car we
+build. The signal is **follow-through**: a grep over Python source is followed by
+pyeye in the same session, because the hits it finds still need proving.
+`mcp-report` shows it (code searches, the followed-up share, other searches apart);
+see the `mcp-report` / `mcp-logs` commands in the root `CLAUDE.md` ("Dogfooding
+Metrics Tracking").
 
 Remember: **We build this tool — we must be its best users!**

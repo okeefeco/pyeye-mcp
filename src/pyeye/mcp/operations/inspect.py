@@ -73,6 +73,11 @@ from pyeye._ast_targets import (
     find_class_def_at_line as _find_class_def_at_line,
     find_function_def_at_line as _find_function_def_at_line,
 )
+from pyeye._class_signatures import (
+    is_namedtuple_factory,
+    is_none_signature,
+    namedtuple_signature,
+)
 from pyeye._jedi_location import location_from_name
 from pyeye._module_scope import build_import_table
 from pyeye.canonicalization import collect_re_exports
@@ -316,6 +321,30 @@ def _signature_from_source_ast(jedi_name: Any) -> str | None:
     return f"{name}({args}){ret}"
 
 
+def _declared_parameter_names(jedi_name: Any) -> list[str] | None:
+    """The parameter names *jedi_name*'s ``def`` declares, in order, or ``None`` (#1125).
+
+    Positional-only, regular, ``*args``, keyword-only, ``**kwargs``: the order
+    Jedi lists a signature's params in. ``None`` when the ``def`` isn't in
+    source (a builtin, a C extension) or *jedi_name* isn't a function.
+    """
+    module_path = getattr(jedi_name, "module_path", None)
+    line = getattr(jedi_name, "line", None)
+    if module_path is None or not line:
+        return None
+    fn_node = _find_function_def_at_line(Path(module_path), line)
+    if fn_node is None:
+        return None
+    args = fn_node.args
+    names = [a.arg for a in args.posonlyargs + args.args]
+    if args.vararg is not None:
+        names.append(args.vararg.arg)
+    names.extend(a.arg for a in args.kwonlyargs)
+    if args.kwarg is not None:
+        names.append(args.kwarg.arg)
+    return names
+
+
 def _build_signature(jedi_name: Any) -> str | None:
     """Extract a single-line signature string from a Jedi Name object.
 
@@ -334,6 +363,12 @@ def _build_signature(jedi_name: Any) -> str | None:
     is reconstructed from the source AST, falling back to the Jedi render if the
     source definition cannot be located.
 
+    Forwarding (#1125): for ``def f(self, *args, **kwargs)`` that forwards
+    them, Jedi renders the callee's parameters. Its rendering is kept only
+    when its parameter names are the declared ones, in order; otherwise the
+    declared signature comes from the AST. A rendering with a duplicated parameter name is never
+    returned: without source to fall back to, the signature is omitted.
+
     Args:
         jedi_name: A Jedi ``Name`` object.
 
@@ -350,7 +385,12 @@ def _build_signature(jedi_name: Any) -> str | None:
             # so it has no signature of its own. The def as written is its
             # signature, as for a decorator's wrapper (#437).
             return _signature_from_source_ast(jedi_name)
-        sigs = [s for s in raw if not _restricted_signature(s)]
+        # ``None`` isn't callable: Jedi's ``NoneType()`` for it is dropped (#1126).
+        sigs = [s for s in raw if not _restricted_signature(s) and not is_none_signature(s)]
+        # A typed NamedTuple shows its generated constructor, never the
+        # factory's ``(typename, fields, /)``; omitted when it can't be built (#1126).
+        if sigs and is_namedtuple_factory(sigs[0]):
+            return namedtuple_signature(jedi_name)
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
@@ -365,6 +405,20 @@ def _build_signature(jedi_name: Any) -> str | None:
                 ast_sig = _signature_from_source_ast(jedi_name)
                 if ast_sig is not None:
                     return ast_sig
+            # #1125: Jedi follows ``*args``/``**kwargs`` into the call they're
+            # forwarded to and renders the callee's parameters, sometimes as
+            # invalid Python (each name positional-only AND keyword-only).
+            # Its rendering is kept only when its parameter names are the
+            # declared ones; otherwise the declared signature is rendered from
+            # the AST, and a rendering with a duplicated name is never shown.
+            rendered = [str(getattr(param, "name", "")) for param in sigs[0].params]
+            declared = _declared_parameter_names(jedi_name)
+            if declared is not None and rendered != declared:
+                ast_sig = _signature_from_source_ast(jedi_name)
+                if ast_sig is not None:
+                    return ast_sig
+            if len(set(rendered)) != len(rendered):
+                return _signature_from_source_ast(jedi_name)
             return str(sig_str)
     except Exception:
         pass

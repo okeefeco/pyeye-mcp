@@ -202,10 +202,13 @@ kind = "skill"
     "names removed tool 'analyze_dependencies' beside 'removed'",
     "names removed tool 'find_references' beside 'removed'",
     "names removed tool 'get_call_hierarchy' beside 'removed'",
-    "names removed tool 'get_call_hierarchy' beside 'removed'",
-    "names removed tool 'analyze_dependencies' beside 'removed'",
-    "names removed tool 'find_references' beside 'removed'",
 ]
+
+# The detail python-explore loads on demand (#1130).
+[[doc]]
+path = "skills/python-explore/reference.md"
+audience = "claude"
+kind = "skill"
 
 [[doc]]
 path = "skills/architecture-review/SKILL.md"
