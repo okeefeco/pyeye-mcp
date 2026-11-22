@@ -172,6 +172,17 @@ once (#831) and only shrinks. Facts uncovered after that are listed under `new` 
 entry shows up in the PR diff, for the reviewer and for `/docs-review`. An entry leaves
 when its fact is covered or no longer exists.
 
+Some fact families are reference data rather than claims a page should explain, such
+as the list of pre-commit hooks. A setup declares those families **reference-only**:
+their facts never enter the ledger, and `generate` and `check` print a note naming them
+(#1108). The facts still bind into pages and still show in the snapshot and the
+changed-fact list.
+
+A large family can also keep its **own snapshot file**, so `facts.json` diffs stay
+readable. Its facts move out of `facts.json` into that file. The removed-name record
+and the changed-fact list read every snapshot file together, so moving a family to its
+own file removes nothing.
+
 ## Changed facts
 
 `changed --base <rev>` diffs the snapshot against the one at `<rev>` and lists the facts
@@ -232,7 +243,11 @@ kind = "prose"                    # how the checks treat the page
   default) or a list of rule IDs. A rule whose facts the repository doesn't have,
   such as pyeye's own edge rules, is skipped and reported, never run.
 - **`paths`** moves the records (`snapshot`, `removed`, `uncovered`,
-  `review_state`) from their default `docs/facts/` files.
+  `review_state`) from their default `docs/facts/` files. Its `snapshots` table gives a
+  fact family its own snapshot file: `[tool.pyeye.docs_facts.paths.snapshots]` with
+  `arch = "docs/facts/arch.json"`.
+- **`reference_only`** lists the fact families kept out of the uncovered-fact ledger,
+  e.g. `reference_only = ["arch"]`.
 
 Anything that names code to import, such as a `package.module:attr` value, is
 refused, as are unknown keys, kinds and rules, and files outside the repository.

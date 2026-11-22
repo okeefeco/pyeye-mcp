@@ -1,7 +1,8 @@
 """``generate``, ``check`` and ``changed``: keep the docs' facts equal to the code's.
 
 - ``generate`` rewrites every marker block in the registered docs, every
-  generated reference page, the snapshot ``docs/facts/facts.json``, the removed
+  generated reference page, the snapshot ``docs/facts/facts.json`` (and each
+  family's own snapshot file, #1108), the removed
   names ``docs/facts/removed.json`` (a fact that left the snapshot is appended,
   #826) and the uncovered-fact ledger ``docs/facts/uncovered.json``.
   Pre-commit runs it; a commit whose docs it changes fails, like a formatter.
@@ -29,7 +30,7 @@ from pathlib import Path
 
 from . import binding, changed, config, docs, examples, ledger, registry, removed, review, rules
 from .facts import Bindable, snapshot
-from .setup import Setup, pyeye_setup
+from .setup import Paths, Setup, pyeye_setup
 
 SNAPSHOT = "docs/facts/facts.json"
 CHANGELOG = "CHANGELOG.md"
@@ -57,6 +58,22 @@ class Plan:
 def snapshot_text(facts: Mapping[str, Bindable]) -> str:
     """The snapshot file: every item fact's value, sorted by ID."""
     return json.dumps({"facts": snapshot(facts)}, indent=2, sort_keys=True) + "\n"
+
+
+def snapshot_texts(facts: Mapping[str, Bindable], paths: Paths) -> dict[str, str]:
+    """Every snapshot file's text: a family with its own file (#1108) is recorded there."""
+    split: dict[str, dict[str, Bindable]] = {p: {} for p in paths.snapshot_files()}
+    for fact_id, item in facts.items():
+        split[paths.snapshot_of(fact_id)][fact_id] = item
+    return {path: snapshot_text(items) for path, items in split.items()}
+
+
+def reference_only_note(setup: Setup) -> list[str]:
+    """The note naming the reference-only families, if there are any (#1108)."""
+    if not setup.reference_only:
+        return []
+    names = ", ".join(sorted(setup.reference_only))
+    return [f"reference-only fact families, outside the uncovered-fact ledger: {names}"]
 
 
 def plan(
@@ -109,10 +126,11 @@ def plan(
         result.problems.extend(_removed_name_problems(path, entry, found))
     for path, build_page in setup.pages.items():
         result.outputs[path] = build_page(facts)
-    result.outputs[setup.paths.snapshot] = snapshot_text(facts)
+    result.outputs.update(snapshot_texts(facts, setup.paths))
     result.problems.extend(rules.run(root, facts, setup.docs, setup.rules))
     result.notes.extend(rules.skipped(setup.rules, facts))
-    old_snapshot = _committed_snapshot(root, setup.paths.snapshot)
+    result.notes.extend(reference_only_note(setup))
+    old_snapshot = _committed_snapshots(root, setup.paths)
     result.outputs[setup.paths.removed] = removed.render(
         removed.updated(entries, old_snapshot, facts)
     )
@@ -124,6 +142,7 @@ def plan(
             facts,
             covered,
             review.dismissed_uncovered(review_state, facts),
+            reference_only=setup.reference_only,
         )
     )
     return result
@@ -134,6 +153,28 @@ def _committed_snapshot(root: Path, path: str = SNAPSHOT) -> dict[str, object]:
     if current is None:
         return {}
     facts: dict[str, object] = json.loads(current)["facts"]
+    return facts
+
+
+def base_snapshots(root: Path, base: str, paths: Paths) -> dict[str, object] | None:
+    """Every snapshot file's facts at git revision *base*, or None if it has no main one.
+
+    A family's own file (#1108) that *base* lacks adds nothing: before the split,
+    its facts were in the main snapshot.
+    """
+    before = changed.base_snapshot(root, base, paths.snapshot)
+    if before is None:
+        return None
+    for path in paths.snapshot_files()[1:]:
+        before.update(changed.base_snapshot(root, base, path) or {})
+    return before
+
+
+def _committed_snapshots(root: Path, paths: Paths) -> dict[str, object]:
+    """Every snapshot file's facts together, so moving a family between files loses none."""
+    facts: dict[str, object] = {}
+    for path in paths.snapshot_files():
+        facts.update(_committed_snapshot(root, path))
     return facts
 
 
@@ -218,8 +259,8 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
     setup = pyeye_setup() if setup is None else setup
     snapshot = setup.paths.snapshot
-    head = _committed_snapshot(root, snapshot)
-    before = changed.base_snapshot(root, base, snapshot)
+    head = _committed_snapshots(root, setup.paths)
+    before = base_snapshots(root, base, setup.paths)
     if before is None:
         print(f"### Docs facts changed against `{base}`\n\n`{base}` has no `{snapshot}`.")
         return 0
