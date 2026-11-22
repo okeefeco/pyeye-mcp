@@ -1,0 +1,128 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "Only tools wrapped by track_mcp_operation (the core tools and plugin tools) call log_tool_call. The opt-in admin tools (get_performance_metrics, get_connection_diagnostics) are registered unwrapped, so their calls are not logged.",
+    "replacement": "**Activity tracking** - each analysis tool call (core and plugin tools) is logged with a timestamp",
+    "section": "solution-connection-diagnostics",
+    "subject": "all tool calls are logged with timestamps"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "claude_desktop_config.json is Claude Desktop's file, not Claude Code's; the README configures Claude Code with `claude mcp add ... -e VAR=value`. This third-party path needs checking and is likely wrong for Claude Code.",
+    "replacement": "For Claude Code, pass the variables when adding the server, as the README shows: `claude mcp add pyeye -s user -e PYEYE_LOG_FILE=$HOME/.pyeye/connection.log -e PYEYE_LOG_LEVEL=INFO -- pyeye-mcp`. For Claude Desktop, put the same `env` block in its claude_desktop_config.json (location as given in the README).",
+    "section": "1-enable-file-logging",
+    "subject": "Configure this in your Claude Code MCP settings (`~/.config/claude/claude_desktop_config.json`):"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.connection_diagnostics.log_connection_start",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Log that the MCP connection has started."
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "The sample shows the 'MCP CONNECTION STARTED' banner under the logger name `pyeye`. log_connection_start logs through the module logger, so these lines carry `pyeye.mcp.connection_diagnostics`.",
+    "replacement": "Replace `pyeye INFO:` with `pyeye.mcp.connection_diagnostics INFO:` on each line of the Connection Lifecycle sample.",
+    "route": "wording",
+    "route_reason": "A log line is not a fact an extractor produces nor something a pyeye-example tool call can execute; the sample must simply use the real logger name.",
+    "section": "connection-lifecycle"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.connection_diagnostics.log_tool_call",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "log_tool_call(tool_name: str) -> None"
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "The sample logs `tool_call: find_symbol` and `tool_call: get_type_info`. Both tools were removed in v2.0; log_tool_call receives the name of a live tool (resolve, inspect, outline, expand, trace, configure_packages or a plugin tool).",
+    "replacement": "Use live tool names in the sample: `[CONNECTION] tool_call: resolve` and `[CONNECTION] tool_call: inspect`.",
+    "route": "wording",
+    "route_reason": "A log sample cannot be an executed pyeye-example or a bound fact; it must use tool names that exist.",
+    "section": "tool-call-activity"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.error_tracker.ErrorTracker.record_error",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Record an error that occurred during tool execution."
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "The sample attributes [ERROR_TRACKER] lines to the logger `pyeye.metrics_hook` and names the removed tool `find_symbol`. record_error logs through the `pyeye.mcp.error_tracker` module logger, and the tool name is a live tool's.",
+    "replacement": "Change both lines to `pyeye.mcp.error_tracker ERROR:` / `pyeye.mcp.error_tracker WARNING:`, and replace `Tool 'find_symbol'` with `Tool 'resolve'`.",
+    "route": "wording",
+    "route_reason": "A log sample cannot be an executed pyeye-example or a bound fact; it must use the real logger and a live tool name.",
+    "section": "error-tracking"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.__main__._log_shutdown_diagnostics",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Log the connection and error summary at shutdown."
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "The sample attributes SHUTDOWN DIAGNOSTICS to the logger `pyeye.mcp.server`. It is logged by _log_shutdown_diagnostics with the logger cleanup() passes in, `logging.getLogger(__name__)` in pyeye.mcp.__main__, so the lines carry `pyeye.mcp.__main__`.",
+    "replacement": "Replace `pyeye.mcp.server INFO:` with `pyeye.mcp.__main__ INFO:` on each line of the Shutdown Diagnostics sample.",
+    "route": "wording",
+    "route_reason": "A log sample cannot be an executed pyeye-example or a bound fact; it must use the real logger name.",
+    "section": "shutdown-diagnostics"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "The comment says it finds idle periods over 5 minutes, but the pattern only matches 300-999 seconds; an idle time of 1000 s or more (about 16.7 minutes and up), the most suspicious case, is missed.",
+    "replacement": "grep \"heartbeat\" ~/.pyeye/connection.log | awk -F'idle_for=' '{ if ($2+0 > 300) print }'",
+    "section": "tracking-idle-periods",
+    "subject": "grep -E \"^[3-9][0-9]{2}\\.\""
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.__main__.main",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Main entry point for the PyEye MCP server."
+      }
+    ],
+    "page": "docs/debugging-connection-drops.md",
+    "problem": "Says to change the heartbeat interval in `src/pyeye/mcp/server.py`. The start_heartbeat_monitor(interval_seconds=30) call is in main() in `src/pyeye/mcp/__main__.py`; server.py never calls it.",
+    "replacement": "To change it, edit the `start_heartbeat_monitor(interval_seconds=30)` call in `main()` in `src/pyeye/mcp/__main__.py`:",
+    "route": "wording",
+    "route_reason": "This is a how-to pointer to the edit site, not a value an extractor or example could show.",
+    "section": "advanced-adjusting-heartbeat-interval"
+  }
+]

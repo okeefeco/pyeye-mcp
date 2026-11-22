@@ -1,0 +1,63 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.mcp.operations.edges.resolve_imports",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult"
+      },
+      {
+        "docstring": "An import guarded by ``if TYPE_CHECKING:``, ``try``/``except ImportError`` or a version check still binds a module name, so it IS an import of this module and is emitted"
+      }
+    ],
+    "extractor": "edges",
+    "page": "docs/namespace-packages.md",
+    "page_hash": "2bb6828e",
+    "problem": "The 'Static imports only' bullet says conditional imports are invisible to the trace. They aren't: the imports edge follows binding scope, so a module-scope import under `if TYPE_CHECKING:`, `try`/`except ImportError` or a version check is emitted, with both branches of a shim. What the edge leaves out is imports inside a `def` or `class` body, and importlib calls with a computed name. So a reader may wrongly discount a reported cycle that runs through a guarded import.",
+    "replacement": "Replace 'importlib.import_module(), plugin loaders and conditional imports are invisible' with a fact block that binds ceiling.static_imports (the imports edge's ceiling), plus the explanation that imports inside a function or class body aren't walked either, so a runtime cycle can exist with no static edge.",
+    "route": "fact",
+    "section": "4-circular-dependencies"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/namespace-packages.md",
+    "page_hash": "2bb6828e",
+    "problem": "It claims that scope_defaults make a namespace project 'complete by default'. Without scope_defaults the fallback is the main project only, so namespace code is NOT searched by default. Even when it is configured, a plugin scan only covers the scopes it was given, and the envelope's unsearched_scopes is there because a result can be partial.",
+    "replacement": "This is how a namespace project gets searched without the caller naming the scope: an AI agent calling `find_pydantic_models()` doesn't know the models live in `company-*` repos, but the project config does.",
+    "section": "default-scopes-for-plugin-tools",
+    "subject": "This is what makes a namespace project complete by default"
+  },
+  {
+    "anchor": {
+      "id": "D12-volatile",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/namespace-packages.md",
+    "page_hash": "2bb6828e",
+    "problem": "'now' is a status that goes stale, and the bullet is change history (what 'older docs' used) in a guide. The warning also happens only when the server starts, for the startup project's config.",
+    "replacement": "- **Keys are tool names.** A key that isn't a plugin tool name (for example an old method name such as `find_models`) has no effect, and pyeye logs a warning naming it when the server starts.",
+    "section": "default-scopes-for-plugin-tools",
+    "subject": "pyeye now logs a warning naming any key that isn't a plugin tool."
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/namespace-packages.md",
+    "page_hash": "2bb6828e",
+    "problem": "The 'Better' / 'Slower' labels are a speed comparison with no measurement behind them. The real point is how much code gets searched, not a measured speed-up.",
+    "replacement": "Label the two calls by what they search, not by speed: '# Searches one namespace' and '# Searches every configured scope'. Then say that a narrower scope scans fewer files.",
+    "section": "performance-tips",
+    "subject": "# Slower - searches everything"
+  }
+]

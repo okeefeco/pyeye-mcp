@@ -1,0 +1,187 @@
+# Pre-release docs check, v2.2.0 (main 5ad066d1, 2026-11-19)
+
+Read-only. No page edited, no review state written (`lift-blocked`, `mark-fine` and `dismiss` were not run).
+
+## Mechanical checks
+- `uv run python scripts/docs_facts.py check`: **pass** (141 files match the code's facts).
+- `uv run --frozen --group docs mkdocs build --strict` (as CI runs it): **pass**. The only output is mkdocs' own advisory notice about version 2.
+
+## /docs-review
+- 34 registered prose pages: 30 for human readers, 4 for both. There are no uncovered facts.
+- One fresh reviewer per page. **120 findings**, all accepted by `validate` and all `new`:
+
+  | Category | Findings |
+  |---|---|
+  | style | 58 |
+  | honest_claims | 24 |
+  | code_contradiction | 19 |
+  | fact_drift | 13 |
+  | audience | 6 |
+
+- The raw findings are in `findings/<page>.json`, the validation results in `valid-<page>.json`.
+
+Triage key: **R** = real (checked against the code where it's a code claim); **N** = noise or judgment (a dismiss candidate); **[MUST]** = would mislead a v2.2.0 user, so fix before the release. Index numbers refer to each page's findings file.
+
+---
+
+## A. MUST fix before v2.2.0 (user-facing pages)
+
+**README.md**
+- **[7] R [MUST]:** "the MCP server uses your project's environment" is not guaranteed. The `.mcp.json` runs a bare `python`, so the server uses the project venv only if the client was launched from a shell with it active. The fix: use the venv's Python path.
+- **[1] R [MUST]:** the config loading order stops at auto-discovery. `ProjectConfig.load_config` applies a 5th source, the session's unsaved `configure_packages(save=False)` additions (#953). That's new in this release, so the list is missing a v2.2.0 feature.
+- **[2] R:** auto-discovery returns early on a `src/` layout with no sibling packages, and adds virtualenv site-packages otherwise (`_auto_discover`, verified).
+- **[3] R:** pyproject `build-backend` detection runs only when pyproject is the project's config file and no `packages` are set yet.
+- **[6] R:** `PYEYE_ENABLE_PERFORMANCE_METRICS` registers every admin tool (`ADMIN_TOOLS`: `get_performance_metrics` and `get_connection_diagnostics`), not just one.
+- **[4] R (low):** `callers`/`references` are presented as the only deferred edges.
+- **[0] N:** the badge's "3.11+" matches `requires-python` today; it's a maintenance suggestion. **[5]** N/style. **[8][9]** N: dated third-party claims, a judgment call.
+
+**docs/TROUBLESHOOTING.md**
+- **[5][6][7][8][9] R [MUST]:** five `export PYEYE_…` / `export PYTHONPATH` examples contradict the page's own rule ("Set them where the server starts … on the client's server entry", Environment Variable Issues). A user following them changes nothing.
+- **[4] R:** the RAM-tier table (<8 GB / 16 GB / 32 GB mapped to projects and caches) has nothing behind it.
+- **[10] R (low):** "Use WSL2 for better compatibility" is unbacked, and CI runs native Windows.
+- **[11] R (low):** Gatekeeper advice for binaries pyeye doesn't ship.
+- **[12] R (low):** the plugin detection list is restated by hand and omits Django's `requirements/base.txt`.
+- **[13] N/low:** the diagnostics script's dependency list matches pyproject (plus the transitive `parso`); drift risk only.
+- **[0]–[3] N:** fact-binding suggestions for values that are correct today.
+
+**docs/api/README.md** (`configure_packages`)
+- **[2] R [MUST]:** `rejected_paths` covers only entries already in the config. A path passed in this call that fails the check fails the whole call, and nothing is saved (#856, new in this release).
+- **[1] R:** "applies only to the project the server started in" covers only plugin activation; the new paths take effect on any project.
+- **[0] R (low):** "can't drift silently" overstates it; only the skill's edge list is fact-bound.
+- **[3] N:** a suggestion to add an executed example.
+
+**docs/api/flask-tools.md**
+- **[3] R [MUST]:** `find_cli_commands` misses the bare `@app.cli.command` form (no parentheses), and lists any bare `@command` function. Verified in the code. This is also a **code bug**: file it.
+- **[2] R:** `error_code` is null for a dotted exception (`@app.errorhandler(werkzeug.exceptions.NotFound)`); only a constant or a bare name is read (verified).
+- **[0] R:** `urls` is also absent for a `subdomain`, a `**` splat or a registration cycle (`_UrlRegistry.prefixes`).
+- **[1] R:** templates are found only under `templates/` at a root or one level below, and only `render_template` calls with a string literal.
+
+**docs/api/django-tools.md**
+- **[0] R [MUST]:** `find_django_models` reads only `models.py` files (never a `models/` package) and only classes whose own base is `Model`. So subclasses of a project base model are not listed (verified).
+- **[1] R:** templates are only `.html` under `templates/` at a scope root or one level below; `TEMPLATES` `DIRS` in settings isn't read.
+
+**docs/api/pydantic-tools.md**
+- **[0] R:** an unannotated v1 attribute is excluded when its value is a lambda, an ignored call or a class/function name (`_V1_IGNORED_CALLS`, verified).
+- **[1] R:** a v1 nested `class Config:` is read and reported.
+
+**SECURITY.md**
+- **[0] R [MUST, security doc]:** the "That covers" list omits that a config file's `packages` entries are path-checked too, and skipped with a warning (`ProjectConfig._package_refusal`, verified). It understates the protection. Correct the list, ideally as a fact.
+- **[1] R (low):** the pip-audit trigger is also `requirements*.txt`.
+
+**docs/namespace-packages.md**
+- **[1] R [MUST]:** "This is what makes a namespace project complete by default" is false. The plugin fallback scope is `main` (`scope.default.plugin`: fallback `main`), so namespace code isn't searched unless `scope_defaults` says so.
+- **[0] R:** conditional imports (`TYPE_CHECKING`, `try/except ImportError`) are followed by the imports edge, not invisible.
+- **[2] R (low):** "pyeye now logs…" is change history, and the warning appears only at start-up.
+- **[3] R (low):** "Slower" is an unmeasured speed claim.
+
+**DOCUMENTATION.md**
+- **[0] R:** "every tool takes `project_path`" isn't true of the admin tools.
+- **[1] R (low):** a stray colon.
+
+**docs/architecture/resolution.md**
+- **[0] N:** a fact-binding suggestion.
+- **[1] R (low):** "now" is a stale status word.
+
+**docs/architecture/caching.md**
+- **[0] R:** README "Performance Settings" doesn't list the variables; it links `docs/reference/env-vars.md`. Point there.
+
+**docs/architecture/plugin-system.md**
+- **[0] R:** `tests/test_plugin_tool_names_conformance.py` keeps no hand list since #825; it reads the facts snapshot.
+
+**docs/debugging-connection-drops.md**
+- **[1] R:** Windows handles SIGTERM only; SIGHUP and SIGPIPE are POSIX-only.
+- **[2][3] R:** the Claude Desktop config assumes a uv source checkout the page never sets up, and doesn't match the README's `python -m pyeye.mcp`.
+- **[4] R:** the `client.call_tool` snippet isn't runnable.
+- **[0][5][6] N or low:** "comprehensive", a hand-written shape, a hard-coded interval.
+
+**docs/UNIFIED_METRICS.md** (my #943 page)
+- **[2] R:** points at `get_performance_metrics` without saying it needs `PYEYE_ENABLE_PERFORMANCE_METRICS`.
+- **[0][1] N:** they restate the deprecation text; each line does say "deprecated", which the rule requires.
+
+## B. Dev and maintainer pages (real, not user-facing; fix when convenient)
+
+**scripts/claude_hooks/README.md**
+- **[0] R:** "No sensitive information is logged" is false. The hooks log every grep-like Bash command with its description, and every pyeye call's `tool_input` (verified).
+- **[1][2] R:** re-running `setup_mcp_monitoring.sh` replaces the whole `hooks` key, or the whole settings file without `jq`, so hooks the user added since are dropped. "It backs up your settings first" understates that. This is also a **code issue**: the setup should merge into existing hooks instead of replacing them. File it.
+- **[3][4][5] R (low):** the manual install doesn't say where the hooks come from or create the aliases file; "MCP Python Intelligence" is an old name.
+
+**docs/DOGFOODING_SETUP.md**
+- **[3] R:** two different `mcp-report` aliases exist: `setup_aliases.sh` runs `dogfooding_metrics.py report`, and `setup_mcp_monitoring.sh` runs the hooks analytics. The DOGFOODING pages and CLAUDE.md mean different ones.
+- **[4] R:** the aliases use relative paths and work only from the repo root.
+- **[0][1] R:** the worktree hook-check commands fail in a worktree.
+- **[2][5][6][7] R (low):** sample MCP counts, an unbacked privacy line, the incomplete "files created" list (it misses the `~/.local/bin` wrappers and the PATH line), "team chat".
+
+**docs/DOGFOODING_INTEGRATION.md**
+- **[0] R:** besides the wrappers, `setup_aliases.sh`'s `tracked_grep` function counts every grep, not only code searches.
+- **[1] R:** `mcp-report`/`mcp-logs` need `source ~/.claude/mcp_monitoring/aliases.sh`.
+
+**docs/RELEASE.md**
+- **[0] R:** the sample wheel has the old name `python_code_intelligence_mcp`.
+- **[1] R:** bare `python` (should be `uv run`).
+
+**docs/COVERAGE.md**
+- **[0] R:** `release.yml` has its own `--cov-fail-under`, which nothing cross-checks.
+- **[1] R:** bare `pytest`.
+- **[2] R (low):** refers to "tracking" that's gone.
+
+**docs/testing/CONVENTIONS.md**
+- **[0] R:** the `trace` example calls an async tool synchronously.
+- **[1] R:** a missing `import time`.
+
+**docs/testing/PERFORMANCE.md**
+- **[0] R:** the environment shows in the message only on CI.
+- **[1] R:** only two guards have slowed-on-purpose tests.
+
+**docs/testing/STRATEGY.md**
+- **[0] R:** the example uses a "references" step, an edge that's deferred.
+- **[2] R:** the `.as_posix()` rule is over-broad.
+- **[1] N:** a fact-binding suggestion.
+
+**docs/development/test_generation_guidelines.md**
+- **[0] R:** compare paths with `paths_equal()`, not `.as_posix()` (#717).
+- **[4] R:** the datetime mock example is wrong.
+- **[5] R:** `asyncio_mode = "auto"` makes the marker optional.
+- **[1][2] N or audience:** enforcement tone.
+- **[3] R (low):** it duplicates PERFORMANCE.md.
+
+**docs/development/docs-facts.md**
+- **[0] R:** the kind table omits `record`.
+
+**docs/development/duplicate-code-check.md**
+- **[2][3][4] R (low):** unrecorded measurements, and "The baseline is empty" will go stale.
+- **[0][1] N:** fact-binding suggestions.
+
+**.github/pull_request_template.md**
+- **[0][1][2] R:** bare `pytest`/`ruff` (should be `uv run`).
+- **[3] R:** the 50-line limit isn't enforced by anything.
+- **[4] R:** "No code duplication" overstates the ratchet's scope.
+- **[5] N:** a fact-binding suggestion.
+
+**CONTRIBUTING.md**
+- **[0] R (low):** "no command silently re-resolves" overstates it (CI's `uv pip install` of the wheel).
+- **[1] N:** a fact-binding suggestion.
+
+**changes/README.md**
+- **[0] N:** a fact-binding suggestion for the category table.
+
+**docs/CLAUDE_AGENTS.md**
+- **[0] N:** duplicated rationale.
+
+**plugins/worktree-hook/README.md**
+- **[0] R:** two inconsistent descriptions of the native fallback.
+- **[1][2] N:** dated third-party claims.
+
+**.claude/README.md and .claude/instructions/00-documentation-system.md** (these edits need the user's DIRECT approval)
+- `.claude/README.md` **[0] R:** a nonexistent `feedback/` directory, and `skills/` is missing.
+- `.claude/README.md` **[1] R:** the prefix list has drifted.
+- `00-documentation-system.md` **[0] R:** its header says audience Claude Code, its DocEntry says "both".
+- `00-documentation-system.md` **[1][4] R:** load order is CLAUDE.md's @-import order, and `11-pr-requirements.md` is missing from the list.
+- `00-documentation-system.md` **[2] R:** it should require a DocEntry, not just an audience comment.
+- `00-documentation-system.md` **[3][5][6] R:** it names `docs/guides/`, `docs/architecture.md` and `docs/setup.md`, none of which exist.
+
+**docs/LABELS.md, docs/testing/FIXTURES.md:** no findings.
+
+## C. Code issues surfaced (not docs)
+1. `FlaskPlugin.find_cli_commands` misses the bare `@app.cli.command` decorator (a silent miss, absence-vs-zero), and also matches any bare `@command`.
+2. `setup_mcp_monitoring.sh` replaces the whole `hooks` key, or the whole `settings.json` without `jq`, on every run, so the user's other hooks are lost.
+3. Two different `mcp-report` aliases (dogfooding vs hooks analytics) collide in one shell.

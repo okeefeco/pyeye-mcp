@@ -1,0 +1,36 @@
+[
+  {
+    "anchor": {
+      "id": "review.axis.layering",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "skills/architecture-review/SKILL.md",
+    "problem": "The axis table restates every axis key and its description (the `description` field of each review.axis.* fact, from taxonomy.AXIS_DESCRIPTIONS) by hand. auditor.md binds the same table as the review.axes.table fact block, so this copy is the only unbound one and drifts silently when a description changes.",
+    "replacement": "Replace the hand-written table with a `<!-- fact:begin review.axes.table -->` block, the same view auditor.md binds.",
+    "section": "the-seven-seed-axes"
+  },
+  {
+    "anchor": {
+      "id": "review.axis.error_handling",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "skills/architecture-review/SKILL.md",
+    "problem": "The script shown to the human hard-codes the stakes-bucket order (\"validation/error-handling > \u2026 > naming\"), restating the `stakes_bucket` fields of the review.axis.* facts. The same section says the bucket map is per-project overridable, so after a re-tier the orchestrator would show a ranking basis that no longer matches the map it ranked with.",
+    "replacement": "Make the quote a template filled from the bucket map in use: \"> Ranked by stakes bucket (<the bucket map passed to rank, high \u2192 low>), then blast-radius within the bucket \u2014 reorder?\"",
+    "section": "5-rank-ordering-only"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/architecture-review/SKILL.md",
+    "problem": "The paragraph restates a partial copy of the decision-log skill's rules (one-line proposal, no draft before confirm, date, Anchor refs, Verify tiers) and has already drifted: it omits the `Applies-to` line that decision-log now requires on every entry.",
+    "replacement": "Invoke the [`decision-log`](../decision-log/SKILL.md) skill's human-gated propose \u2192 draft \u2192 confirm \u2192 write flow; its rules apply in full (gate, Anchor, Applies-to, Verify). Keep only what is specific here: pull evidence and handles from the finding verbatim.",
+    "section": "positive-norm-path-confirmed-deterministic_single",
+    "subject": "propose in ONE line; never draft before the user confirms"
+  }
+]

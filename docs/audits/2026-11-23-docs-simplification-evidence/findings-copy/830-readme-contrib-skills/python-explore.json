@@ -1,0 +1,107 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "A handle is the symbol's dotted definition-site path, so renaming or moving the symbol (or its module) changes it. 'Stable across edits' is unscoped.",
+    "replacement": "Replace 'stable across edits' with 'stable across edits that don't rename or move the symbol or its module'.",
+    "section": "the-model-progressive-disclosure",
+    "subject": "stable across edits"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "The notes hand-write two parameter defaults that exist as bound facts (tool.resolve.param.max_candidates = 50, tool.expand.param.max_stubs = 200). C15 says prose must not state code facts. If a default changes, nothing flags these two sentences.",
+    "replacement": "Bind the numbers inline: 'At most <!-- fact:begin tool.resolve.param.max_candidates -->\u2026<!-- fact:end --> candidates come back by default' and 'expand returns at most <!-- fact:begin tool.expand.param.max_stubs -->\u2026<!-- fact:end --> stubs by default'. Or drop the numbers, say 'a capped list (`max_candidates`/`max_stubs`)' and keep the truncated/total guidance, which is the how-to.",
+    "section": "the-primitives",
+    "subject": "At most 50 candidates come back by default"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "The seven ceiling bullets are a hand copy of edges.CEILING_MEANINGS (the markdownlint comment says 'quoted verbatim'). They match today, but nothing binds them, although the facts ceilings.table and ceiling.<id> exist, and docs/reference/edges.md#ceilings already renders them.",
+    "replacement": "Replace the seven hand-written bullets (and the markdownlint-disable/enable pair around them) with a `<!-- fact:begin ceilings.table -->` block, or with one line: 'The ids and what each is complete over: [Ceilings](../../docs/reference/edges.md#ceilings).'",
+    "section": "supported-edges",
+    "subject": "- `static_definitions`: definitions written in source"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "The nine deferred edges are listed by hand. The fact edges.deferred holds exactly this set, and the skill's most important rule rests on it, so an edge that moves out of deferred would leave this list stale.",
+    "replacement": "Bind the list: 'The edges <!-- fact:begin edges.deferred -->\u2026<!-- fact:end --> are **deferred** \u2014 they need an indexed reference backend \u2026'.",
+    "section": "-honest-limits--pyeye-has-no-reverse-references-delegate-to-your-lsp",
+    "subject": "`overridden_by`, `decorated_by`, and `decorates`"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "The envelope's response shape is a hand-written text block that no check runs. The plugin tool names in the first paragraph are hand-listed too, though tools.plugin.* facts exist. C15 counts response shapes as code facts.",
+    "replacement": "Replace the text block with a `json pyeye-example tool=<a plugin tool>` call with `\"envelope\": true` (with a fixture that activates the plugin), followed by a trimmed `json pyeye-output`. Keep the three bullets, which say how to act on each key. Point the tool names at docs/reference/tools.md ('e.g. `find_pydantic_models`; the full list is in [MCP tools](../../docs/reference/tools.md)') instead of listing them.",
+    "section": "framework-plugin-tools--always-pass-envelopetrue",
+    "subject": "{ scope: \"main\", searched: [\"main\"], unsearched_scopes: [\"namespace:company\"], results: [...] }"
+  },
+  {
+    "anchor": {
+      "id": "restated-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "This sentence restates the executed inspect example's output: the pyeye-output block above already shows `subclasses` and `callers` as `<absent>` in edge_counts.",
+    "replacement": "Replace it with what the example demonstrates: 'This shows absence-vs-zero: a count `inspect` doesn't measure is left out of `edge_counts`, not reported as `0`.' Keep the DevSettings sentence, or better, make it an executed `expand` subclasses example.",
+    "section": "worked-examples",
+    "subject": "`edge_counts` holds only what `inspect` measures: `subclasses` and `callers` are absent (not counted), never `0`."
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "Several ```text blocks give response values that no check runs. The evict location (just edited in this PR to an absolute /work/... path) and `resolve(\"myapp\") -> { handle: \"myapp\", kind: \"module\", scope: \"project\" }` are examples. So is the outline default (`max_depth=1`, capped by `max_nodes`), which is the fact tool.outline.param.max_depth. C15/C16 say these come from executed examples or bound facts.",
+    "replacement": "Turn the `resolve(\"myapp.cache.Cache.evict\")` and `resolve(\"myapp\")` lines into `json pyeye-example tool=resolve` + `json pyeye-output` pairs, so the location the LSP step uses comes from a real response. Keep the LSP call as text. Write 'outline defaults to direct members only (`max_depth=<!-- fact:begin tool.outline.param.max_depth -->\u2026<!-- fact:end -->`)'.",
+    "section": "worked-examples",
+    "subject": "resolve(\"myapp.cache.Cache.evict\")   -> location: { file: \"/work/myapp/myapp/cache.py\", line_start: 25, column_start: 8 }"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.operations.edges.resolve_imports",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "still binds a module name, so it IS an import of this module and is emitted;"
+      },
+      {
+        "signature": "resolve_imports(jedi_name: Any, analyzer: JediAnalyzer) -> EdgeResult"
+      }
+    ],
+    "extractor": "edges",
+    "page": "skills/python-explore/SKILL.md",
+    "problem": "The ceiling note says 'conditional imports' are invisible here. But `imports` emits imports guarded by `if TYPE_CHECKING:`, `try`/`except ImportError` or a version check, both branches included, and `imported_by` covers guarded imports too. The page's own edge table says so. Only computed importlib/__import__ targets are outside the static_imports ceiling.",
+    "replacement": "Bind the edge's ceiling instead of listing cases: '> Same static-surface ceiling as everywhere else: `imports` / `imported_by` are complete over <!-- fact:begin ceiling.static_imports -->\u2026<!-- fact:end --> An absent edge means \"not imported in source,\" not \"never loaded.\"' Drop 'conditional imports' and 'plugin loaders'.",
+    "route": "fact",
+    "section": "dependency--coupling-analysis"
+  }
+]

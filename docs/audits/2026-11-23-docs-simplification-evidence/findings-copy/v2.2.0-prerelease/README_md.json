@@ -1,0 +1,155 @@
+[
+  {
+    "anchor": {
+      "id": "project.requires_python",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The hand-written 'Python 3.11+' badge restates the supported-Python floor that pyproject's requires-python owns; it will silently drift when the floor moves.",
+    "replacement": "Replace the static badge with one derived from the package metadata (a shields.io PyPI pyversions badge for pyeye-mcp), or drop it and state the floor through a fact block for project.requires_python.",
+    "section": "pyeye-server"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig.load_config",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "load_config(self) -> None"
+      },
+      {
+        "docstring": "The session's unsaved additions"
+      }
+    ],
+    "extractor": "new: the ordered source list ProjectConfig.load_config applies (global, project, override, auto-discovery, session overlay)",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The numbered loading order stops at auto-discovery, but load_config applies a fifth source last: the session's unsaved configure_packages(save=False) additions (#953), which are merged over everything and don't suppress auto-discovery. A reader who calls configure_packages without saving can't tell from this list where those entries land.",
+    "replacement": "Bind the loading order as a fact generated from ProjectConfig.load_config, so the session overlay from configure_packages(save=False) appears as the last step, instead of the hand-numbered list.",
+    "route": "fact",
+    "section": "configuration-methods"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig._auto_discover",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "edge": "callees",
+        "includes": [
+          "pyeye.config.ProjectConfig._discover_src_layout",
+          "pyeye.config.ProjectConfig._discover_sibling_packages",
+          "pyeye.config.ProjectConfig._discover_venv_packages"
+        ]
+      }
+    ],
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "Item 4 says auto-discovery detects source layouts and sibling packages. That is right except on one path: when a src/ layout is found, _auto_discover returns early and adds no sibling packages. It also omits that, without src/, it adds virtualenv site-packages (venv/, .venv/, env/) alongside siblings.",
+    "replacement": "4. **Auto-Discovery**: if no packages are configured, a `src/` layout is used when present; otherwise sibling packages and the project's virtualenv site-packages are added.",
+    "route": "wording",
+    "route_reason": "Library behaviour of ProjectConfig with no MCP tool that demonstrates it, so no example route; no extractor covers discovery order.",
+    "section": "configuration-methods"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig._load_from_file",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "_load_from_file(self, config_path: Path) -> None"
+      }
+    ],
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The section says pyeye detects src layouts from pyproject.toml build-backend metadata. That is right except on two paths: pyproject.toml is read only when it is the first project config file found (a .pyeye.json/.pyeye.yaml/.pyeye.yml in the root means it is never read), and detection is skipped when packages are already set, including by the global config. A user with a global `packages` list gets no build-backend detection and no src/ fallback.",
+    "replacement": "Add after the intro: \"Detection reads pyproject.toml only when it is the project's config file (no `.pyeye.json` or `.pyeye.yaml` in the root), and only when no `packages` are set yet, including by your global config.\"",
+    "route": "wording",
+    "route_reason": "Config-loading behaviour of ProjectConfig with no MCP tool example to show it and no extractor for it.",
+    "section": "auto-detection-of-source-layouts"
+  },
+  {
+    "anchor": {
+      "id": "edges.deferred",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The prose hand-picks `callers` and `references` as the unsupported edges, implying they are the only ones; the deferred set is larger (overrides, decorated_by, read_by and more) and is owned by the edges registry.",
+    "replacement": "Keep 'who calls / references this' as the motivating example, then list the refused edges with a fact block for edges.deferred instead of naming two by hand.",
+    "section": "known-limitation-no-reverse-references"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The sentence states the refusal behaviour and the edge_counts omission as prose (C15); no fact or executed example on this page carries it, though skills/python-explore/SKILL.md already runs one.",
+    "replacement": "Replace the description of the response with an executed `json pyeye-example tool=expand` block asking for the `callers` edge (as in skills/python-explore/SKILL.md), keeping one sentence on why: pyeye refuses rather than guesses.",
+    "section": "known-limitation-no-reverse-references",
+    "subject": "pyeye reports it as unsupported rather than"
+  },
+  {
+    "anchor": {
+      "id": "tools.admin",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "Says the flag registers `get_performance_metrics`; it registers every admin tool in ADMIN_TOOLS, which also includes get_connection_diagnostics. 'Set' is also loose for a boolean variable that registers nothing when set to false.",
+    "replacement": "Set `PYEYE_ENABLE_PERFORMANCE_METRICS` to true to register the admin tools, <fact block for tools.admin>. Their parameters are in the [tool reference](docs/reference/tools.md#admin-tools).",
+    "section": "performance-monitoring"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "The `.mcp.json` runs a bare `python`, resolved from the PATH of whatever launched the client, so the server uses the project venv only when the client was started from a shell with that venv active; the page itself says so for env vars and for other clients.",
+    "replacement": "Set `command` to your venv's Python (e.g. `/path/to/your/project/venv/bin/python`) so the server runs in your project's environment; a bare `python` works only when the client is launched from a shell with that venv active.",
+    "section": "option-1-project-specific-installation-recommended",
+    "subject": "This way, the MCP server uses your project's environment and has access to all your project's dependencies."
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "A third-party config path copied into the page (macOS only, no Windows/Linux path), while the next section deliberately links client docs instead of copying because they change. Needs checking against current Claude Desktop docs.",
+    "replacement": "Link Claude Desktop's own MCP setup documentation for the config file location, as the GitHub Copilot section does, and keep only the server entry JSON here.",
+    "section": "configure-with-claude-desktop",
+    "subject": "`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "README.md",
+    "page_hash": "5413a69d",
+    "problem": "States a third-party plan and policy requirement (the 'MCP servers in Copilot' policy) that GitHub may rename or change; it needs checking, and the linked GitHub doc already owns it.",
+    "replacement": "Drop the sentence, or shorten it to 'Organization plans may need an administrator to allow MCP servers first; see the linked page.'",
+    "section": "configure-with-github-copilot-and-other-mcp-clients",
+    "subject": "On Copilot Business and Enterprise, an administrator must first enable the"
+  }
+]

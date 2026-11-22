@@ -1,0 +1,84 @@
+[
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "Lines 68-85 hand-copy every plugin's tool names, which docs/reference/tools.md#plugin-tools already generates from the register_tools() keys, and the page never links that reference or docs/api/. A renamed or added tool goes stale here silently.",
+    "replacement": "Replace the three tool lists with one sentence per plugin naming its module and linking its page, then a closing line: \"The registered tool names and their parameters are listed in [MCP tools](../reference/tools.md#plugin-tools); each tool is described in [docs/api](../api/README.md).\"",
+    "section": "built-in-plugins"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "assessment": "unanchored: judgment only. Option 1 keeps the why (a heuristic, so a framework used only in a configured package is still found through the configured-path detection) without copying code.",
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "a reader must open the code to see the exact files checked",
+        "text": "Keep the concept only: detection is a text heuristic over project imports and dependency files, and the exact rules live in each plugin's detect() (link the module)."
+      },
+      {
+        "cost": "new extractor work in docs_facts for a list that changes rarely",
+        "text": "Register a fact per plugin's detection inputs and bind it in a fact block."
+      },
+      {
+        "cost": "unchecked drift, against C15/C16",
+        "text": "Keep the hand-written lists."
+      }
+    ],
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "Lines 68-82 also restate each plugin's detect() heuristics file by file (which requirement files, which entry-point names, top-level vs. any file). These are code facts with no fact binding or generated reference, so they drift without a check (for example, Pydantic's detector also skips .py files over 1 MB, which the prose doesn't mention).",
+    "question": "How should the page carry the detection rules?",
+    "section": "built-in-plugins"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "Step 4 says that after configure_packages, newly brought-in plugins are activated. The code re-detects only when configure_packages targets the project the server started in (server.py: `if _startup_root is not None and paths_equal(root, _startup_root)`); for any other project_path nothing activates. The step also omits that the result reports the newly activated plugins.",
+    "replacement": "4. **Re-detection.** When `configure_packages` reconfigures the project the server started in, plugins whose framework the new layout brings in are activated and their tools registered; the result names them (see [`configure_packages`](../reference/tools.md#configure_packages)). Other projects aren't re-detected. This is add-only: nothing already registered is removed or renamed, and no `tools/list_changed` is sent (#659, #770).",
+    "section": "lifecycle"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "Step 3 says two plugins declaring the same name is a ValueError, \"not a silent shadow\". That holds only within one registration batch. During re-detection, register_plugin_tools skips any name in `already_registered` with `continue`, so a newly activated plugin whose tool name an earlier plugin registered loses that tool silently.",
+    "replacement": "3. **Registration.** `register_plugin_tools` registers every `register_tools()` entry under its key. Two plugins registered together that declare the same name raise `ValueError` rather than silently shadowing each other (#555). The built-in names are pinned by `tests/test_plugin_tool_names_conformance.py`, which is what stops a re-detected plugin's tool being skipped because its name is already taken.",
+    "section": "lifecycle"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "The bullets restate the wrapper's parameter contract (envelope default and its exact keys, scope defaulting, project_path), which docs/reference/tools.md#plugin-tools generates per tool. The project_path bullet also omits that a plugin tool exists only once its framework was detected in the startup project, so 'runs against that project even if its framework wasn't detected there' reads as if every plugin tool is always available.",
+    "replacement": "Keep the why (all plugin tools behave alike because `_plugin_tool` wraps them) and the rule that a plugin function must not declare `envelope` or `project_path`, and replace the parameter bullets with: \"Every plugin tool takes `scope`, `envelope` and `project_path`; their types and defaults are in [MCP tools](../reference/tools.md#plugin-tools). A plugin's tools are registered only once its framework is detected in the project the server started in; after that, `project_path` can point a tool at any project, and an empty result there is a measured empty, not a refusal (#665).\"",
+    "section": "what-every-plugin-tool-gets"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/plugin-system.md",
+    "problem": "Step 2 says framework-prefixed names \"can't collide\" with another plugin's. A naming convention can't guarantee that, and the built-in plugins don't follow it (get_model_schema, find_validators, find_error_handlers, find_cli_commands). Step 4 also leaves out the test that actually pins the names.",
+    "replacement": "2. Prefer names that carry the framework (`find_<framework>_<thing>`). A name another plugin already declares fails registration with `ValueError`.\n...\n4. Add tests: positive and negative detection, each tool against a fixture project, and the new names in `tests/test_plugin_tool_names_conformance.py`.",
+    "section": "adding-a-plugin"
+  }
+]

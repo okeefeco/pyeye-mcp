@@ -1,0 +1,162 @@
+{
+  "#866 README + #876 DOCUMENTATION/CONTRIBUTING + #881 skills": {
+    "by_anchor_kind": {
+      "audience_rule": 17,
+      "claims_rule": 4,
+      "fact": 3,
+      "literal": 0,
+      "style_rule": 15,
+      "symbol": 6,
+      "task": 0
+    },
+    "by_category": {
+      "audience": 17,
+      "code_contradiction": 6,
+      "fact_drift": 3,
+      "honest_claims": 4,
+      "style": 15,
+      "uncovered_fact": 0
+    },
+    "findings": 45,
+    "needs_decision": 0,
+    "rule_ids": {
+      "D12-absolute": 3,
+      "D12-projection": 1,
+      "claude-directs": 1,
+      "dated-claim": 2,
+      "duplication": 1,
+      "invalid-example": 7,
+      "link-not-restate": 16,
+      "missing-prerequisite": 3,
+      "orphaned-text": 1,
+      "restated-example": 1
+    }
+  },
+  "#869 history pages": {
+    "by_anchor_kind": {
+      "audience_rule": 2,
+      "claims_rule": 24,
+      "fact": 0,
+      "literal": 0,
+      "style_rule": 12,
+      "symbol": 0,
+      "task": 0
+    },
+    "by_category": {
+      "audience": 2,
+      "code_contradiction": 0,
+      "fact_drift": 0,
+      "honest_claims": 24,
+      "style": 12,
+      "uncovered_fact": 0
+    },
+    "findings": 38,
+    "needs_decision": 4,
+    "rule_ids": {
+      "D12-absolute": 9,
+      "D12-comparison": 7,
+      "D12-projection": 8,
+      "broken-link": 2,
+      "dated-claim": 1,
+      "invalid-example": 6,
+      "link-not-restate": 1,
+      "orphaned-text": 3,
+      "right-audience": 1
+    }
+  },
+  "#877 api/architecture + #880 guides": {
+    "by_anchor_kind": {
+      "audience_rule": 18,
+      "claims_rule": 35,
+      "fact": 22,
+      "literal": 0,
+      "style_rule": 67,
+      "symbol": 26,
+      "task": 0
+    },
+    "by_category": {
+      "audience": 18,
+      "code_contradiction": 26,
+      "fact_drift": 22,
+      "honest_claims": 35,
+      "style": 67,
+      "uncovered_fact": 0
+    },
+    "findings": 168,
+    "needs_decision": 5,
+    "rule_ids": {
+      "D12-absolute": 16,
+      "D12-comparison": 6,
+      "D12-projection": 13,
+      "dated-claim": 6,
+      "imprecise-limit": 2,
+      "invalid-example": 31,
+      "link-not-restate": 16,
+      "missing-prerequisite": 8,
+      "orphaned-text": 20,
+      "right-audience": 2
+    }
+  },
+  "_all_rule_ids_used": {
+    "D12-absolute": 43,
+    "D12-comparison": 15,
+    "D12-measurement": 2,
+    "D12-number": 2,
+    "D12-projection": 22,
+    "D12-volatile": 3,
+    "broken-link": 5,
+    "claude-directs": 1,
+    "contradictory-directive": 2,
+    "dated-claim": 14,
+    "duplicated-prose": 3,
+    "duplication": 1,
+    "human-explains": 2,
+    "imprecise-limit": 2,
+    "invalid-example": 60,
+    "link-not-restate": 34,
+    "missing-prerequisite": 23,
+    "orphaned-text": 31,
+    "restated-code": 12,
+    "restated-example": 1,
+    "right-audience": 4
+  },
+  "v2.2.0 pre-release check (#1018 line)": {
+    "by_anchor_kind": {
+      "audience_rule": 6,
+      "claims_rule": 24,
+      "fact": 13,
+      "literal": 0,
+      "style_rule": 58,
+      "symbol": 19,
+      "task": 0
+    },
+    "by_category": {
+      "audience": 6,
+      "code_contradiction": 19,
+      "fact_drift": 13,
+      "honest_claims": 24,
+      "style": 58,
+      "uncovered_fact": 0
+    },
+    "findings": 120,
+    "needs_decision": 3,
+    "rule_ids": {
+      "D12-absolute": 15,
+      "D12-comparison": 2,
+      "D12-measurement": 2,
+      "D12-number": 2,
+      "D12-volatile": 3,
+      "broken-link": 3,
+      "contradictory-directive": 2,
+      "dated-claim": 5,
+      "duplicated-prose": 3,
+      "human-explains": 2,
+      "invalid-example": 16,
+      "link-not-restate": 1,
+      "missing-prerequisite": 12,
+      "orphaned-text": 7,
+      "restated-code": 12,
+      "right-audience": 1
+    }
+  }
+}

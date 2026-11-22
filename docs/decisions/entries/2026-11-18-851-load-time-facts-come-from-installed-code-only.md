@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "Load-time facts come from the installed code only, never from repo files; CI imports a built wheel outside the repo (#851)"
 issues: [851, 827, 837]
 anchors: ["pyeye.docs_facts.describe.load_time_facts", "pyeye.docs_facts.extractors.edges.extract_code", "pyeye.docs_facts.extractors.scopes.extract_code", "tests/test_docs_facts_describe.py", ".github/workflows/ci.yml"]
-status: "active"
+status: "amended"
 amends: ["2026-11-17-827-tool-descriptions-fill-fact-slots-from-load-time-extractors.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1098-the-server-describes-its-live-code-docs-facts-reads-the-source.md"]
 superseded_by: []
 ---
 

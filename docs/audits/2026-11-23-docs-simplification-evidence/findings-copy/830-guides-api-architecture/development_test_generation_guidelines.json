@@ -1,0 +1,38 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "problem": "The 'correct' example puts a first-party import before the stdlib `import importlib`, which ruff's isort rule (I001, selected in pyproject) rejects.",
+    "replacement": "import importlib\n\nfrom pyeye.module import Class\n\ncli_module = importlib.import_module('cli')",
+    "section": "2-import-order-e402",
+    "subject": "from pyeye.module import Class\nimport importlib\n\ncli_module"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "problem": "CommonThresholds has no SYMBOL_SEARCH_P95 member (tests/utils/performance.py), so the 'correct' example raises AttributeError. It also uses `time` and `start` without importing or setting them.",
+    "replacement": "import time\n\nfrom tests.utils.performance import CommonThresholds, assert_performance_threshold\n\nstart = time.perf_counter()\n...  # the operation\nelapsed_ms = (time.perf_counter() - start) * 1000\nassert_performance_threshold(elapsed_ms, CommonThresholds.GOTO_DEFINITION_P95, \"Goto definition\")",
+    "section": "3-performance-testing",
+    "subject": "CommonThresholds.SYMBOL_SEARCH_P95"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "problem": "scripts/validate_test_code.py doesn't exist, so the command fails.",
+    "replacement": "Delete the Validation Script Usage section. Import order and unused arguments are caught by ruff in pre-commit (`uv run ruff check tests/`), and naive timing assertions are covered by the PerformanceThresholds guidance above.",
+    "section": "validation-script-usage",
+    "subject": "python scripts/validate_test_code.py tests/"
+  }
+]

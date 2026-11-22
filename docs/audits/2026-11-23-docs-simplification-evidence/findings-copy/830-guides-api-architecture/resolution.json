@@ -1,0 +1,66 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/resolution.md",
+    "problem": "Line 56-57: 'Canonical means definition site ... and every tool reports that handle' has no exception, but the resolver deliberately names a public stdlib class defined in a private module by its public re-exporting module (collections.abc.Mapping, not _collections_abc.Mapping): pyeye._stdlib_static module docstring calls this 'a narrow exception to re-exports collapse to the definition site' (#544); resolver._external returns private.handle.",
+    "replacement": "**Canonical means definition site.** `pkg.Thing` re-exported from `pkg._impl` resolves to `pkg._impl.Thing`, and every tool reports that handle. The one exception is the standard library's private-module pattern: a public stdlib class defined in a private module that exactly one public module re-exports keeps its public name (`collections.abc.Mapping`, not `_collections_abc.Mapping`), because that is the name user code imports (#544).",
+    "section": "one-canonical-handle-resolver"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/resolution.md",
+    "problem": "Lines 13-15 say who subclasses X, who imports a module, and what a package or class contains 'are read from the Python AST and are never re-derived through Jedi'. The members edge enumerates through Jedi Script.get_names (pyeye.mcp.operations.edges._class_members / _module_members), and the page's own bullet (line 20-22) says subclasses falls back to Jedi goto for about 7% of bases on Django. 'never' overstates the guarantee.",
+    "replacement": "Who subclasses `X`, who imports this module, what a relative import names, what a package or class contains. These are answered from what is written in the source, not from Jedi's type inference, which would add only non-determinism. Where an edge needs Jedi, it says so and the fallback is measured (the `subclasses` bullet below).",
+    "section": "1-structural-facts-that-are-literally-in-the-source-ast-is-the-ground-truth"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/resolution.md",
+    "problem": "Line 129 says 'Every primitive returns one not-found shape'. trace is a primitive with no top-level not-found; it reports misses in unresolved_roots (pyeye.mcp.operations.not_found module docstring: 'trace has no top-level not-found').",
+    "replacement": "Every primitive except `trace` returns one not-found shape, `{found: false, <lookup echo>, reason, detail}`, with `reason` drawn from a closed per-operation set and `detail` naming the next step (#626). `trace` has no top-level miss: it lists roots it couldn't resolve in `unresolved_roots`.",
+    "section": "saying-i-dont-know-honestly"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "two new extractors; the ordered lists need a stable source in code (a table or registry rather than docstring prose)",
+        "text": "Add docs_facts extractors for the resolver strategy order and the resolve_name policy, bind them here in fact blocks, and keep only the why around them."
+      },
+      {
+        "cost": "readers lose the step-by-step chain on this page",
+        "text": "Cut both lists to the concepts (project before external, inference only outside the project, an exact top-level module wins, members only as a fallback) and link the decision entries and pyeye.resolver for the exact order."
+      },
+      {
+        "cost": "breaks C15 and will drift again",
+        "text": "Keep the hand-written lists and correct them."
+      }
+    ],
+    "page": "docs/architecture/resolution.md",
+    "problem": "The strategy chain (lines 59-80) and the bare-name policy (section bare-names, lines 90-108) restate, step by step, the docstrings of pyeye.resolver (module docstring, resolve_name, _external). The copy has already drifted: it omits the static private-stdlib step and renumbers the rest. Under C15 these behaviour statements must be bound or linked, not hand-written.",
+    "question": "How should the page carry the resolver's strategy order and bare-name policy?",
+    "recommendation_anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "recommended": 0,
+    "section": "one-canonical-handle-resolver"
+  }
+]
