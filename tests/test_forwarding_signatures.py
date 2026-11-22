@@ -149,10 +149,16 @@ class TestTheDuplicateNameGuard:
 
         assert inspect_module._build_signature(name) is None
 
-    def test_jedi_dropping_an_implicit_first_parameter_is_kept(
+    def test_a_rendering_missing_a_declared_parameter_falls_back(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Jedi renders a classmethod without ``cls``: not a forwarding guess."""
+        """A rendering without the declared ``cls`` is replaced by the declared one.
+
+        pyeye never gets such a rendering today: Jedi gives a classmethod's
+        ``def`` no signature at all on every path (#1128 renders it from the
+        source, ``cls`` shown). If Jedi ever did drop ``cls``, the declared
+        signature, with ``cls``, is what's shown, consistent with #1128.
+        """
         name = SimpleNamespace(
             name="make",
             module_path="/x/mod.py",
@@ -161,8 +167,11 @@ class TestTheDuplicateNameGuard:
         )
         monkeypatch.setattr(inspect_module, "_restricted_signature", lambda _s: False)
         monkeypatch.setattr(inspect_module, "_declared_parameter_names", lambda _n: ["cls", "a"])
+        monkeypatch.setattr(
+            inspect_module, "_signature_from_source_ast", lambda _n: "make(cls, a: int = 1)"
+        )
 
-        assert inspect_module._build_signature(name) == "make(a: int=1)"
+        assert inspect_module._build_signature(name) == "make(cls, a: int = 1)"
 
     def test_distinct_names_with_no_source_are_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         name = SimpleNamespace(

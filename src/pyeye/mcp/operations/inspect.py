@@ -360,9 +360,8 @@ def _build_signature(jedi_name: Any) -> str | None:
 
     Forwarding (#1125): for ``def f(self, *args, **kwargs)`` that forwards
     them, Jedi renders the callee's parameters. Its rendering is kept only
-    when its parameter names are the declared ones (allowing Jedi to drop a
-    classmethod's implicit first parameter); otherwise the declared signature
-    comes from the AST. A rendering with a duplicated parameter name is never
+    when its parameter names are the declared ones, in order; otherwise the
+    declared signature comes from the AST. A rendering with a duplicated parameter name is never
     returned: without source to fall back to, the signature is omitted.
 
     Args:
@@ -397,7 +396,7 @@ def _build_signature(jedi_name: Any) -> str | None:
             # the AST, and a rendering with a duplicated name is never shown.
             rendered = [str(getattr(param, "name", "")) for param in sigs[0].params]
             declared = _declared_parameter_names(jedi_name)
-            if declared is not None and rendered not in (declared, declared[1:]):
+            if declared is not None and rendered != declared:
                 ast_sig = _signature_from_source_ast(jedi_name)
                 if ast_sig is not None:
                     return ast_sig

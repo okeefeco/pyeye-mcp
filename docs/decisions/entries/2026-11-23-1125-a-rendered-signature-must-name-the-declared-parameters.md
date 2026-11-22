@@ -1,7 +1,7 @@
 ---
 date: "2026-11-23"
 title: "A Jedi signature is shown only when its parameter names are the declared ones (#1125)"
-issues: [1125, 437, 999, 1088, 1128]
+issues: [1125, 437, 999, 1088, 1106, 1128]
 anchors: ["pyeye.mcp.operations.inspect._build_signature", "pyeye.mcp.operations.inspect._declared_parameter_names", "pyeye.mcp.operations.inspect._signature_from_source_ast", "tests/test_forwarding_signatures.py"]
 status: "active"
 amends: []
@@ -16,9 +16,15 @@ superseded_by: []
 
 **Decision:** assigned by coordinator-3 (2026-11-23), which ruled it a contract rule for signatures.
 
-- **The rule:** a signature pyeye shows must match the source. Jedi's rendering is kept only when its parameter names, in order, equal the names the `def` declares (positional-only, regular, `*args`, keyword-only, `**kwargs`; `_declared_parameter_names`). The one tolerance: Jedi drops a classmethod's implicit first parameter, so the declared names minus their first also pass. Otherwise the declared signature is rendered from the AST (`_signature_from_source_ast`, #437's fallback).
+- **The rule:** a signature pyeye shows must match the source. Jedi's rendering is kept only when its parameter names, in order, equal the names the `def` declares (positional-only, regular, `*args`, keyword-only, `**kwargs`; `_declared_parameter_names`). Nothing is tolerated: a classmethod rendered without `cls` would fall back too, showing `cls` as #1128 does. Jedi gives a classmethod's `def` no signature on every pyeye path (`inspect`, `outline`, `members`), so no such tolerance is reachable. Otherwise the declared signature is rendered from the AST (`_signature_from_source_ast`, #437's fallback).
 - **Never invalid:** a rendering with a duplicated parameter name is never shown. Without source to fall back to (a builtin, a C extension), the signature is omitted, never an invalid one.
-- **Order:** #999's restricted-signature filter first; then #437's wrapper-name check; then this. #1088's overloaded-function signature (the implementation's) is applied after `_build_signature` and is unaffected.
+- **Order** in `_build_signature`:
+  1. #1106's branch (#1123): a `def` that Jedi infers as its `TYPE_CHECKING`-only declaration has no signatures, so it's rendered from the AST.
+  2. #999's restricted-signature filter.
+  3. #437's wrapper-name check.
+  4. This rule.
+
+  #1088's overloaded-function signature (the implementation's) is applied after `_build_signature` and is unaffected.
 - **Unchanged:** a plain `def` keeps Jedi's formatting (`a: int=1`), as do staticmethods. Most signatures don't move.
 - **Not here:** forwarding knowledge as a separately labelled hint (the issue allows it, but nothing needs it yet). Also #1128: a `@classmethod` gets no signature at all, pre-existing and separate.
 
@@ -32,4 +38,4 @@ superseded_by: []
 
 - **forwarders show their declared signatures** in `inspect` and `outline`: a method forwarding to a method (the issue's invalid case), a partial forwarder, a function forwarder;
 - **unchanged:** a plain function and a staticmethod keep Jedi's rendering, and the forwarded-to callee is unaffected;
-- **the guard:** a duplicated name with no source is omitted; distinct names with no source are kept; Jedi dropping an implicit first parameter is kept.
+- **the guard:** a duplicated name with no source is omitted; distinct names with no source are kept; a rendering missing a declared parameter (`cls`) falls back to the declared signature.
