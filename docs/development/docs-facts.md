@@ -188,6 +188,55 @@ code, add it to `EXTRACTORS` and add tests that compare its output with the code
 another way (see `tests/test_docs_facts_extractors.py`). An extractor that can no longer
 read its source fails loudly instead of yielding nothing.
 
+## Running it on another repository
+
+`scripts/docs_facts.py --root <repo>` runs on any Python repository that declares
+what to check in `[tool.pyeye.docs_facts]` in its `pyproject.toml`, or under
+`"docs_facts"` in its `.pyeye.json` (which wins). Only the repository's own files are
+read for this config, never the user's global pyeye config. A repository with neither
+has nothing to check, and the command says so (#1091).
+
+The config is data only. docs-facts never imports or runs the analysed repository's
+code: facts come from kinds built into pyeye, which read files.
+
+```toml
+[tool.pyeye.docs_facts]
+changelog = "CHANGELOG.md"        # optional: read for the current release
+
+[[tool.pyeye.docs_facts.facts]]
+id = "settings.concurrent_requests"
+from = "literal"                  # a module-level constant, folded from the source
+file = "app/settings.py"
+name = "CONCURRENT_REQUESTS"
+
+[[tool.pyeye.docs_facts.facts]]
+id = "project.requires_python"
+from = "toml"                     # or "json" / "yaml": a dotted key path
+file = "pyproject.toml"
+key = "project.requires-python"
+
+[[tool.pyeye.docs_facts.docs]]
+path = "docs/architecture.md"
+audience = "human"                # human, claude or both
+kind = "prose"                    # how the checks treat the page
+```
+
+- **`facts`** reads a value from a file. `literal` folds a Python constant
+  (literals, names bound in the same file, f-strings and set or string operators);
+  it never follows the file's imports. `toml`, `json` and `yaml` read a dotted key
+  path; YAML is read with `yaml.safe_load` only. A fact's ID is `prefix.name`.
+- **`extractors`** names other built-in kinds with their options:
+  `[[tool.pyeye.docs_facts.extractors]]`, with `kind = "<name>"` and the kind's
+  options.
+- **`docs`** is the doc registry, written as tables. **`rules`** is `"all"` (the
+  default) or a list of rule IDs. A rule whose facts the repository doesn't have,
+  such as pyeye's own edge rules, is skipped and reported, never run.
+- **`paths`** moves the records (`snapshot`, `removed`, `uncovered`,
+  `review_state`) from their default `docs/facts/` files.
+
+Anything that names code to import, such as a `package.module:attr` value, is
+refused, as are unknown keys, kinds and rules, and files outside the repository.
+
 ## The docs site
 
 The same Markdown is published to [GitHub Pages](https://okeefeco.github.io/pyeye-mcp/)
