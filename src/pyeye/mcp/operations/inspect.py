@@ -93,7 +93,7 @@ from pyeye.mcp.operations.not_found import not_found
 from pyeye.mcp.operations.typeref import build_typeref
 from pyeye.overloads import overload_set
 from pyeye.project_layout import file_for_module, mark_stub, module_name_for_file, package_kind
-from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle
+from pyeye.resolver import NotFound, in_restricted_dir, resolve_handle, shadowed_by_type_only
 
 if TYPE_CHECKING:
     from pyeye.analyzers.jedi_analyzer import JediAnalyzer
@@ -344,11 +344,11 @@ def _build_signature(jedi_name: Any) -> str | None:
         # A signature Jedi infers from a definition in a restricted directory (an
         # inherited __init__, an alias of a function there) isn't shown (#999).
         raw = jedi_name.get_signatures()
-        if not raw and getattr(jedi_name, "type", None) == "function":
-            # A ``def`` Jedi infers as something else has no signature of its
-            # own: a TYPE_CHECKING-only declaration of the same name shadows it
-            # (``parse: CallbackT`` beside ``def parse``, #1106). The def as
-            # written is its signature, as for a decorator's wrapper (#437).
+        if not raw and shadowed_by_type_only(jedi_name):
+            # Jedi infers this ``def`` as the TYPE_CHECKING-only declaration of
+            # the same name (``parse: CallbackT`` beside ``def parse``, #1106),
+            # so it has no signature of its own. The def as written is its
+            # signature, as for a decorator's wrapper (#437).
             return _signature_from_source_ast(jedi_name)
         sigs = [s for s in raw if not _restricted_signature(s)]
         if sigs:

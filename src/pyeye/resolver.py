@@ -1587,6 +1587,36 @@ def prefer_runtime_bindings(names: list[Any], mod_file: Path | None = None) -> l
     return runtime if runtime else names
 
 
+def shadowed_by_type_only(name: Any) -> bool:
+    """Whether a TYPE_CHECKING-only binding in *name*'s scope shares its name (#1106).
+
+    *name* is a runtime binding (``def parse``) whose scope also declares the
+    name in a branch only a type checker takes (``parse: CallbackT``). Jedi
+    infers such a ``def`` as the declaration's type, so it has no signature of
+    its own. ``False`` when the file can't be read or parsed.
+    """
+    module_path = getattr(name, "module_path", None)
+    line = getattr(name, "line", None)
+    ident = getattr(name, "name", None)
+    if module_path is None or not line or not ident:
+        return False
+    try:
+        tree = file_artifact_cache.get_ast(Path(module_path))
+    except (SyntaxError, ValueError, OSError):
+        return False
+    type_only = type_only_lines(tree)
+    if not type_only or line in type_only:
+        return False
+    scopes = (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+    for scope in ast.walk(tree):
+        if not isinstance(scope, scopes):
+            continue
+        bound = bound_in(scope)
+        if (ident, line) in bound:
+            return any(n == ident and at in type_only for n, at in bound)
+    return False
+
+
 def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:
     """The implementation among *matches*, when the others are its ``@overload`` stubs (#1088).
 

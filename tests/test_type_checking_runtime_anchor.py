@@ -24,7 +24,7 @@ from pyeye.mcp.operations.expand import expand
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
 from pyeye.mcp.operations.resolve import resolve, resolve_at
-from pyeye.resolver import prefer_runtime_bindings
+from pyeye.resolver import prefer_runtime_bindings, shadowed_by_type_only
 
 _SPIDER = '''\
 import typing
@@ -272,3 +272,55 @@ class TestPreferRuntimeBindings:
         names = [_Name(path, 2), _Name(path, 3)]
 
         assert prefer_runtime_bindings(names) == names
+
+
+class TestAnyRuntimeBindingWins:
+    """#1106 ruling (i): not only a ``def``/``class``; a runtime placeholder wins too."""
+
+    @pytest.mark.asyncio
+    async def test_an_import_under_the_guard_anchors_on_the_placeholder(
+        self, tmp_path: Path
+    ) -> None:
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text(
+            "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
+            "    from .thing import A\nelse:\n    A = object\n",
+            encoding="utf-8",
+        )
+        (pkg / "thing.py").write_text("class A:\n    pass\n", encoding="utf-8")
+
+        result = await resolve("pkg.A", JediAnalyzer(str(tmp_path)))
+
+        assert (result["handle"], result["kind"]) == ("pkg.A", "variable"), result
+        assert _start(result) == 6
+
+
+class TestShadowedByTypeOnly:
+    def test_a_runtime_def_beside_a_declaration(self, guarded_def: Path) -> None:
+        assert shadowed_by_type_only(_Named(guarded_def, 6, "parse")) is True
+
+    def test_the_declaration_itself_and_a_plain_def(self, guarded_def: Path) -> None:
+        assert shadowed_by_type_only(_Named(guarded_def, 4, "parse")) is False
+        assert shadowed_by_type_only(_Named(guarded_def, 8, "other")) is False
+
+    @pytest.fixture
+    def guarded_def(self, tmp_path: Path) -> Path:
+        path = tmp_path / "m.py"
+        path.write_text(
+            "from typing import TYPE_CHECKING\n"
+            "class S:\n"
+            "    if TYPE_CHECKING:\n"
+            "        parse: int\n"
+            "    else:\n"
+            "        def parse(self): ...\n"
+            "\n"
+            "    def other(self): ...\n"
+        )
+        return path
+
+
+class _Named(_Name):
+    def __init__(self, module_path: Path, line: int, name: str) -> None:
+        super().__init__(module_path, line)
+        self.name = name
