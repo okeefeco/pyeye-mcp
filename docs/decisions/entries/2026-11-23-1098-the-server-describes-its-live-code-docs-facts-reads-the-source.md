@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "The server describes the code it runs; docs-facts reads the source; a test holds them equal (#1098 Q1, Q2)"
 issues: [1098, 851, 827, 856]
 anchors: ["pyeye.docs_facts.describe.live_facts", "pyeye.docs_facts.extractors.edges.registry_facts", "pyeye.docs_facts.extractors.scopes.scope_facts", "pyeye.validation._RESTRICTED_ANCESTORS", "pyeye.validation.restricted_ancestors", "tests/test_docs_facts_describe.py", "tests/test_docs_facts_static.py", "tests/test_final_form_path_checks.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-23-1098-docs-facts-reads-pyeyes-facts-from-source.md", "2026-11-18-851-load-time-facts-come-from-installed-code-only.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1120-each-fact-family-names-a-completeness-signal.md"]
 superseded_by: []
 ---
 

@@ -8,7 +8,6 @@ same facts from the imported registry through :func:`registry_facts`.
 
 from __future__ import annotations
 
-import ast
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -17,39 +16,6 @@ from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, text, view
 
 PREFIXES = ("edge", "edges", "ceiling", "ceilings", "determinism")
-
-#: The response linter holds the set of edges ``inspect``'s ``edge_counts`` must
-#: never show; the live-response check and the docs rule read the same set (#396).
-LINTER = "tests/conformance/response_linter.py"
-_UNMEASURED = "_PHASE4_UNMEASURED_EDGES"
-
-
-def inspect_unmeasured(root: Path) -> list[str]:
-    """The edges ``inspect`` doesn't measure, read from the linter's source.
-
-    Parsed, not imported: ``tests`` isn't an installed package.
-
-    Raises:
-        ValueError: If the linter no longer assigns the set as a literal.
-    """
-    tree = ast.parse((root / LINTER).read_text(encoding="utf-8"))
-    for node in tree.body:
-        target: ast.expr | None = None
-        if isinstance(node, ast.AnnAssign):
-            target = node.target
-        elif isinstance(node, ast.Assign) and len(node.targets) == 1:
-            target = node.targets[0]
-        value = getattr(node, "value", None)
-        if not (isinstance(target, ast.Name) and target.id == _UNMEASURED):
-            continue
-        if isinstance(value, ast.Call) and len(value.args) == 1:
-            value = value.args[0]
-        try:
-            return sorted(ast.literal_eval(value))  # type: ignore[arg-type]
-        except ValueError:
-            break
-    raise ValueError(f"{LINTER} no longer assigns {_UNMEASURED} as a literal set")
-
 
 _REGISTRY = "pyeye.mcp.operations.edges"
 
@@ -88,8 +54,6 @@ def extract(root: Path) -> Iterator[Bindable]:
     Read from the source, never imported (#1098, C19).
     """
     yield from registry_facts(_StaticRegistry(root))
-    unmeasured = inspect_unmeasured(root)
-    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
 
 
 def registry_facts(reg: Any) -> Iterator[Bindable]:
@@ -174,3 +138,8 @@ def registry_facts(reg: Any) -> Iterator[Bindable]:
             ],
         ),
     )
+
+    # The edges ``inspect``'s ``edge_counts`` must never show. The response
+    # linter checks live responses against the same set (#396, #1120).
+    unmeasured = sorted(reg.INSPECT_UNMEASURED_EDGES)
+    yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
