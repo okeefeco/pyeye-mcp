@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from pyeye.config import ProjectConfig
 from tests.test_helpers import assert_path_equal, assert_path_in_list
 
@@ -49,8 +47,11 @@ class TestProjectConfig:
         assert config.config["cache_ttl"] == 600
 
     def test_load_pyeye_yaml_config(self, temp_project_dir):
-        """Test loading configuration from .pyeye.yaml file."""
-        pytest.importorskip("yaml")  # Skip if PyYAML not installed
+        """Test loading configuration from .pyeye.yaml file.
+
+        No importorskip: PyYAML is a runtime dependency (#1094), so a missing
+        one must fail here, not skip.
+        """
 
         yaml_content = """pyeye:
   packages:

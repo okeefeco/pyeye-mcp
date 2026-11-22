@@ -31,6 +31,9 @@ dependencies = [
     "aiofiles>=24.0.0",
     "filelock>=4.2.1",  # Cross-platform file locking for atomic operations
     "psutil>=6.0.0",  # System and process metrics
+    # Loads .pyeye.yaml / .pyeye.yml project config (#1094). It used to arrive
+    # only through dev tools, so user installs couldn't read a YAML config.
+    "pyyaml>=6.0",
 ]
 
 # Dev dependencies are PEP 735 dependency-groups, NOT extras (#414):

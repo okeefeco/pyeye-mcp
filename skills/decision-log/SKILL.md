@@ -72,7 +72,7 @@ Keep each field to a line or two. A 6-line entry that gets written beats a 40-li
 - **List the sites by stable reference** (symbol names, a registry, a module set), never `file:line`. If they are better found by a query than a list, give the query, e.g. `every function that builds a jedi.Script(code=...)`.
 - **Name the sites the change did NOT touch.** Writing an `Applies-to` broader than `Anchor` is the point. Say plainly which sites still diverge and link their issue, rather than implying full coverage.
 - **Opt out explicitly** when the decision governs no code site (a policy or process decision): write `Applies-to: none (<why>)`, e.g. `none (policy decision: release classification)`. A bare `none`, `n/a`, `TBD` or an empty value is rejected. Better still, name the test or script that enforces the policy, if there is one.
-- **Old entries are grandfathered.** Entries written before the rule may lack `Applies-to`; don't backfill them just to add it. If the repo has `scripts/decisions.py`, its `check` fails a new entry without one and keeps the grandfathered names in `APPLIES_TO_GRANDFATHERED`, a list that only shrinks: when you give an old entry `Applies-to`, delete its name there.
+- **Old entries are grandfathered.** Entries written before the rule may lack `Applies-to`; don't backfill them just to add it. `check` fails any entry without one unless it is grandfathered: pass each old file with `--grandfathered NAME` (repeatable), or keep the names in a repo wrapper that calls the module. The list only shrinks: when you give an old entry `Applies-to`, delete its name.
 - **A list on the following lines counts.** The value runs from the label to the next `**Field:**` line.
 
 **Prefer a Verify that sweeps the `Applies-to` sites over one that samples a single case.** A gold Verify that checks one handle, one primitive or one call site passes while the other sites drift. Prefer one that enumerates the sites, such as a parametrised test over every primitive, an AST scan of `src/` or a loop over a registry. When only a sample is checkable, label it `partial` and name the unswept sites as the residue.
@@ -94,7 +94,21 @@ The `Verify` line is the bridge to the trust layer. It MUST be one of three hone
 
 **One file per decision**, with no committed index, so two PRs never edit the same lines.
 
-- **Before drafting, read what already exists.** If the repo has `scripts/decisions.py`, run `python scripts/decisions.py index --active` (optionally `--symbol <name>` or `--issue <N>`) and open the one to three entries that matter. If it doesn't, list `docs/decisions/entries/`. The new decision may amend or supersede one of them.
+**The tooling ships with pyeye** (#1093): `python -m pyeye.decisions index`, `check`
+and `migrate`. Run it from the project root; it reads `docs/decisions/` there.
+Where pyeye was installed as a Claude Code plugin, run it through the plugin's
+environment:
+
+```bash
+UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
+  uv run --project "${CLAUDE_PLUGIN_ROOT}" --no-sync --frozen \
+  python -m pyeye.decisions index --active
+```
+
+Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.decisions …`.
+A repo with no `docs/decisions/` yet gets "no entries", not an error.
+
+- **Before drafting, read what already exists.** Run `python -m pyeye.decisions index --active` (optionally `--symbol <name>` or `--issue <N>`) and open the one to three entries that matter. The new decision may amend or supersede one of them.
 - **Location:** `docs/decisions/entries/YYYY-MM-DD-<issue>-<slug>.md`, or `YYYY-MM-DD-<slug>.md` when there's no issue. Use the date the decision was made, the issue it belongs to, and a short lowercase hyphenated slug of the title. Create the directory if absent.
 - One file per *distinct* decision (not per commit; one commit may yield zero or one).
 - **Front matter**, then the entry. Each front-matter value is a JSON literal on one line:
@@ -124,7 +138,7 @@ superseded_by: []
 - `title` and `date` match the `##` heading exactly.
 - `anchors` lists the governed symbols, the same stable references as the `Anchor` and `Applies-to` lines. It is what `index --symbol` searches.
 - **Amending or superseding** an earlier decision: list the old file in the new entry's `amends` / `supersedes`, add the new file to the old entry's `amended_by` / `superseded_by`, and set the old entry's `status` to `amended` or `superseded`. That front matter is the only edit ever made to an existing entry; its body stays as written.
-- **After writing:** if the repo has `scripts/decisions.py`, run `python scripts/decisions.py check`. It must pass.
+- **After writing:** run `python -m pyeye.decisions check`. It must pass. It validates the front matter, the file name, `Applies-to`, and that every amend/supersede link has its reverse.
 - If `docs/decisions/DECISIONS.md` doesn't exist, create it as a short static header that explains the format and how to list entries. It is never edited per decision.
 
 ## Workflow

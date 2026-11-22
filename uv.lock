@@ -1692,6 +1692,7 @@ dependencies = [
     { name = "jedi" },
     { name = "mcp", extra = ["cli"] },
     { name = "psutil" },
+    { name = "pyyaml" },
     { name = "watchdog" },
 ]
 
@@ -1730,6 +1731,7 @@ requires-dist = [
     { name = "jedi", specifier = ">=0.19.0" },
     { name = "mcp", extras = ["cli"], specifier = ">=2.3.0,<3" },
     { name = "psutil", specifier = ">=6.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "watchdog", specifier = ">=3.0.0,<7" },
 ]
 
