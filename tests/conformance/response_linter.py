@@ -43,7 +43,11 @@ B.6 ``deprecation`` (#1082) on ``inspect`` — only on a ``function``, ``method`
     or ``class`` node, and when present a list (never null): ``[]`` = checked,
     no evidence. Each entry is exactly ``{"kind", "via", "line"}`` with kind in
     {``unconditional``, ``conditional``}, via in {``decorator``, ``warn``} and
-    line a plain int >= 1; a ``conditional`` entry is always via ``warn``.
+    line a plain int >= 1. A ``conditional`` entry is via ``warn`` (under a
+    branch) or ``decorator`` (``@deprecated`` on one ``@overload``, #1088).
+B.7 ``overloads`` (#1088) on ``inspect`` — only on a ``function`` or ``method``
+    node, and when present a list (never null; ``[]`` = read, no overloads) of
+    non-empty single-line signature strings.
 B.4 Nullable optional fields — ``re_exports``, ``highlights``, ``tags``,
     ``properties`` may be absent or present-with-typed-value; present-with-None
     is invalid.
@@ -809,6 +813,7 @@ def _check_absence_vs_zero(
             _check_b3_phase4_cross_check(edge_counts, kind, violations)
         _check_b5_unreadable_count(response, edge_counts, violations)
         _check_b6_deprecation(response, violations)
+        _check_b7_overloads(response, violations)
 
 
 def _check_b5_unreadable_count(
@@ -859,6 +864,35 @@ def _check_b6_deprecation(response: dict[str, Any], violations: list[str]) -> No
             violations.append(f"[B.6 deprecation entry] {problem}: {_truncate(entry)}.")
 
 
+#: B.7 (#1088): the node kinds ``overloads`` applies to.
+_OVERLOADS_KINDS = frozenset({"function", "method"})
+
+
+def _check_b7_overloads(response: dict[str, Any], violations: list[str]) -> None:
+    """B.7 (#1088) — placement on function/method, and a list of signature strings."""
+    if "overloads" not in response:
+        return
+    value = response["overloads"]
+    if response.get("kind") not in _OVERLOADS_KINDS:
+        violations.append(
+            f"[B.7 overloads placement] only function and method nodes carry 'overloads'; "
+            f"this node's kind is {response.get('kind')!r}."
+        )
+        return
+    if not isinstance(value, list):
+        violations.append(
+            f"[B.7 overloads type] must be a list ([] = read, no overloads; absent = not "
+            f"read), never null; got {_truncate(value)}."
+        )
+        return
+    for item in value:
+        if not isinstance(item, str) or not item.strip() or "\n" in item:
+            violations.append(
+                f"[B.7 overloads entry] each is a non-empty single-line signature string: "
+                f"{_truncate(item)}."
+            )
+
+
 def _deprecation_entry_problem(entry: Any) -> str | None:
     """What is wrong with one B.6 entry, or ``None``."""
     if not isinstance(entry, dict) or set(entry) != {"kind", "via", "line"}:
@@ -867,8 +901,6 @@ def _deprecation_entry_problem(entry: Any) -> str | None:
         return f"kind must be one of {sorted(_DEPRECATION_ENTRY_KINDS)}"
     if entry["via"] not in _DEPRECATION_VIA:
         return f"via must be one of {sorted(_DEPRECATION_VIA)}"
-    if entry["kind"] == "conditional" and entry["via"] != "warn":
-        return "a conditional entry is always via 'warn'"
     if not _is_plain_int(entry["line"]) or entry["line"] < 1:
         return "line must be a plain int >= 1"
     return None

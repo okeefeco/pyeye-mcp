@@ -317,8 +317,10 @@ optional fields (absent means not measured).
 `inspect`'s `deprecation` (functions, methods, classes) follows the same rule: `[]`
 means pyeye read the definition and found no deprecation evidence, and an absent key
 means it couldn't read it. Only an entry with `kind: "unconditional"` says the symbol
-is deprecated; a `"conditional"` entry is a deprecation warning under a branch, which
-usually deprecates one argument or path. The evidence is static: a warning raised
+is deprecated; a `"conditional"` entry is a deprecation warning under a branch, or a
+`@deprecated` on one `@overload`, which deprecates one argument, path or call form.
+`overloads` works the same way for functions and methods: the `@overload` signatures
+(callers see these), while `signature` is the implementation's (what runs). The evidence is static: a warning raised
 through a helper function isn't seen.
 
 When you read `edge_counts`, a **missing key means "not measured," not "zero."** A

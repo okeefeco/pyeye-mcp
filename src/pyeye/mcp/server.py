@@ -1047,13 +1047,21 @@ async def inspect(
         - class: signature (constructor), superclasses (list of Handle strings;
           omitted when the class's file can't be parsed, never a measured ``[]``)
         - function/method: signature, parameters, return_type?, is_async, is_classmethod, is_staticmethod
+        - function/method: ``overloads``, the signatures of its ``@overload``
+          declarations in source order (#1088). An overloaded function's
+          ``signature``/``parameters``/``return_type`` are its implementation's
+          (the ``def`` without ``@overload``, which runs); with only overloads (a
+          ``.pyi``, a Protocol), the first overload's. ``[]`` means read and not
+          overloaded; absent means its definition couldn't be read.
         - function/method/class: ``deprecation``, the static evidence that it is
           deprecated (#1082): a list of ``{kind, via, line}``. ``kind:
           "unconditional"`` (a ``@deprecated`` decorator, or a
           ``warnings.warn(..., <deprecation category>)`` that runs on every
           call; for a class, in ``__init__``) means it is deprecated;
-          ``"conditional"`` is such a warn under a branch, which usually
-          deprecates one argument or path, NOT the symbol. ``[]`` means checked,
+          ``"conditional"`` is such a warn under a branch, or a ``@deprecated``
+          on one ``@overload`` (#1088), which deprecates one argument, path or
+          call form, NOT the symbol. An overload-only definition (no body to
+          check) has the field only when an overload is deprecated. ``[]`` means checked,
           none found; absent means its definition couldn't be read. Static only:
           a warn in a helper function or a category built at runtime isn't
           seen, and ``FutureWarning`` isn't counted.

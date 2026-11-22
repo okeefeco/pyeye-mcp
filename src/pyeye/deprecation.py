@@ -88,11 +88,9 @@ def evidence(
         ``{"kind", "via", "line"}`` entries; ``[]`` when there are none.
     """
     found: list[dict[str, Any]] = []
-    for decorator in definition.decorator_list:
-        target = decorator.func if isinstance(decorator, ast.Call) else decorator
-        name = dotted_name(target)
-        if name is not None and qualify(name, import_table) in DEPRECATION_DECORATORS:
-            found.append({"kind": "unconditional", "via": "decorator", "line": decorator.lineno})
+    line = decorator_line(definition, import_table)
+    if line is not None:
+        found.append({"kind": "unconditional", "via": "decorator", "line": line})
 
     body = definition.body
     if isinstance(definition, ast.ClassDef):
@@ -103,6 +101,32 @@ def evidence(
         body = init.body if init is not None else []
     _scan(body, True, import_table, is_deprecation_category, found)
     return sorted(found, key=lambda entry: entry["line"])
+
+
+def decorator_line(definition: _Definition, import_table: dict[str, str]) -> int | None:
+    """The line of *definition*'s deprecation decorator, or ``None`` if it has none."""
+    for decorator in definition.decorator_list:
+        target = decorator.func if isinstance(decorator, ast.Call) else decorator
+        name = dotted_name(target)
+        if name is not None and qualify(name, import_table) in DEPRECATION_DECORATORS:
+            return decorator.lineno
+    return None
+
+
+def overload_evidence(
+    overloads: list[ast.FunctionDef | ast.AsyncFunctionDef], import_table: dict[str, str]
+) -> list[dict[str, Any]]:
+    """A ``conditional`` decorator entry for each deprecated ``@overload`` (#1088 ruling).
+
+    A ``@deprecated`` on one overload deprecates that call form, not the
+    function, so it's conditional evidence, like a warn under a branch.
+    """
+    found = []
+    for overload in overloads:
+        line = decorator_line(overload, import_table)
+        if line is not None:
+            found.append({"kind": "conditional", "via": "decorator", "line": line})
+    return found
 
 
 def _scan(

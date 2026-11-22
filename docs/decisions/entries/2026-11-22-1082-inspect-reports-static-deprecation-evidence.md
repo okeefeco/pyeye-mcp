@@ -3,10 +3,10 @@ date: "2026-11-22"
 title: "inspect reports a symbol's deprecation as a list of static evidence; [] when checked and none (#1082)"
 issues: [1082, 1083, 703, 933]
 anchors: ["pyeye.deprecation.evidence", "pyeye.deprecation.DEPRECATION_DECORATORS", "pyeye.mcp.operations.inspect._deprecation_evidence", "pyeye.mcp.operations.inspect._is_deprecation_category", "pyeye._ast_targets.find_class_def_at_line", "tests/test_deprecation_evidence.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-22-1088-overloaded-signature-is-the-implementations-overloads-listed.md"]
 superseded_by: []
 ---
 

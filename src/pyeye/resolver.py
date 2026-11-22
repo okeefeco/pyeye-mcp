@@ -1551,10 +1551,6 @@ def _anchor_on_bindings(matches: list[Any], mod_file: Path, handle: str) -> Any:
     return _anchor_on_definition(last, handle)
 
 
-#: The ``@overload`` decorator, by qualified name (#1088).
-_OVERLOAD_DECORATORS = frozenset({"typing.overload", "typing_extensions.overload"})
-
-
 def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:
     """The implementation among *matches*, when the others are its ``@overload`` stubs (#1088).
 
@@ -1568,8 +1564,8 @@ def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:
     """
     from pyeye._ast_targets import find_function_def_at_line
     from pyeye._module_scope import build_import_table
-    from pyeye.deprecation import dotted_name, qualify
     from pyeye.import_analyzer import resolve_relative_import
+    from pyeye.overloads import is_overload
 
     try:
         tree = file_artifact_cache.get_ast(mod_file)
@@ -1583,11 +1579,7 @@ def _overload_implementation(matches: list[Any], mod_file: Path) -> Any | None:
         definition = find_function_def_at_line(mod_file, match.line or 0)
         if definition is None:
             return None  # not every binding is a def: not an overload set
-        if not any(
-            (name := dotted_name(d.func if isinstance(d, ast.Call) else d)) is not None
-            and qualify(name, table) in _OVERLOAD_DECORATORS
-            for d in definition.decorator_list
-        ):
+        if not is_overload(definition, table):
             plain.append(match)
     return plain[0] if len(plain) == 1 and len(matches) > 1 else None
 
