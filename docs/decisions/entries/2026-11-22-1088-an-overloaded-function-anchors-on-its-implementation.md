@@ -6,7 +6,7 @@ anchors: ["pyeye.resolver._anchor_on_bindings", "pyeye.resolver._overload_implem
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-22-1088-overloaded-signature-is-the-implementations-overloads-listed.md"]
+amended_by: ["2026-11-22-1088-overloaded-signature-is-the-implementations-overloads-listed.md", "2026-11-23-1106-a-runtime-binding-beats-a-type-checking-only-one.md"]
 superseded_by: []
 ---
 
