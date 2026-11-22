@@ -151,7 +151,7 @@ Flag any untracked files that:
 - Are documentation files referenced by code or tests (`docs/`, README sections)
 - Have names referenced in committed test files (cross-check with `grep -rn "<filename>" tests/ src/`)
 
-If any are found, **stage them and commit immediately** with a follow-up commit message like `fix(fixtures): stage <X> referenced by committed tests`. Don't report DONE until `git status` shows only files that genuinely don't belong to this work (modified `.mcp.json`, untracked plan/scratch files, npm artifacts unrelated to the task, etc.).
+If any are found, **stage them and commit immediately** with a follow-up commit message like `fix(fixtures): stage <X> referenced by committed tests`. Don't report DONE until `git status` shows only files that genuinely don't belong to this work (untracked plan/scratch files, npm artifacts unrelated to the task, etc.).
 
 **Why this matters:** local tests pass because the unstaged files exist in the working tree. A fresh clone fails. The gap is silent until the user pushes and someone else (or CI on a fresh checkout) hits the broken state. Confirmed instance 2026-05-04: two fixture files referenced by committed tests sat untracked across multiple commits before being caught.
 
