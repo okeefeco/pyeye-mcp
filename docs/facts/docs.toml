@@ -1,0 +1,399 @@
+# pyeye's doc registry (#1107): every documentation file and how the checks treat it.
+#
+# Each [[doc]] is one file (or, for changes/*.md, a one-level glob): path,
+# audience ("human", "claude" or "both"), kind ("prose", "reference", "skill",
+# "history" or "record"), and optionally site, covers and allow. allow maps a
+# prose-rule ID to the findings the page may still have; it only shrinks.
+# See docs/development/docs-facts.md.
+
+# Repository root
+
+[[doc]]
+path = "README.md"
+audience = "human"
+kind = "prose"
+
+[doc.allow]
+"removed-name" = [
+    "names removed tool 'find_references' beside 'removed'",
+    "names removed tool 'get_call_hierarchy' beside 'removed'",
+    "names removed tool 'analyze_dependencies' beside 'removed'",
+]
+
+[[doc]]
+path = "CONTRIBUTING.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "DOCUMENTATION.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "SECURITY.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "CLAUDE.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = "CHANGELOG.md"
+audience = "human"
+kind = "history"
+
+# Contributor plumbing stays off the site (C16).
+
+[[doc]]
+path = "changes/README.md"
+audience = "human"
+kind = "prose"
+site = false
+
+[[doc]]
+path = "changes/*.md"
+audience = "human"
+kind = "history"
+site = false
+
+[[doc]]
+path = ".github/pull_request_template.md"
+audience = "human"
+kind = "prose"
+site = false
+
+[[doc]]
+path = "benchmarks/BASELINE_RESULTS.md"
+audience = "human"
+kind = "history"
+
+[[doc]]
+path = "plugins/worktree-hook/README.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "scripts/claude_hooks/README.md"
+audience = "human"
+kind = "prose"
+
+# Claude instructions, agents and internal skills
+
+[[doc]]
+path = ".claude/README.md"
+audience = "human"
+kind = "prose"
+site = false
+
+[[doc]]
+path = ".claude/agents/smart-commit.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/agents/smart-commit-examples.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/00-documentation-system.md"
+audience = "both"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/01-core-rules.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/02-session-startup.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/03-mcp-dogfooding.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/04-agent-triggers.md"
+audience = "claude"
+kind = "prose"
+
+[doc.allow]
+"removed-name" = [
+    "names removed tool 'find_references' beside 'removed'",
+    "names removed tool 'get_call_hierarchy' beside 'removed'",
+    "names removed tool 'get_module_info' beside 'removed'",
+]
+
+[[doc]]
+path = ".claude/instructions/05-workflow-issues.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/06-workflow-commits.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/07-validation.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/08-project-specific.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/09-task-management.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/10-cross-platform.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/instructions/11-pr-requirements.md"
+audience = "claude"
+kind = "prose"
+
+[[doc]]
+path = ".claude/skills/docs-review/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = ".claude/skills/docs-review/reviewer.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = ".claude/skills/pyeye-scenarios/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = ".claude/skills/pyeye-scenarios/baselines/*.md"
+audience = "claude"
+kind = "record"
+
+[[doc]]
+path = ".claude/skills/pyeye-verify/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+# Shipped skills
+
+[[doc]]
+path = "skills/python-explore/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+[doc.allow]
+"removed-name" = [
+    "names removed tool 'analyze_dependencies' beside 'removed'",
+    "names removed tool 'find_references' beside 'removed'",
+    "names removed tool 'get_call_hierarchy' beside 'removed'",
+    "names removed tool 'get_call_hierarchy' beside 'removed'",
+    "names removed tool 'analyze_dependencies' beside 'removed'",
+    "names removed tool 'find_references' beside 'removed'",
+]
+
+[[doc]]
+path = "skills/architecture-review/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = "skills/architecture-review/auditor.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = "skills/duplication-review/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+[[doc]]
+path = "skills/decision-log/SKILL.md"
+audience = "claude"
+kind = "skill"
+
+# docs/
+
+[[doc]]
+path = "docs/api-redesign.md"
+audience = "human"
+kind = "history"
+
+[[doc]]
+path = "docs/migration-guide.md"
+audience = "human"
+kind = "history"
+
+[[doc]]
+path = "docs/COVERAGE.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/METRICS_BASELINE.md"
+audience = "human"
+kind = "history"
+
+[[doc]]
+path = "docs/CLAUDE_AGENTS.md"
+audience = "human"
+kind = "prose"
+
+[doc.allow]
+"removed-name" = [
+    "names removed tool 'find_references' beside 'removed'",
+    "names removed tool 'get_call_hierarchy' beside 'removed'",
+    "names removed tool 'get_module_info' beside 'removed'",
+]
+
+[[doc]]
+path = "docs/DOGFOODING_INTEGRATION.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/UNIFIED_METRICS.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/DOGFOODING_SETUP.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/LABELS.md"
+audience = "both"
+kind = "prose"
+
+[[doc]]
+path = "docs/RELEASE.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/TROUBLESHOOTING.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/debugging-connection-drops.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/namespace-packages.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/architecture/resolution.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/architecture/plugin-system.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/architecture/caching.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/api/README.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/api/django-tools.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/api/flask-tools.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/api/pydantic-tools.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/development/docs-facts.md"
+audience = "both"
+kind = "prose"
+
+[[doc]]
+path = "docs/development/duplicate-code-check.md"
+audience = "both"
+kind = "prose"
+
+[[doc]]
+path = "docs/development/test_generation_guidelines.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/testing/CONVENTIONS.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/testing/FIXTURES.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/testing/PERFORMANCE.md"
+audience = "human"
+kind = "prose"
+
+[[doc]]
+path = "docs/testing/STRATEGY.md"
+audience = "human"
+kind = "prose"
+
+# Generated reference pages (scripts/docs_facts.py generate)
+
+[[doc]]
+path = "docs/reference/README.md"
+audience = "both"
+kind = "reference"
+
+[[doc]]
+path = "docs/reference/tools.md"
+audience = "both"
+kind = "reference"
+
+[[doc]]
+path = "docs/reference/edges.md"
+audience = "both"
+kind = "reference"
+
+[[doc]]
+path = "docs/reference/env-vars.md"
+audience = "both"
+kind = "reference"
+
+[[doc]]
+path = "docs/reference/cli.md"
+audience = "both"
+kind = "reference"
