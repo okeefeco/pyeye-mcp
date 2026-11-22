@@ -108,6 +108,16 @@ The maintainer asked whether the design has become over-complex (2026-11-22). C2
 | Task-based scoring (11) | Agent-heavy: three runs per task per audience at each release, on an 8 GB machine | Could a smaller task set, or one run plus a re-run on failure, give the same signal? |
 | Example trim markers (7) | `<omitted>` and `<absent>` validation at every level | Low cost; probably keep |
 
+**Evidence and outcome (2026-11-23, C21).** worker mined usage read-only on `main` at `55e35597`; the record is `docs/audits/2026-11-23-docs-simplification-evidence/`. The maintainer's rulings:
+
+- **Removed-name rules:** keep. The `heading` and `none` levels do real work: a plain word rule would wrongly fail 21 lines.
+- **Dismissals:** frozen. None has ever been committed, so no new dismissal features until there's real use.
+- **Ledger:** keep. Reviews resolved 67 baseline entries by writing prose. Reference-only fact families leave it (C21).
+- **Categories:** keep. The core ones are all busy, and the unused ones are #891's newest, not yet tried.
+- **Scoring:** not built.
+
+The evidence is re-run after the first `/docs-review` release pass (#831), or in about two months, before anything is removed.
+
 ## Decisions taken in the session
 
 | # | Decision | By |
@@ -381,6 +391,12 @@ Ordered so that nothing generation will produce gets hand-fixed:
        - **Detection:** a source change regenerates the block, CI fails on a stale page, and the change triggers a review of that page, all through the existing fact machinery.
     3. **Execution through the existing example machinery (#828).** Runnable commands (a source checkout; a locally built wheel via `uvx --from`) are marked as runnable examples and executed in CI. Steps CI can't run (`/plugin install`) are covered by a "new user installs pyeye" task in the release-time scoring (D6, #831).
   - **Dropped in the simplification** (the maintainer judged them over-built for a handful of routes): routes as a data format with templated steps; a usage-contexts file; dated manual-check records with automatic lapse; and the new review rules `route_incomplete` and `context_flag_mismatch`, which the existing categories already cover.
+- **C21. Rulings on the simplification evidence and on #1091 (maintainer, 2026-11-23).**
+  - **The dismissal machinery is frozen.** No new dismissal features (including the deferred #1057 Q6 count) until dismissals are actually used.
+  - **Reference-only fact families.** A family can be marked reference-only and is then excluded from the uncovered-fact ledger. The first are `precommit.*` and the architecture facts from #1092, which also get their own snapshot file so `facts.json` diffs stay readable.
+  - **A gap to explain:** facts grew from 282 to 289 with no new ledger entries. Either they were covered at once, or the ledger missed them.
+  - **#1091 uses a bridge.** pyeye's own config uses `preset = "pyeye"` (an engine built-in, selected by data) so #1091 can ship. A follow-up moves pyeye's doc registry into a data file loaded by the same inline loader, side by side until the output is byte-identical, then deletes the typed registry and the preset. pyeye then dogfoods the form every repo uses. Until then, a small inline-config fixture repo runs in CI.
+  - **The evidence is kept** as a dated record in `docs/audits/`, and re-run after the first release pass.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
