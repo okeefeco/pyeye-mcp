@@ -526,7 +526,7 @@ class TestEnvNameRule:
 
     def test_a_removed_name_passes_only_beside_removed(self, monkeypatch) -> None:  # type: ignore[no-untyped-def]
         """The hook #826 fills from docs/facts/removed.json."""
-        monkeypatch.setattr(rules, "_removed_names", lambda: frozenset({"PYEYE_OLD"}))
+        monkeypatch.setattr(rules, "_removed_names", lambda _root: frozenset({"PYEYE_OLD"}))
 
         assert rules.env_name_claims("`PYEYE_OLD` was removed in 2.0.", ENV_FACTS) == []
         assert rules.env_name_claims("Set `PYEYE_OLD`.", ENV_FACTS)

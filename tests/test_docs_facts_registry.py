@@ -126,7 +126,7 @@ def tiny_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(docs, "DOCS", (DocEntry("README.md", "human", "prose"),))
     monkeypatch.setattr(docs, "REFERENCE_PAGES", ("ref.md",))
     monkeypatch.setattr(pages, "PAGES", {"ref.md": lambda f: f["x.list"].markdown + "\n"})
-    monkeypatch.setattr(cli.registry, "build", lambda _root: FACTS)
+    monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
     monkeypatch.setattr(cli.rules, "RULES", ())  # tested in test_docs_facts_rules
     return tmp_path
 
@@ -201,7 +201,7 @@ class TestGenerateAndCheck:
     def test_an_extraction_error_fails_main_cleanly(
         self, tiny_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        def disagree(_root: Path) -> None:
+        def disagree(_root: Path, *_extractors: object) -> None:
             raise ci.ExtractionError("ci.yml uses --cov-fail-under [80], pyproject 85")
 
         monkeypatch.setattr(cli.registry, "build", disagree)

@@ -52,10 +52,15 @@ def base_snapshot(root: Path, base: str, snapshot_path: str) -> dict[str, Any] |
     return facts
 
 
-def bound_pages(root: Path, facts: Mapping[str, Bindable]) -> dict[str, list[str]]:
-    """Fact ID -> the registered pages whose blocks show it (a view shows its members)."""
+def bound_pages(
+    root: Path, facts: Mapping[str, Bindable], entries: tuple[docs.DocEntry, ...] | None = None
+) -> dict[str, list[str]]:
+    """Fact ID -> the registered pages whose blocks show it (a view shows its members).
+
+    *entries* is the doc registry (default: pyeye's, #1091).
+    """
     found: dict[str, set[str]] = {}
-    for path, _entry in docs.registered_files(root):
+    for path, _entry in docs.registered_files(root, entries):
         blocks, _problems = binding.parse((root / path).read_text(encoding="utf-8"))
         for fact_id in expand((b.fact_id for b in blocks), facts):
             found.setdefault(fact_id, set()).add(path)
