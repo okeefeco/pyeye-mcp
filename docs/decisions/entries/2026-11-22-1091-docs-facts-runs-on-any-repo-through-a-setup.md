@@ -3,10 +3,10 @@ date: "2026-11-22"
 title: "docs-facts runs on any repository through a Setup; a rule whose facts are absent is skipped and reported (#1091)"
 issues: [1091, 1083, 818, 825, 826]
 anchors: ["pyeye.docs_facts.setup.Setup", "pyeye.docs_facts.setup.pyeye_setup", "pyeye.docs_facts.rules.Rule", "pyeye.docs_facts.rules.missing_facts", "pyeye.docs_facts.cli.plan", "tests/test_docs_facts_portable.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1091-a-data-only-docs-facts-config-per-repository.md"]
 superseded_by: []
 ---
 

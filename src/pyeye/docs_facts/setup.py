@@ -14,13 +14,30 @@ another codebase is decided separately; this module is the seam it plugs into.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from . import docs, pages, registry, rules
+from . import docs, ledger, pages, registry, removed, review, rules
 from .facts import Bindable
 
 #: A reference page builder: the facts in, the page's Markdown out.
 PageBuilder = Callable[[Mapping[str, Bindable]], str]
+
+
+@dataclass(frozen=True)
+class Paths:
+    """Where docs-facts keeps its records, relative to the repository root (#1091).
+
+    Attributes:
+        snapshot: The facts snapshot ``check`` compares against.
+        removed: The record of removed names.
+        uncovered: The ledger of facts no page explains.
+        review_state: The ``/docs-review`` state.
+    """
+
+    snapshot: str = "docs/facts/facts.json"
+    removed: str = removed.REMOVED
+    uncovered: str = ledger.UNCOVERED
+    review_state: str = review.STATE_PATH
 
 
 @dataclass(frozen=True)
@@ -35,6 +52,7 @@ class Setup:
         pages: Repo-relative path -> builder of each generated reference page.
         changelog: The changelog, read for the current release (the
             removed-name sunset), or ``None`` to turn that behaviour off.
+        paths: Where the records live (:class:`Paths`).
     """
 
     extractors: tuple[registry.Extractor, ...]
@@ -42,6 +60,7 @@ class Setup:
     rules: tuple[rules.Rule, ...]
     pages: Mapping[str, PageBuilder]
     changelog: str | None = "CHANGELOG.md"
+    paths: Paths = field(default_factory=Paths)
 
 
 def pyeye_setup() -> Setup:

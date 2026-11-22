@@ -94,6 +94,13 @@ they can't drift from it.
   <!-- fact:begin security.jedi_unsafe_extensions -->off<!-- fact:end -->, so Jedi
   loads compiled extensions only from the server's Python environment, never
   from the analysed project or a configured package.
+- **docs-facts never imports or runs the analysed repository's code.** The
+  documentation tooling (`scripts/docs_facts.py`, `pyeye.docs_facts`) takes a
+  repository's facts from source text and data files only. Its per-repository
+  config is data, and a value that names code to import is refused. A Python
+  constant is folded from the syntax tree, and the file's imports are never
+  followed. YAML is read with `yaml.safe_load` only
+  ([#1091](https://github.com/okeefeco/pyeye-mcp/issues/1091)).
 - **It reads what the MCP client points it at.** Tools take a `project_path`,
   and `configure_packages` can add package, namespace and standalone-script
   paths. pyeye reads those paths with the permissions of the user running the

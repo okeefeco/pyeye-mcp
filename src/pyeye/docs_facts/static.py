@@ -126,6 +126,10 @@ class _Folder:
         rel = relative_within(path, root)
         self.where = (rel if rel is not None else path).as_posix()
 
+    def name(self, name: str) -> Any:
+        """The constant *name* refers to: this module's, or a pyeye module's it imports."""
+        return constant(self.root, self.module, name)
+
     def refuse(self, node: ast.AST) -> ExtractionError:
         line = getattr(node, "lineno", 0)
         return ExtractionError(
@@ -139,7 +143,7 @@ class _Folder:
         except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
             pass
         if isinstance(node, ast.Name):
-            return constant(self.root, self.module, node.id)
+            return self.name(node.id)
         if isinstance(node, ast.JoinedStr):
             return "".join(self._fstring_part(part) for part in node.values)
         if isinstance(node, ast.Call):
@@ -271,3 +275,36 @@ class Module:
     def file(self) -> Path:
         """The module's source file under the root."""
         return module_file(self._root, self._module)
+
+
+class _FileFolder(_Folder):
+    """Folds constants in one file of any repository; names resolve in that file only."""
+
+    def __init__(self, root: Path, file: str) -> None:  # noqa: D107 - see the class
+        self.root = root
+        self.module = file
+        self.where = file
+        self.tree = _parse_file(root, file)
+
+    def name(self, name: str) -> Any:
+        """The constant *name* is bound to in this file; an import is never followed."""
+        value = _assigned(self.tree.body, name)
+        if value is None:
+            raise ExtractionError(f"{self.where}: no module-level {name!r}")
+        return self.fold(value)
+
+
+def _parse_file(root: Path, file: str) -> ast.Module:
+    path = root / file
+    if not path.is_file():
+        raise ExtractionError(f"{file}: no such file under {root.as_posix()}")
+    return _parse(path, path.stat().st_mtime_ns)
+
+
+def file_constant(root: Path, file: str, name: str) -> Any:
+    """Fold the module-level constant *name* in *file*, any repository's (#1091).
+
+    The same folding as :func:`constant`, but a name resolves only within
+    *file*: another repository's imports are never followed, nor its code run.
+    """
+    return _FileFolder(root, file).name(name)
