@@ -10,6 +10,7 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -84,45 +85,41 @@ def get_diagnostics() -> ConnectionDiagnostics:
     return _diagnostics
 
 
-def setup_signal_handlers() -> None:
-    """Set up signal handlers to detect connection drops.
+def setup_signal_handlers(on_terminate: Callable[[int], None]) -> None:
+    """Log the shutdown signals and the client's disconnect, and act on them (#1124).
 
-    Handles SIGTERM, SIGPIPE, and SIGHUP to track when the client disconnects.
+    SIGTERM, SIGINT and SIGHUP (SIGBREAK on Windows) each ask the server to
+    stop: the handler logs the signal and calls *on_terminate* with its number,
+    which shuts the server down. A handler that only logged (before #1124) kept
+    the process alive: a handled signal never terminates it. SIGINT can't be
+    left to asyncio either, because the MCP SDK reads stdin in a thread that
+    cancellation waits for, so the server would live until the client next wrote.
+
+    SIGPIPE (POSIX) is logged only: a write to a closed pipe then raises instead
+    of killing the process, and stdin's EOF ends the server.
     """
     diagnostics = get_diagnostics()
 
-    def handle_sigterm(signum: int, _: Any) -> None:
-        """Handle SIGTERM - client requested shutdown."""
-        diagnostics.log_event("signal_received", f"SIGTERM (signal {signum})")
-        logger.warning("Received SIGTERM - client likely disconnected")
-        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
-        # The SIGTERM will naturally terminate the process after cleanup
+    def handle_shutdown(signum: int, _: Any) -> None:
+        name = signal.Signals(signum).name
+        diagnostics.log_event("signal_received", f"{name} (signal {signum})")
+        logger.warning("Received %s - shutting down", name)
+        on_terminate(signum)
 
     def handle_sigpipe(signum: int, _: Any) -> None:
         """Handle SIGPIPE - broken pipe (client disconnected)."""
         diagnostics.log_event("signal_received", f"SIGPIPE (signal {signum})")
         logger.error("Received SIGPIPE - stdio pipe broken, client disconnected unexpectedly")
-        # Log diagnostic summary
         summary = diagnostics.get_summary()
         logger.error(f"Connection summary at disconnect: {summary}")
-        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
-        # The SIGPIPE will naturally terminate the process after cleanup
 
-    def handle_sighup(signum: int, _: Any) -> None:
-        """Handle SIGHUP - hangup (terminal closed)."""
-        diagnostics.log_event("signal_received", f"SIGHUP (signal {signum})")
-        logger.warning("Received SIGHUP - terminal hangup")
-        # Don't call sys.exit() - let the asyncio event loop shut down gracefully
-        # The SIGHUP will naturally terminate the process after cleanup
-
-    # Register signal handlers. SIGTERM is available on all platforms; SIGHUP and
-    # SIGPIPE are POSIX-only (Windows does not define them).
-    signal.signal(signal.SIGTERM, handle_sigterm)
-    registered = ["SIGTERM"]
-
-    if hasattr(signal, "SIGHUP"):
-        signal.signal(signal.SIGHUP, handle_sighup)
-        registered.append("SIGHUP")
+    # SIGTERM and SIGINT exist on every platform; SIGHUP and SIGPIPE are POSIX
+    # only, and SIGBREAK (CTRL_BREAK) is Windows only.
+    registered = []
+    for name in ("SIGTERM", "SIGINT", "SIGHUP", "SIGBREAK"):
+        if hasattr(signal, name):
+            signal.signal(getattr(signal, name), handle_shutdown)
+            registered.append(name)
 
     if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, handle_sigpipe)
