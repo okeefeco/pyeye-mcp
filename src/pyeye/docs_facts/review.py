@@ -1491,8 +1491,8 @@ def scope(
                 f"can't read {SNAPSHOT} at {base!r}: give a git revision that has it "
                 "(e.g. origin/main), or name pages instead"
             )
-        diff = changed_facts.diff(before, _committed_snapshots(root, paths), {})
-        changed_ids = set(diff.added) | set(diff.changed)
+        diff = changed_facts.diff(before, _committed_snapshots(root, paths), {}, facts)
+        changed_ids = set(diff.added) | set(diff.changed) | set(diff.grown)
         current = ledger.load(root)
         uncovered = sorted(current.new) if current is not None else []
     state = load(root)

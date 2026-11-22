@@ -266,7 +266,7 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
         return 0
     facts = registry.build(root, setup.extractors)
     bound = changed.bound_pages(root, facts, setup.docs)
-    print(changed.summary(changed.diff(before, head, bound), base))
+    print(changed.summary(changed.diff(before, head, bound, facts), base))
     return 0
 
 

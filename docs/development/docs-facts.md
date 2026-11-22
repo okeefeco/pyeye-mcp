@@ -190,6 +190,10 @@ added, changed and removed, with the pages that bind each one. CI writes it to t
 `pre-commit` job's summary on pull requests. It never fails: it's the scope of a
 change-triggered `/docs-review`.
 
+A group ID (a view) that gained a member is listed too, under "Views with a new member",
+with the pages that bind it. A new member counts as covered as soon as it exists, so this
+is what sends those pages to review (#1108).
+
 ## Adding a fact
 
 Facts come from extractors in `src/pyeye/docs_facts/extractors/`, listed once in

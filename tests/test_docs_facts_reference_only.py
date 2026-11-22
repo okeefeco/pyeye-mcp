@@ -14,6 +14,7 @@ the 32 ``new`` uncovered-fact ledger entries were ``precommit.*``, and #1092's
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import subprocess
 from collections.abc import Iterator
@@ -23,9 +24,9 @@ from typing import Any
 
 import pytest
 
-from pyeye.docs_facts import cli, config, ledger, removed, rules
+from pyeye.docs_facts import changed, cli, config, ledger, removed, rules
 from pyeye.docs_facts.docs import DocEntry
-from pyeye.docs_facts.facts import Fact, code
+from pyeye.docs_facts.facts import Bindable, Fact, code, view
 from pyeye.docs_facts.registry import Extractor
 from pyeye.docs_facts.setup import Paths, Setup, pyeye_setup
 
@@ -87,6 +88,16 @@ def _foreign(
         reference_only=reference_only,
     )
     return tmp_path, setup
+
+
+def _commit(root: Path) -> None:
+    git = ["git", "-C", root.as_posix()]
+    subprocess.run([*git, "init", "-q"], check=True)
+    subprocess.run([*git, "add", "-A"], check=True)
+    subprocess.run(
+        [*git, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"],
+        check=True,
+    )
 
 
 def _uncovered(result: cli.Plan, setup: Setup) -> set[str]:
@@ -226,13 +237,7 @@ class TestOwnSnapshot:
     ) -> None:
         root, setup = _foreign(tmp_path, snapshots={"arch": ARCH})
         assert cli.generate(root, setup=setup) == 0
-        git = ["git", "-C", root.as_posix()]
-        subprocess.run([*git, "init", "-q"], check=True)
-        subprocess.run([*git, "add", "-A"], check=True)
-        subprocess.run(
-            [*git, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base"],
-            check=True,
-        )
+        _commit(root)
         (root / "app/b.py").write_text("Y = 2\n", encoding="utf-8")
         assert cli.generate(root, setup=setup) == 0
         capsys.readouterr()
@@ -302,3 +307,88 @@ class TestConfig:
     def test_bad_declarations_are_refused(self, tmp_path: Path, body: str, message: str) -> None:
         with pytest.raises(config.ConfigError, match=message):
             config.load(_config(tmp_path, body))
+
+
+# ---------------------------------------------------------------------------
+# A view gaining a member reaches the change-triggered review (maintainer, #1108)
+# ---------------------------------------------------------------------------
+#
+# A new member of a bound view counts as covered at once (D5, kept). The nudge to
+# re-read the page is the change-triggered review (D6): the view's ID, and so its
+# pages, must be in the changed-fact list.
+
+VIEW_PAGE = "docs/modules.md"
+
+
+def _with_view(root: Path) -> Iterator[Bindable]:
+    members = list(_arch(root))
+    yield from members
+    yield view("arch.modules", members, ", ".join(m.markdown for m in members))
+
+
+class TestAViewGainingAMember:
+    def test_diff_lists_the_view_with_its_pages(self) -> None:
+        a, b = Fact("x.a", 1, "1"), Fact("x.b", 2, "2")
+        facts: dict[str, Bindable] = {"x.a": a, "x.b": b, "x.all": view("x.all", [a, b], "")}
+
+        found = changed.diff({"x.a": 1}, {"x.a": 1, "x.b": 2}, {"x.all": ["p.md"]}, facts)
+
+        assert found.added == ["x.b"] and found.grown == ["x.all"]
+        assert found.pages == {"x.all": ["p.md"]}
+        assert "**Views with a new member** (1)" in changed.summary(found, "base")
+        assert "- `x.all` (bound in p.md)" in changed.summary(found, "base")
+
+    def test_a_changed_member_value_isnt_growth(self) -> None:
+        a = Fact("x.a", 2, "2")
+        facts: dict[str, Bindable] = {"x.a": a, "x.all": view("x.all", [a], "")}
+
+        assert changed.diff({"x.a": 1}, {"x.a": 2}, {}, facts).grown == []
+
+    def test_end_to_end_with_the_family_in_its_own_file(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root, setup = _foreign(
+            tmp_path, snapshots={"arch": ARCH}, reference_only=frozenset({"arch"})
+        )
+        (root / VIEW_PAGE).write_text(
+            "# Modules\n\n<!-- fact:begin arch.modules --><!-- fact:end -->\n", encoding="utf-8"
+        )
+        page = DocEntry(VIEW_PAGE, "human", "prose", MappingProxyType({}))
+        setup = dataclasses.replace(
+            setup,
+            extractors=(*EXTRACTORS[:1], Extractor("arch", ("arch",), _with_view), EXTRACTORS[2]),
+            docs=(*setup.docs, page),
+        )
+        assert cli.generate(root, setup=setup) == 0
+        _commit(root)
+        (root / "app/b.py").write_text("Y = 2\n", encoding="utf-8")
+        assert cli.generate(root, setup=setup) == 0
+        capsys.readouterr()
+
+        assert cli.report_changed(root, "HEAD", setup=setup) == 0
+
+        out = capsys.readouterr().out
+        assert "**Views with a new member** (1)" in out
+        assert f"- `arch.modules` (bound in {VIEW_PAGE})" in out
+        # covered at once, so no ledger entry: the review is the nudge
+        assert "arch.members.app.b" not in (root / setup.paths.uncovered).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_review_scope_picks_the_views_pages(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """On pyeye's own docs: a new member of ``determinism.table``."""
+        from pyeye.docs_facts import registry, review
+
+        facts = registry.build(Path("."))
+        member = "determinism.ast"
+        assert member in getattr(facts["determinism.table"], "members", ())
+        head = cli._committed_snapshots(Path("."), pyeye_setup().paths)
+        before = {k: v for k, v in head.items() if k != member}
+        monkeypatch.setattr(cli, "base_snapshots", lambda _root, _base, _paths: dict(before))
+        monkeypatch.setattr(cli, "_committed_snapshots", lambda _root, _paths: dict(head))
+
+        out = review.scope(Path("."), facts, base="HEAD")
+
+        assert {member, "determinism.table"} <= set(out["changed"])
+        picked = {p["page"] for p in out["pages"]}
+        assert "docs/architecture/resolution.md" in picked
