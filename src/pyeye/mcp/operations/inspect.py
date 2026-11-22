@@ -73,6 +73,11 @@ from pyeye._ast_targets import (
     find_class_def_at_line as _find_class_def_at_line,
     find_function_def_at_line as _find_function_def_at_line,
 )
+from pyeye._class_signatures import (
+    is_namedtuple_factory,
+    is_none_signature,
+    namedtuple_signature,
+)
 from pyeye._jedi_location import location_from_name
 from pyeye._module_scope import build_import_table
 from pyeye.canonicalization import collect_re_exports
@@ -350,7 +355,12 @@ def _build_signature(jedi_name: Any) -> str | None:
             # so it has no signature of its own. The def as written is its
             # signature, as for a decorator's wrapper (#437).
             return _signature_from_source_ast(jedi_name)
-        sigs = [s for s in raw if not _restricted_signature(s)]
+        # ``None`` isn't callable: Jedi's ``NoneType()`` for it is dropped (#1126).
+        sigs = [s for s in raw if not _restricted_signature(s) and not is_none_signature(s)]
+        # A typed NamedTuple shows its generated constructor, never the
+        # factory's ``(typename, fields, /)``; omitted when it can't be built (#1126).
+        if sigs and is_namedtuple_factory(sigs[0]):
+            return namedtuple_signature(jedi_name)
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
