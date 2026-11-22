@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs
+from pyeye.docs_facts import cli, docs, pages
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.examples import (
     WHERE_EXAMPLES_LIVE,
@@ -164,9 +164,9 @@ class TestWhereExamplesLive:
             ),
         )
         monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
-        monkeypatch.setattr(cli.pages, "PAGES", {})
+        monkeypatch.setattr(pages, "PAGES", {})
         # #825's prose rules need the real facts; they aren't under test here.
-        monkeypatch.setattr(cli.rules, "run", lambda _root, _facts: [])
+        monkeypatch.setattr(cli.rules, "run", lambda _root, _facts, *_setup: [])
 
         result = cli.plan(tmp_path, facts={})
 

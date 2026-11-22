@@ -37,6 +37,77 @@ The goal is documentation that is **built on facts**, so a code change cannot si
 - **Docs that boast or state unverified facts** (D12). One unbacked "X% faster" undermines trust in every fact the docs state.
 - **A parallel list of files.** If a check can scan a list of files other than the registry's, the `.rst` blind spot can come back.
 
+## Current state (consolidated 2026-11-22)
+
+This section merges the decisions (D1–D12) and their later amendments (C1–C20) into the design **as it stands now**. The sections further down keep the history of how each decision was reached; where they disagree with this summary, this summary wins.
+
+**Build status (from issue state, 2026-11-22):**
+
+- **Built:** #823–#830 and #861.
+- **Still open:** #831 (shipping `/docs-review` with task scoring) and #1091 (the per-repo config), plus the C19 static migration and C20, which are not yet filed.
+
+### The mechanisms
+
+1. **The doc registry.** One list of every documentation page, with:
+   - its audience: human, Claude or both;
+   - its kind: prose, reference, skill, `history` or `record`;
+   - a `covers` list of the facts its prose explains;
+   - a `site` flag.
+
+   No check keeps its own file list. Excluded: `tests/fixtures/**`, `docs/superpowers/**`, `docs/decisions/**`, `docs/audits/**` (C9).
+2. **Facts and extractors.**
+   - One fact per item, with a stable ID; group IDs are views over item facts (C3).
+   - Every fact is read statically: pyeye's own analysis, module literals, data files, call-site literals (C19). The extractors still import pyeye until the C19 migration lands.
+   - Sources: the code, plus machine-readable repo config (C15, C17).
+   - Procedure sources (`plugin.json` and the rest) are planned under C20.
+3. **The binding.**
+   - Facts appear only in marker blocks or the generated `docs/reference/` pages (D2).
+   - Pre-commit regenerates, and CI fails on any difference (D3).
+   - A committed snapshot, `facts.json`, gives the list of changed facts (C4).
+   - Prose may not state code facts. They come from a fact or an executed example, and prose keeps the why (C15). Prose may say what an example demonstrates, but not describe its output (C16).
+4. **Removed names.**
+   - `removed.json` records every removed name, with a `match` level (`word`, `heading`, `code` or `none`) and the release that removed it.
+   - A live page may mention one only on a line that says "removed", under a per-page ratchet. Those mentions become hard failures after the next major release (C2, C8, C10).
+   - The fact rules apply to history pages too (C11).
+5. **Honest claims (D12).**
+   - Numbers, volatile status, absolute claims and projections need a bound fact or a link to a registered `record`.
+   - A pattern rule enforces it with a shrink-only allow-list keyed on the exact finding (C10, C12), and the review catches what patterns miss.
+   - Released CHANGELOG sections are exempt.
+   - On the site, a `history` page is published only once its claims are cleared (C16).
+6. **Uncovered-fact ledger.**
+   - A new fact with no covering prose enters `uncovered.json` without blocking the PR (D5).
+   - It leaves when prose covers it or a review dismisses it. Dismissals live in `review-state.json` and are mirrored read-only into the ledger (C13).
+7. **Executed examples.**
+   - Runnable `pyeye-example` blocks run against a fixture project and are checked by the response linter (D10).
+   - They're allowed on any human-facing prose page except history pages (C17).
+   - Trimmed output must say so, with `<omitted>` and `<absent>` markers (C10).
+8. **Tool descriptions** take their fact parts, including each exposed edge's ceiling, from the extractors (D9, C12).
+9. **`/docs-review`.** It reports, never applies (D8), and runs on changed facts, on demand, and in the major/minor release pass (D6). Findings:
+   - **Categories:** fact drift, uncovered fact, honest claims, audience, style, `code_contradiction` (a narrow fallback that recommends a fact or example first), and page-level findings (C15, C17).
+   - **Anchors:** facts, rules, code symbols with pyeye evidence, and `literal`s (C15, C17).
+   - **Shape:** a clear fix with one replacement text, or `needs_decision` with options and an anchored or labelled-unanchored assessment (C13, C14).
+   - **Dismissals:**
+     - a fact-pinned dismissal lapses when the fact changes;
+     - a symbol-pinned one lapses on a signature or docstring change;
+     - a subject-keyed one lapses when its quote disappears;
+     - a `code_bug` one is lifted when its issue closes;
+     - an orphaned fact or symbol dismissal fails CI (C13–C17).
+10. **The published site.** MkDocs from the registry, with sections following the folders and root pages served without copies (C16).
+11. **Task-based scoring** (#831, not built). Per-audience tasks, a pinned model and three runs per task, compared with a baseline at each major or minor release (C5). It also covers the steps CI can't run under C20.
+
+### Maintenance cost: simplification candidates for the maintainer
+
+The maintainer asked whether the design has become over-complex (2026-11-22). C20 was simplified first. The candidates below are **questions, not decisions**: each needs evidence of use before anything is removed.
+
+| Mechanism | What it costs to maintain | Question to settle |
+|---|---|---|
+| Removed-name rules (4) | Four `match` levels, the "removed" line rule, a per-page ratchet and a release sunset | Would one rule (word match plus the "removed" exemption, with the sunset) catch the same drift? How often has each level fired? |
+| Dismissal lifecycles (9) | Five different lapse and fail rules, one needing network access (`code_bug`) | Could the lifecycles collapse into fewer rules without letting stale dismissals hide findings? |
+| Uncovered-fact ledger (6) | The ledger, its baseline, the mirrored dismissals and `covers` lists on every page | Is the ledger actually worked down by reviews? If not, its upkeep buys little |
+| Finding categories and anchor kinds (9) | Seven categories, four anchor kinds and a growing set of rule IDs, each with validation | Which categories have real findings after #830? Unused ones are candidates to fold together |
+| Task-based scoring (11) | Agent-heavy: three runs per task per audience at each release, on an 8 GB machine | Could a smaller task set, or one run plus a re-run on failure, give the same signal? |
+| Example trim markers (7) | `<omitted>` and `<absent>` validation at every level | Low cost; probably keep |
+
 ## Decisions taken in the session
 
 | # | Decision | By |
@@ -181,7 +252,7 @@ Ordered so that nothing generation will produce gets hand-fixed:
 - **C1. History pages.** The doc registry has a `history` kind, for pages that must name removed things: `CHANGELOG.md`, `changes/*.md`, `docs/migration-guide.md`, `docs/api-redesign.md`. A history page is registered, so nothing can escape the list. Fact blocks and the honest-claims rule (D12) still apply to it; the removed-name rule (D4) and the other prose rules do not. Example: `migration-guide.md`'s unsourced "2.5x faster" table fails D12. `docs/superpowers/**`, `docs/decisions/**` and `docs/audits/**` stay unregistered, as before.
 - **C2. Where removed names come from.** `docs/facts/removed.json` is committed. It is seeded from #509's `GONE_ENTIRELY` and `SURVIVES_AS_INTERNAL_METHOD` (the v1 names, which no extractor can produce) and from today's removed env vars and server commands. `generate` appends to it whenever a fact that's in the committed snapshot (C4) disappears, so a removal is caught in the same PR. Entries are never deleted.
 - **C3. One fact per item, and what "covered" means.** There is one fact per parameter, edge, env var, tool, CLI command and CI value. Group IDs (`tool.trace.params`) are views over item facts, used by marker blocks. A fact is "covered" only when a prose section declares it in the page registry. A link to its `docs/reference/` entry doesn't count, because the reference page covers every fact and would make the ledger meaningless. **Day one:** facts that exist when the ledger is first created are recorded as the `baseline` section of `uncovered.json`. That section is triaged once, in the sweep fix-up (sub-issue 8), and isn't left as standing noise. Only facts added later appear as new entries.
-- **C4. Environment and change detection.** The extractors live in `src/pyeye/docs_facts/` and import the pyeye in the PR, in the normal `uv` environment, as the mypy hook already does. "Stdlib only" means **no new dependency**. `generate` also writes a committed snapshot, `docs/facts/facts.json`. The changed-fact list (§3) is the diff of that snapshot against the merge base's copy, so no second environment is needed. The snapshot diff shows in the PR, which is also the reviewer's signal.
+- **C4. Environment and change detection.** *(Amended by C19: extractors no longer import pyeye; every fact is read statically.)* The extractors live in `src/pyeye/docs_facts/` and import the pyeye in the PR, in the normal `uv` environment, as the mypy hook already does. "Stdlib only" means **no new dependency**. `generate` also writes a committed snapshot, `docs/facts/facts.json`. The changed-fact list (§3) is the diff of that snapshot against the merge base's copy, so no second environment is needed. The snapshot diff shows in the PR, which is also the reviewer's signal.
 - **C5. Scoring variance.** The model is pinned for each baseline and recorded with it. Each task runs 3 times. A task's score is pass or fail by majority, plus the tally. A regression is a task that passed in the baseline and fails by majority now. A worse tally on a task that still passes by majority is reported as "weaker", not as a regression. A coordinator-assigned worker runs it at release time, under the dev01 cap (≤2 heavy jobs, memory-capped). A model change starts a new baseline, so it's never compared across models.
 - **C6. The sweep list is stale.** It was taken against `95c7b40b`, and v2.1.0 and #495 have landed since. Sub-issue 8 starts by re-checking the 183 findings against current `main` (still wrong / fixed / generated away). It doesn't run a fresh sweep: the internal `/docs-review` run over the fix-up scope serves as that.
 - **C8. Removed-name matching (#826, settled with the maintainer).**
@@ -288,6 +359,28 @@ Ordered so that nothing generation will produce gets hand-fixed:
     - Each scenario's data moves to `.claude/skills/pyeye-scenarios/baselines/<scenario>.md`, registered as `record` kind, with front matter giving `date`, `command`, `commit` and `machine`.
     - `SKILL.md` links them and holds no numbers, and `pyeye-verify` reads its baselines from them.
     - Stale results (e.g. jaraco's) keep their original date and commit, so each record states when it was measured instead of implying the figures are current.
+- **C19. No runtime facts, anywhere (maintainer, 2026-11-22).** This amends C4.
+  - **The rule.** Every fact is read statically, pyeye's own included: pyeye's analysis (`resolve`/`inspect`/`outline`/`expand`), `ast.literal_eval` of module-level literals, data files (TOML, JSON, YAML via `safe_load`) and call-site string literals. No extractor imports or runs code.
+  - **Why.** A non-deterministic runtime value can't be a fact. A deterministic one comes from what the code declares (our choices: names, parameters, defaults), or it's library behaviour, which the docs link to rather than restate.
+  - **Where a fact can't be read statically,** the code is refactored to declare it (e.g. a literal registry), not imported.
+  - **Order (RFC #1083):**
+    1. pyeye's own extractors migrate to static, run side by side with the import-based ones until the output is byte-identical, then the import path is removed;
+    2. #1091 (the per-repo config) follows, data-only, with no import references;
+    3. then the rest of the RFC.
+  - **Security.** `SECURITY.md` can state, without qualification, that docs-facts never imports or runs the analysed code.
+- **C20. The source owns the procedure (maintainer, 2026-11-22; outline, not yet filed; simplified the same day).** Its goal is to detect and prevent drift in install and run procedures, not hand-fix it (#994 was a hand fix). It starts after C19's static migration, because it reuses C19's data readers.
+  - **The principle.**
+    - Code and config own the install and run procedures, using each tool's standard process.
+    - Facts bind only our choices (names, flags, hooks), each with its reason in the decision log. Tool behaviour is linked to, never encoded as a fact.
+    - Writers own the explanation and the order of steps, never a step, flag or name.
+  - **The mechanism (three parts, all reusing what exists):**
+    1. **Procedure-source facts,** read statically by C19's data readers: `plugin.json` (server command, args, env), `marketplace.json` (marketplace and plugin names), `hooks.json`, `pyproject` (scripts, dist name, `requires-python`), plus C17's CI and pre-commit facts.
+    2. **Commands are whole facts.**
+       - Each documented install or run command is one fact, rendered whole from its source (e.g. the `claude mcp add …` line built from `plugin.json`), in a fact block. The order and the "when to use which" stay in prose.
+       - **Prevention:** the `unbound-command` rule fails CI on a shell block that installs or runs pyeye (`claude mcp add`, `/plugin`, `uv`/`uvx`/`pip` with pyeye, `python -m pyeye…`) outside a fact block, with existing ones on a shrink-only allow-list. Scope is pyeye's install and run commands only. Developer commands come later, once it's proven.
+       - **Detection:** a source change regenerates the block, CI fails on a stale page, and the change triggers a review of that page, all through the existing fact machinery.
+    3. **Execution through the existing example machinery (#828).** Runnable commands (a source checkout; a locally built wheel via `uvx --from`) are marked as runnable examples and executed in CI. Steps CI can't run (`/plugin install`) are covered by a "new user installs pyeye" task in the release-time scoring (D6, #831).
+  - **Dropped in the simplification** (the maintainer judged them over-built for a handful of routes): routes as a data format with templated steps; a usage-contexts file; dated manual-check records with automatic lapse; and the new review rules `route_incomplete` and `context_flag_mismatch`, which the existing categories already cover.
 - **C7. #495 has merged** (`skills/duplication-review/`, `src/pyeye/duplication.py`, v2.1.0), so D7's reuse is against shipped code.
 
 ## Left to the builder
