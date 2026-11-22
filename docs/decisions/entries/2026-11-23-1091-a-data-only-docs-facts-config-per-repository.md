@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "A repository's docs-facts config is data only: built-in kinds read files, and nothing names code to import (#1091)"
 issues: [1091, 1083, 1098, 1092, 1094, 818]
 anchors: ["pyeye.docs_facts.config", "pyeye.docs_facts.data_facts", "pyeye.docs_facts.kinds", "pyeye._data_files", "pyeye.docs_facts.static.file_constant", "tests/test_docs_facts_config.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-22-1091-docs-facts-runs-on-any-repo-through-a-setup.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1107-pyeyes-docs-facts-setup-is-data-pyeye-kinds-no-preset.md"]
 superseded_by: []
 ---
 

@@ -1472,7 +1472,7 @@ def scope(
         ledger,
     )
     from .cli import SNAPSHOT, _committed_snapshots, base_snapshots
-    from .setup import pyeye_setup
+    from .config import load as load_setup
 
     wanted = list(pages)
     if not (wanted or audience or base):
@@ -1484,7 +1484,7 @@ def scope(
     changed_ids: set[str] = set()
     uncovered: list[str] = []
     if base is not None:
-        paths = pyeye_setup().paths
+        paths = load_setup(root).paths
         before = base_snapshots(root, base, paths)
         if before is None:
             raise ValueError(

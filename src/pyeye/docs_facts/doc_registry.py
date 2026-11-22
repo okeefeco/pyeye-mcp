@@ -7,8 +7,8 @@ optionally ``allow``, ``covers`` and ``site``). TOML, JSON and YAML are read by
 :mod:`pyeye._data_files`, chosen by the file's suffix; nothing is imported or
 run (C19).
 
-pyeye's own registry is ``docs/facts/docs.toml``. Until the typed
-:data:`~.docs.DOCS` is deleted (#1107), a test holds the two equal.
+pyeye's own registry is ``docs/facts/docs.toml``, named by its config's
+``docs`` key; it replaced the typed ``DOCS`` list (#1107).
 """
 
 from __future__ import annotations

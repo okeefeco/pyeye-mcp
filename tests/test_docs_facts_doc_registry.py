@@ -1,53 +1,32 @@
-"""pyeye's doc registry as a data file, read without importing anything (#1107).
+"""pyeye's doc registry is a data file, read without importing anything (#1107).
 
-``docs/facts/docs.toml`` holds the same entries as the typed
-:data:`pyeye.docs_facts.docs.DOCS`. Until the typed list is deleted, these tests
-run the two side by side: the entries are equal, field for field and in order,
-and a plan built from the file is byte-identical to one built from the typed
-list, with nothing stale.
+``docs/facts/docs.toml`` replaced the typed ``DOCS``; it was proven equal to it,
+entry for entry and in order, before the typed list was deleted. These tests
+read it the way the config does, and run the reader's refusals.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import doc_registry, docs
+from pyeye.docs_facts import config, doc_registry, docs
 from pyeye.docs_facts.cli import plan, stale
 from pyeye.docs_facts.config import ConfigError
-from pyeye.docs_facts.pages import PAGES
-from pyeye.docs_facts.setup import pyeye_setup
 
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def _pyeye_file() -> tuple[docs.DocEntry, ...]:
-    return doc_registry.read(ROOT, doc_registry.PYEYE_REGISTRY)
-
-
 class TestPyeyesRegistryFile:
-    def test_the_file_holds_the_typed_registry(self) -> None:
-        """Equal entries, in the same order: path, audience, kind, allow, covers, site."""
-        assert _pyeye_file() == docs.DOCS
-
-    def test_each_generated_page_is_listed_as_a_reference_entry(self) -> None:
-        """Reference pages are listed explicitly (#1107 Q3), exactly the generated ones."""
-        listed = {e.path for e in _pyeye_file() if e.kind == "reference"}
-        assert listed == set(PAGES)
-
-    def test_a_plan_from_the_file_is_byte_identical(self) -> None:
-        """``generate`` would write the same text with either registry."""
-        typed = plan(ROOT)
-        from_file = plan(ROOT, setup=replace(pyeye_setup(), docs=_pyeye_file()))
-        assert from_file.outputs == typed.outputs
-        assert from_file.problems == typed.problems
-        assert from_file.notes == typed.notes
+    def test_the_config_reads_it(self) -> None:
+        file = doc_registry.read(ROOT, doc_registry.PYEYE_REGISTRY)
+        assert config.load(ROOT).docs == file
+        assert len(file) > 0
 
     def test_generate_writes_nothing_and_check_passes(self) -> None:
-        result = plan(ROOT, setup=replace(pyeye_setup(), docs=_pyeye_file()))
+        result = plan(ROOT)
         assert result.problems == []
         assert stale(ROOT, result) == []
 

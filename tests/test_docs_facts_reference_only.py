@@ -28,7 +28,7 @@ from pyeye.docs_facts import changed, cli, config, ledger, removed, rules
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Bindable, Fact, code, view
 from pyeye.docs_facts.registry import Extractor
-from pyeye.docs_facts.setup import Paths, Setup, pyeye_setup
+from pyeye.docs_facts.setup import Paths, Setup
 
 # ---------------------------------------------------------------------------
 # A small foreign repo with two families: app.* (bound) and arch.* (reference)
@@ -170,10 +170,9 @@ class TestPyeyesOwnSetup:
     def test_precommit_is_declared_reference_only_as_data(self) -> None:
         """pyeye's own declaration lives in its pyproject config, not in code."""
         assert "precommit" in config.load(Path(".")).reference_only
-        assert pyeye_setup().reference_only == frozenset()
 
-    def test_a_preset_takes_reference_only_as_an_override(self, tmp_path: Path) -> None:
-        root = _config(tmp_path, 'preset = "pyeye"\nreference_only = ["arch"]')
+    def test_any_config_takes_reference_only(self, tmp_path: Path) -> None:
+        root = _config(tmp_path, 'reference_only = ["arch"]')
 
         assert config.load(root).reference_only == frozenset({"arch"})
 
@@ -389,7 +388,7 @@ class TestAViewGainingAMember:
         facts = registry.build(Path("."))
         member = "determinism.ast"
         assert member in getattr(facts["determinism.table"], "members", ())
-        head = cli._committed_snapshots(Path("."), pyeye_setup().paths)
+        head = cli._committed_snapshots(Path("."), config.load(Path(".")).paths)
         before = {k: v for k, v in head.items() if k != member}
         monkeypatch.setattr(cli, "base_snapshots", lambda _root, _base, _paths: dict(before))
         monkeypatch.setattr(cli, "_committed_snapshots", lambda _root, _paths: dict(head))
@@ -430,7 +429,7 @@ class TestTheLedgerCount:
 
     def test_one_entry_reads_singular(self) -> None:
         result = cli.Plan(outputs={"u.json": '{"new": [{"fact_id": "a.b"}]}'})
-        setup = dataclasses.replace(pyeye_setup(), paths=Paths(uncovered="u.json"))
+        setup = dataclasses.replace(config.load(Path(".")), paths=Paths(uncovered="u.json"))
 
         assert cli.ledger_note(result, setup) == "uncovered-fact ledger: 1 new entry"
         assert cli.ledger_note(cli.Plan(), setup) is None

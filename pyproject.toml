@@ -92,11 +92,55 @@ requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
 [tool.pyeye.docs_facts]
-# The engine's built-in pyeye setup (#1091); moving it to data is #1107.
-preset = "pyeye"
+# pyeye's own docs-facts setup, as data like any repository's (#1107).
+# The doc registry: every documentation file and how the checks treat it.
+docs = "docs/facts/docs.toml"
+# The built-in reference pages (pyeye's repository only).
+pages = [
+    "docs/reference/README.md",
+    "docs/reference/tools.md",
+    "docs/reference/edges.md",
+    "docs/reference/env-vars.md",
+    "docs/reference/cli.md",
+]
 changelog = "CHANGELOG.md"
 # Reference data, not claims prose should make: kept out of the uncovered-fact ledger (#1108).
 reference_only = ["precommit"]
+
+# pyeye's extractors: built-in pyeye-* kinds, restricted to this repository.
+# Each says why no generic kind can express it yet; #1119 converts them.
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-mcp-surface"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-edges"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-env"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-cli"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-ci"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-review"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-duplication"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-scopes"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-security"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-resolver"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "pyeye-repo-config"
 
 [tool.setuptools.packages.find]
 where = ["src"]

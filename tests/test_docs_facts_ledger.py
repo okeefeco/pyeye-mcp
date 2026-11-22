@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import changed, cli, docs, ledger
+from pyeye.docs_facts import changed, cli, ledger
 from pyeye.docs_facts.facts import Fact, View, index
 from pyeye.docs_facts.ledger import Ledger
 
@@ -129,12 +129,11 @@ class TestReportChanged:
         _git(tmp_path, "init", "-q")
         _git(tmp_path, "config", "user.email", "t@example.com")
         _git(tmp_path, "config", "user.name", "t")
-        monkeypatch.setattr(docs, "DOCS", ())
         monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
-        # The CLI checks only a repository that declares a config (#1091): this one
-        # selects pyeye's setup, whose (patched) constants it reads at call time.
+        # The CLI checks only a repository that declares a config (#1091); this
+        # one registers no pages, and its facts are patched in above.
         (tmp_path / "pyproject.toml").write_text(
-            '[tool.pyeye.docs_facts]\npreset = "pyeye"\n', encoding="utf-8"
+            '[tool.pyeye.docs_facts]\nchangelog = "CHANGELOG.md"\n', encoding="utf-8"
         )
         return tmp_path
 

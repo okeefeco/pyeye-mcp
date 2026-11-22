@@ -66,8 +66,10 @@ would: stage the result and commit again. CI runs `check` in the `pre-commit` jo
 
 ## The doc registry
 
-`src/pyeye/docs_facts/docs.py` lists every documentation file, with its audience
-(`human`, `claude` or `both`) and its kind:
+`docs/facts/docs.toml` lists every documentation file, with its audience
+(`human`, `claude` or `both`) and its kind. It is data, named by the `docs` key
+of pyeye's docs-facts config, the same way any repository can keep its registry
+in a file:
 
 | Kind | Meaning |
 |---|---|
@@ -212,10 +214,17 @@ what to check in `[tool.pyeye.docs_facts]` in its `pyproject.toml`, or under
 read for this config, never the user's global pyeye config. A repository with neither
 has nothing to check, and the command says so (#1091).
 
-pyeye's own repository declares `preset = "pyeye"`, which selects the setup built into
-the engine: its extractors, doc registry, rules and reference pages. A preset can't be
-combined with `facts`, `extractors` or `docs`, while `rules`, `changelog` and `paths`
-override it. Moving pyeye's own registry to data, and dropping the preset, is #1107.
+pyeye's own repository is configured the same way, in data (#1107):
+
+- `docs = "docs/facts/docs.toml"`: the doc registry in a file (TOML, JSON or YAML)
+  whose `doc` key lists the entries. An inline list of tables works too.
+- `extractors`: pyeye's extractors are built-in `pyeye-*` kinds. They read pyeye's
+  source by pyeye's conventions, so each runs only on the repository whose
+  `pyproject.toml` declares `[project] name = "pyeye-mcp"`; anywhere else, extraction
+  stops with an error that says so. Each kind's docstring says why no generic kind
+  can express it yet, and #1119 converts them.
+- `pages`: the built-in reference pages under `docs/reference/`, also pyeye's only.
+
 `tests/fixtures/docs_facts_inline` is a small repository configured inline, checked in
 CI.
 
@@ -251,7 +260,8 @@ kind = "prose"                    # how the checks treat the page
 - **`extractors`** names other built-in kinds with their options:
   `[[tool.pyeye.docs_facts.extractors]]`, with `kind = "<name>"` and the kind's
   options.
-- **`docs`** is the doc registry, written as tables. **`rules`** is `"all"` (the
+- **`docs`** is the doc registry, written as tables or as the path of a data file
+  that holds them under `doc`. **`rules`** is `"all"` (the
   default) or a list of rule IDs. A rule whose facts the repository doesn't have,
   such as pyeye's own edge rules, is skipped and reported, never run.
 - **`paths`** moves the records (`snapshot`, `removed`, `uncovered`,

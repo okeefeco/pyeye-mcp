@@ -3,8 +3,8 @@
 A fact check compares a documented value with an extracted one. A prose rule
 can't: it requires or forbids *phrasing* that no extractor produces, such as
 calling an unresolved handle one that "doesn't exist" (#568). Each rule here runs
-over every registered doc of the kinds it applies to (:data:`~.docs.DOCS`, never
-a list of its own) and over the live MCP tool descriptions, which are the docs a
+over every registered doc of the kinds it applies to (the repository's doc
+registry, never a list of its own) and over the live MCP tool descriptions, which are the docs a
 model reads.
 
 The text inside fact blocks is skipped: it is generated from the code, so it is
@@ -634,7 +634,7 @@ RULES: tuple[Rule, ...] = (
 # ---------------------------------------------------------------------------
 
 
-#: Where a rule's allowances live, when not on the DOCS entries themselves.
+#: Where a rule's allowances live, when not on the doc registry's entries themselves.
 _ALLOW_HOME = {HONEST_CLAIMS: "claim_seeds.py"}
 
 
