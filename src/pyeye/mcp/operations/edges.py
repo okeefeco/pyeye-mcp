@@ -420,6 +420,49 @@ EXACT_EDGES: frozenset[str] = frozenset({"enclosing_scope"})
 #: descriptions bind it as the ``edges.unparseable`` fact.
 UNPARSEABLE_FILE_EDGES: frozenset[str] = frozenset({"subclasses", "imported_by", "re_exports"})
 
+#: The edges ``inspect`` measures, per kind: each MUST be in ``edge_counts``
+#: (possibly 0). The one statement of what ``inspect`` measures (#1120): the
+#: response linter checks live responses against it, and the docs bind the
+#: unmeasured set below as the ``edges.inspect_unmeasured`` fact.
+#:
+#: Only edges derivable from the symbol's own definition are measured:
+#:
+#: - ``subclasses`` left ``class`` (#392): counting needs the same project-wide
+#:   scan as listing, so it has no cheap-preview value; it is expand-only.
+#: - ``callers`` and ``references`` left every kind (#332): Jedi's budget-capped
+#:   ``get_references`` under-reported them non-deterministically. They return
+#:   with an indexed backend (#333). So function, method, attribute, property
+#:   and variable handles measure nothing: an empty ``edge_counts`` is valid.
+#: - ``submodules`` is conditional (#423): measured only for a package (its
+#:   ``__init__.py``), so it isn't required of ``module``. A plain module must
+#:   leave it absent (absence is not zero). It isn't in the unmeasured set
+#:   either: present is permitted, never demanded.
+INSPECT_EXPECTED_EDGES: dict[str, frozenset[str]] = {
+    "class": frozenset({"members", "superclasses"}),
+    "module": frozenset({"members"}),
+}
+
+#: Edges ``inspect`` never measures: in ``edge_counts`` with any value,
+#: including 0, they would be a false claim of measurement.
+INSPECT_UNMEASURED_EDGES: frozenset[str] = frozenset(
+    {
+        "subclasses",
+        "callers",
+        "references",
+        "callees",
+        "read_by",
+        "written_by",
+        "passed_by",
+        "decorated_by",
+        "decorates",
+        "imports",
+        "imported_by",
+        "enclosing_scope",
+        "overrides",
+        "overridden_by",
+    }
+)
+
 #: What each ceiling id means: the one definition the docs and the skill use.
 CEILING_MEANINGS: dict[str, str] = {
     "static_definitions": (
