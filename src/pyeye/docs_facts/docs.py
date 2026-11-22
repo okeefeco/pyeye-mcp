@@ -164,13 +164,12 @@ _ENTRIES: tuple[DocEntry, ...] = (
                     "names removed tool 'analyze_dependencies' beside 'removed'",
                     "names removed tool 'find_references' beside 'removed'",
                     "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
                 )
             }
         ),
     ),
+    # The detail python-explore loads on demand (#1130).
+    DocEntry("skills/python-explore/reference.md", _C, "skill"),
     DocEntry("skills/architecture-review/SKILL.md", _C, "skill"),
     DocEntry("skills/architecture-review/auditor.md", _C, "skill"),
     DocEntry("skills/duplication-review/SKILL.md", _C, "skill"),

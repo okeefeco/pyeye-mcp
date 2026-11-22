@@ -3,9 +3,38 @@
 
 import argparse
 import json
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
+
+#: A code search counts as followed up when the same session calls pyeye within
+#: this long after it: grep found the text, pyeye proved the facts (#1130).
+FOLLOW_UP_WINDOW = timedelta(minutes=10)
+
+#: A Bash search command aimed at Python source.
+_PYTHON_COMMAND = re.compile(r"\.py\b|--include[= ]['\"]?\*\.py|(?:-t|--type)[= ]?py\b")
+
+
+def is_code_search(record: dict) -> bool:
+    """Whether a recorded search was aimed at Python source (#1130).
+
+    Grep is the right tool for finding where a concept lives in the code, so it
+    isn't a failure in itself; searching logs, docs or process lists has nothing
+    to do with pyeye at all. Only code searches are measured.
+
+    - The Grep tool: a ``py`` type, a glob naming ``.py``, or a path that is a
+      ``.py`` file or a directory (no glob or type: the whole tree's source).
+    - A Bash command: one naming ``.py`` files, ``--include=*.py`` or ``-t py``.
+    """
+    if record.get("tool") == "grep_tool":
+        file_type = record.get("type") or ""
+        glob = record.get("glob") or ""
+        if file_type or glob:
+            return file_type == "py" or ".py" in glob
+        path = record.get("path") or ""
+        return not Path(path).suffix or path.endswith(".py")
+    return bool(_PYTHON_COMMAND.search(record.get("command") or ""))
 
 
 class MCPAnalytics:
@@ -54,25 +83,42 @@ class MCPAnalytics:
                         continue
         return sessions
 
-    def calculate_adoption_rate(self, days: int = 7) -> dict:
-        """Calculate MCP adoption rate over specified days."""
-        cutoff = datetime.now() - timedelta(days=days)
+    def calculate_follow_through(self, days: int = 7) -> dict:
+        """How many code searches were followed by a pyeye call (#1130).
 
+        Grep to find, pyeye to prove: a code search (:func:`is_code_search`) is
+        followed up when its session calls pyeye within :data:`FOLLOW_UP_WINDOW`
+        after it. The rate is the followed-up share of code searches. Other
+        searches are counted apart and don't affect it.
+        """
+        cutoff = datetime.now() - timedelta(days=days)
         mcp_calls = [
             c for c in self.load_mcp_calls() if datetime.fromisoformat(c["timestamp"]) > cutoff
         ]
-        grep_usage = [
+        searches = [
             g for g in self.load_grep_usage() if datetime.fromisoformat(g["timestamp"]) > cutoff
         ]
+        code = [g for g in searches if is_code_search(g)]
 
-        total_searches = len(mcp_calls) + len(grep_usage)
-        adoption_rate = (len(mcp_calls) / total_searches * 100) if total_searches > 0 else 0
+        calls_by_session: dict[str, list[datetime]] = defaultdict(list)
+        for call in mcp_calls:
+            calls_by_session[call.get("session_id", "unknown")].append(
+                datetime.fromisoformat(call["timestamp"])
+            )
 
+        def followed_up(search: dict) -> bool:
+            at = datetime.fromisoformat(search["timestamp"])
+            calls = calls_by_session.get(search.get("session_id", "unknown"), [])
+            return any(at <= t <= at + FOLLOW_UP_WINDOW for t in calls)
+
+        followed = sum(1 for g in code if followed_up(g))
+        rate = (followed / len(code) * 100) if code else 0.0
         return {
             "mcp_calls": len(mcp_calls),
-            "grep_usage": len(grep_usage),
-            "total_searches": total_searches,
-            "adoption_rate": round(adoption_rate, 1),
+            "code_searches": len(code),
+            "followed_by_pyeye": followed,
+            "follow_through_rate": round(rate, 1),
+            "other_searches": len(searches) - len(code),
             "period_days": days,
         }
 
@@ -109,7 +155,7 @@ class MCPAnalytics:
 
     def generate_report(self, days: int = 7) -> str:
         """Generate comprehensive analytics report."""
-        adoption = self.calculate_adoption_rate(days)
+        follow = self.calculate_follow_through(days)
         top_tools = self.get_top_mcp_tools()
         session_stats = self.get_session_stats()
         grep_breakdown = self.get_grep_tool_breakdown()
@@ -121,13 +167,19 @@ class MCPAnalytics:
         report.append("=" * 60)
         report.append("")
 
-        # Adoption metrics
-        report.append("📊 ADOPTION METRICS")
+        # Find with grep, prove with pyeye (#1130)
+        minutes = int(FOLLOW_UP_WINDOW.total_seconds() // 60)
+        report.append("📊 FIND, THEN PROVE")
         report.append("-" * 40)
-        report.append(f"MCP Tool Calls: {adoption['mcp_calls']}")
-        report.append(f"Grep/Find Usage: {adoption['grep_usage']}")
-        report.append(f"Total Searches: {adoption['total_searches']}")
-        report.append(f"🎯 MCP Adoption Rate: {adoption['adoption_rate']}%")
+        report.append(f"pyeye calls: {follow['mcp_calls']}")
+        report.append(f"Code searches (grep over Python): {follow['code_searches']}")
+        report.append(
+            f"  followed by pyeye within {minutes} min: {follow['followed_by_pyeye']}"
+            f" ({follow['follow_through_rate']}%)"
+        )
+        report.append(
+            f"Other searches (logs, docs, processes; not counted): {follow['other_searches']}"
+        )
         report.append("")
 
         # Session statistics
@@ -157,19 +209,15 @@ class MCPAnalytics:
         # Recommendations
         report.append("💡 RECOMMENDATIONS")
         report.append("-" * 40)
-        if adoption["adoption_rate"] < 50:
-            report.append("⚠️  MCP adoption below 50% - consider:")
-            report.append("  • Review why grep is still being used")
-            report.append("  • Check if MCP tools cover all use cases")
-            report.append("  • Ensure MCP tools are discoverable")
-        elif adoption["adoption_rate"] < 80:
-            report.append("📈 Good progress! To reach 80% adoption:")
-            report.append("  • Identify remaining grep use cases")
-            report.append("  • Add missing MCP functionality")
+        if not follow["code_searches"]:
+            report.append("No code searches in this period.")
+        elif follow["follow_through_rate"] < 50:
+            report.append("⚠️  Most code searches weren't followed by pyeye:")
+            report.append("  • Turn grep hits into handles with resolve_at, then inspect / expand")
+            report.append("  • Never answer callers/references with grep: use the LSP")
         else:
-            report.append("🎉 Excellent MCP adoption rate!")
-            report.append("  • Continue monitoring for edge cases")
-            report.append("  • Share learnings with team")
+            report.append("🎉 Grep hits are being proved with pyeye.")
+            report.append("  • Keep checking callers/references with the LSP, not grep")
 
         return "\n".join(report)
 
@@ -177,8 +225,8 @@ class MCPAnalytics:
         """Export metrics to JSON file."""
         metrics = {
             "timestamp": datetime.now().isoformat(),
-            "adoption_7d": self.calculate_adoption_rate(7),
-            "adoption_30d": self.calculate_adoption_rate(30),
+            "follow_through_7d": self.calculate_follow_through(7),
+            "follow_through_30d": self.calculate_follow_through(30),
             "top_tools": self.get_top_mcp_tools(),
             "session_stats": self.get_session_stats(),
             "grep_breakdown": self.get_grep_tool_breakdown(),
