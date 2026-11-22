@@ -135,21 +135,43 @@ Please follow these steps for your contribution:
    any `.git/hooks/post-checkout.legacy` pre-commit leaves behind) so the
    metrics session does not start twice.
 
-4. To run your checkout as the server in Claude Code, register it under its own
-   name, so it doesn't clash with an installed pyeye plugin. The command is the
-   plugin's own, pointed at your checkout; it uses the `.venv` that step 2's
-   `uv sync --frozen` created:
+4. To run your checkout in Claude Code, see
+   [Running your checkout in Claude Code](#running-your-checkout-in-claude-code).
 
-   ```bash
-   claude mcp add pyeye-dev -s user -- uv run --project /path/to/your/checkout --no-sync --frozen python -m pyeye.mcp
-   ```
+#### Running your checkout in Claude Code
 
-   [`--project`](https://docs.astral.sh/uv/reference/cli/#uv-run) uses
-   the checkout's environment without changing directory, so pyeye analyses the
-   project Claude Code is open in. `--no-sync` starts the server without
-   touching that environment, so after a dependency change run
-   `uv sync --frozen` in the checkout again. Disable the pyeye plugin while you
-   test, or you'll see both servers' tools.
+The pyeye plugin is also the development setup. From the root of your checkout
+or worktree:
+
+```bash
+claude --plugin-dir "$PWD"
+```
+
+The session then loads the whole plugin from that checkout: its skills, its
+hooks and its MCP server. It replaces the installed pyeye plugin for that
+session, though `claude plugin list` still shows the installed one as enabled.
+Each checkout runs its own code, so two worktrees in dev mode at once don't
+interfere.
+
+- **Skill or hook edits:** run `/reload-plugins`.
+- **Server code edits:** the server imports pyeye when it starts, so reconnect
+  it from `/mcp` or start a new session.
+- **Headless checks of a skill:** pass `--plugin-dir` too
+  (`claude -p --plugin-dir "$PWD" …`). Without it the session tests the
+  installed copy, not your edits.
+- **The environment:** the server doesn't use your checkout's `.venv`. Each
+  plugin directory gets its own environment in the plugin's data directory,
+  synced from its `uv.lock` when the server or the session-start hook first
+  needs it, and again whenever `uv.lock` changes. Environments of checkouts
+  you've deleted are removed at the next session start.
+
+In this repository, a session-start message says so when the pyeye plugin that's
+running isn't the checkout you're in.
+
+The repository has no `.mcp.json`: Claude Code took it as the top of the
+plugin, so `--plugin-dir` launched the wrong server and never connected (#1136).
+If you added a `pyeye-dev` server from an older version of this guide, remove it
+(`claude mcp remove pyeye-dev -s user`), or you'll see both servers' tools.
 
 #### Dependency lockfile policy
 

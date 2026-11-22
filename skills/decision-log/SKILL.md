@@ -100,8 +100,8 @@ Where pyeye was installed as a Claude Code plugin, run it through the plugin's
 environment:
 
 ```bash
-UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
-  uv run --project "${CLAUDE_PLUGIN_ROOT}" --no-sync --frozen \
+CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}" CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+  uv run --no-project python "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py" \
   python -m pyeye.decisions index --active
 ```
 

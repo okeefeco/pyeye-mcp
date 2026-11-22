@@ -81,6 +81,7 @@ The plugin brings:
   `decision-log`;
 - a session-start hook that installs pyeye's dependencies with `uv` into a
   per-user environment, the first time and again whenever its lockfile changes.
+  The server does the same before it starts, so the first session connects.
 
 Install pyeye **either** as the plugin **or** with `claude mcp add`, not both:
 with both, every tool appears twice (`mcp__plugin_pyeye_pyeye__…` and
