@@ -196,6 +196,13 @@ what to check in `[tool.pyeye.docs_facts]` in its `pyproject.toml`, or under
 read for this config, never the user's global pyeye config. A repository with neither
 has nothing to check, and the command says so (#1091).
 
+pyeye's own repository declares `preset = "pyeye"`, which selects the setup built into
+the engine: its extractors, doc registry, rules and reference pages. A preset can't be
+combined with `facts`, `extractors` or `docs`, while `rules`, `changelog` and `paths`
+override it. Moving pyeye's own registry to data, and dropping the preset, is #1107.
+`tests/fixtures/docs_facts_inline` is a small repository configured inline, checked in
+CI.
+
 The config is data only. docs-facts never imports or runs the analysed repository's
 code: facts come from kinds built into pyeye, which read files.
 

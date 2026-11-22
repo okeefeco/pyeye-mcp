@@ -229,17 +229,6 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     return 0
 
 
-def _setup_for(root: Path) -> Setup | None:
-    """The repository's configured setup (#1091), or ``None`` for pyeye's own.
-
-    A repository with a ``docs_facts`` config is checked by it alone. Without
-    one, the default is pyeye's own setup until pyeye's repository declares
-    its own (the ``preset`` question with the maintainer), when no config
-    becomes an error (``config.load`` already says so).
-    """
-    return config.load(root) if config.find(root) is not None else None
-
-
 def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     """Entry point for ``scripts/docs_facts.py``."""
     parser = argparse.ArgumentParser(
@@ -252,7 +241,7 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
-        setup = _setup_for(args.root)
+        setup = config.load(args.root)
     except config.ConfigError as error:
         print(f"docs_facts: {error}", file=sys.stderr)
         return 1

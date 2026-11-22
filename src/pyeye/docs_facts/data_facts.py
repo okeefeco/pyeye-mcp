@@ -64,7 +64,8 @@ def _at(data: Any, fact: DataFact) -> Any:
 
 
 def _markdown(value: Any) -> str:
-    if isinstance(value, list):
+    """A sequence (a TOML/JSON/YAML list, a Python tuple or list) as inline-code items."""
+    if isinstance(value, list | tuple):
         return code_list(str(v) for v in value)
     return code(str(value))
 

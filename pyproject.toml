@@ -91,6 +91,11 @@ Changelog = "https://github.com/okeefeco/pyeye-mcp/blob/main/CHANGELOG.md"
 requires = ["setuptools>=64", "setuptools_scm[toml]>=8"]
 build-backend = "setuptools.build_meta"
 
+[tool.pyeye.docs_facts]
+# The engine's built-in pyeye setup (#1091); moving it to data is #1107.
+preset = "pyeye"
+changelog = "CHANGELOG.md"
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
