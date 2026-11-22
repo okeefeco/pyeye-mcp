@@ -339,6 +339,20 @@ def reapply_plugin_paths(project_path: str | Path, config: ProjectConfig) -> Non
             _apply_plugin_paths(plugin, config)
 
 
+#: The keyword-only parameters every plugin tool gains, as ``(name, annotation,
+#: default)``: ``envelope`` (#594) and ``project_path`` (#665). Declared as data so
+#: docs-facts reads the tool surface from the source, never by importing it
+#: (#1098, ruling C19). ``wrapper`` below must accept exactly these.
+PLUGIN_TOOL_EXTRA_PARAMS: tuple[tuple[str, Any, Any], ...] = (
+    ("envelope", bool, False),
+    ("project_path", str | None, None),
+)
+#: What a plugin tool's ``scope`` becomes when a resolver supplies its default
+#: (#559): optional, so an omitted ``scope`` reaches the resolver. Data for the
+#: same reason as :data:`PLUGIN_TOOL_EXTRA_PARAMS`.
+PLUGIN_TOOL_SCOPE_PARAM: tuple[tuple[str, Any, Any], ...] = (("scope", Scope | None, None),)
+
+
 def _plugin_tool(
     tool_name: str,
     func: Callable[..., Any],
@@ -436,30 +450,30 @@ def _plugin_tool(
     # Keep the tool's own return type, so the SDK builds the same structured
     # output as before when ``envelope`` is false; the union admits the envelope.
     return_type = hints.get("return", Any) | dict[str, Any]
-    envelope_param = _Parameter("envelope", _Parameter.KEYWORD_ONLY, default=False, annotation=bool)
-    project_path_param = _Parameter(
-        "project_path", _Parameter.KEYWORD_ONLY, default=None, annotation=str | None
-    )
+    extra_params = [
+        _Parameter(name, _Parameter.KEYWORD_ONLY, default=default, annotation=annotation)
+        for name, annotation, default in PLUGIN_TOOL_EXTRA_PARAMS
+    ]
+    ((_, scope_annotation, scope_default),) = PLUGIN_TOOL_SCOPE_PARAM
     parameters = [
         (
-            p.replace(default=None, annotation=Scope | None)
+            p.replace(default=scope_default, annotation=scope_annotation)
             if p.name == "scope" and resolver is not None
             else p
         )
         for p in signature.parameters.values()
     ]
     wrapper.__signature__ = signature.replace(  # type: ignore[attr-defined]
-        parameters=[*parameters, envelope_param, project_path_param],
+        parameters=[*parameters, *extra_params],
         return_annotation=return_type,
     )
     annotations = {
         **hints,
-        "envelope": bool,
-        "project_path": str | None,
+        **{name: annotation for name, annotation, _ in PLUGIN_TOOL_EXTRA_PARAMS},
         "return": return_type,
     }
     if resolver is not None:
-        annotations["scope"] = Scope | None
+        annotations["scope"] = scope_annotation
     wrapper.__annotations__ = annotations
     del wrapper.__wrapped__  # the schema must come from the new signature
     # Fact slots are filled here, from the same extractors as the docs (#827).
