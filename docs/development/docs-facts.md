@@ -170,7 +170,8 @@ section holds the facts that were uncovered when the ledger was created; it's tr
 once (#831) and only shrinks. Facts uncovered after that are listed under `new` with
 `first_seen`, the release they first appeared in. The ledger never fails a check: a new
 entry shows up in the PR diff, for the reviewer and for `/docs-review`. An entry leaves
-when its fact is covered or no longer exists.
+when its fact is covered or no longer exists. `check` prints how many `new` entries the
+ledger holds, as information only.
 
 Some fact families are reference data rather than claims a page should explain, such
 as the list of pre-commit hooks. A setup declares those families **reference-only**:

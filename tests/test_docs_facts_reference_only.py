@@ -399,3 +399,38 @@ class TestAViewGainingAMember:
         assert {member, "determinism.table"} <= set(out["changed"])
         picked = {p["page"] for p in out["pages"]}
         assert "docs/architecture/resolution.md" in picked
+
+
+class TestTheLedgerCount:
+    """``check`` prints the ledger's ``new`` count: information only (maintainer, #1108)."""
+
+    def test_check_prints_the_count(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root, setup = _foreign(tmp_path, reference_only=frozenset({"arch"}))
+        assert cli.generate(root, setup=setup) == 0
+        capsys.readouterr()
+
+        assert cli.check(root, setup=setup) == 0
+
+        # the first ledger is all baseline: nothing is new yet
+        assert "docs_facts: uncovered-fact ledger: 0 new entries" in capsys.readouterr().out
+
+    def test_a_new_entry_is_counted_and_never_fails(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        root, setup = _foreign(tmp_path)
+        assert cli.generate(root, setup=setup) == 0
+        (root / "app/b.py").write_text("Y = 2\n", encoding="utf-8")  # adds env.APP_B, arch.…b
+        assert cli.generate(root, setup=setup) == 0
+        capsys.readouterr()
+
+        assert cli.check(root, setup=setup) == 0
+        assert "docs_facts: uncovered-fact ledger: 2 new entries" in capsys.readouterr().out
+
+    def test_one_entry_reads_singular(self) -> None:
+        result = cli.Plan(outputs={"u.json": '{"new": [{"fact_id": "a.b"}]}'})
+        setup = dataclasses.replace(pyeye_setup(), paths=Paths(uncovered="u.json"))
+
+        assert cli.ledger_note(result, setup) == "uncovered-fact ledger: 1 new entry"
+        assert cli.ledger_note(cli.Plan(), setup) is None

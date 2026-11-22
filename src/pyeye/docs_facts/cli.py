@@ -233,8 +233,18 @@ def generate(root: Path, setup: Setup | None = None) -> int:
     return 1 if result.problems else 0
 
 
+def ledger_note(result: Plan, setup: Setup) -> str | None:
+    """How many ``new`` entries the planned ledger has: information, never a gate (#1108)."""
+    text = result.outputs.get(setup.paths.uncovered)
+    if text is None:
+        return None
+    count = len(json.loads(text)["new"])
+    return f"uncovered-fact ledger: {count} new {'entry' if count == 1 else 'entries'}"
+
+
 def check(root: Path, setup: Setup | None = None) -> int:
     """Fail if any output is stale or any marker is malformed or unknown."""
+    setup = pyeye_setup() if setup is None else setup
     result = plan(root, setup=setup)
     paths = stale(root, result)
     for path in paths:
@@ -243,6 +253,9 @@ def check(root: Path, setup: Setup | None = None) -> int:
         print(f"docs_facts: {problem}")
     for note in result.notes:  # left out, not failed (#1091)
         print(f"docs_facts: {note}")
+    count = ledger_note(result, setup)
+    if count is not None:  # informational only: no gate, no ratchet
+        print(f"docs_facts: {count}")
     if paths:
         print(
             f"docs_facts: {len(paths)} file(s) differ from the code's facts. Run "
