@@ -2,8 +2,7 @@
 """Record Claude Code's own Grep tool use, where ``mcp_analytics.py`` reads it (#970).
 
 The ``Grep`` hook used to append a CSV line only, and the report reads only
-``grep_usage.jsonl``, so the Grep tool never counted towards grep usage or the
-MCP adoption rate. This writes the same JSONL record shape as
+``grep_usage.jsonl``, so the Grep tool never reached the report. This writes the same JSONL record shape as
 ``detect_grep_usage.py`` (tool ``grep_tool``), plus the CSV line.
 """
 
@@ -40,6 +39,9 @@ def main() -> None:
                     "tool": "grep_tool",
                     "pattern": tool_input.get("pattern", ""),
                     "path": tool_input.get("path", ""),
+                    # What the search targeted: the report counts only code searches (#1130).
+                    "glob": tool_input.get("glob", ""),
+                    "type": tool_input.get("type", ""),
                     "context": "grep_tool",
                 },
                 f,

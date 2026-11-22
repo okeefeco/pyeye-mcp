@@ -1,6 +1,6 @@
 # MCP Monitoring for Claude Code
 
-Claude Code hooks that count pyeye's MCP tool calls against grep/find-style searches.
+Claude Code hooks that record pyeye's MCP tool calls and grep/find-style searches, and report how often a search of the code is followed by pyeye: grep finds, pyeye proves (#1130).
 
 ## 🚀 Quick Start
 
@@ -34,7 +34,7 @@ The monitoring system automatically tracks:
 
 - **MCP Tool Calls**: Every pyeye tool invocation, under either name Claude Code gives it: `mcp__pyeye__*` (added with `claude mcp add`) or `mcp__plugin_pyeye_pyeye__*` (the Claude Code plugin). Both are recorded under the tool's own name, such as `resolve`.
 - **Grep Usage**: Detection of grep/rg/find in Bash commands
-- **Direct Grep Tool**: Usage of Claude's Grep tool (`track_grep_tool.py`), counted with grep usage in the report
+- **Direct Grep Tool**: Usage of Claude's Grep tool (`track_grep_tool.py`), with its pattern, path, glob and type
 - **Sessions**: Start/end of Claude Code sessions
 - **Success Metrics**: Tool completion and response sizes
 
@@ -60,11 +60,16 @@ mcp-export
 
 `mcp_analytics.py` prints these sections, in order, for the period you ask for:
 
-- **Adoption metrics**: MCP tool calls, grep/find usage, and the MCP adoption
-  rate (MCP calls as a share of all searches).
+- **Find, then prove**: pyeye calls; code searches (a grep aimed at Python
+  source: the Grep tool with a `py` type, a `.py` glob, or a directory or `.py`
+  path, or a Bash grep naming `.py` files, `--include=*.py` or `-t py`); how many
+  of those the same session followed with a pyeye call soon after
+  (`FOLLOW_UP_WINDOW` in `mcp_analytics.py`); and
+  the other searches (logs, docs, processes), which aren't counted. Grep for
+  discovery is expected, so it isn't scored against pyeye (#1130).
 - **Session statistics**: total, complete and active sessions.
 - **Top MCP tools used** and a **grep tool breakdown**, when there is data.
-- **Recommendations**, chosen from the adoption rate.
+- **Recommendations**, chosen from the follow-through rate.
 
 Run `mcp-report` to see it for your own sessions.
 
