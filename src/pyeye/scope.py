@@ -63,13 +63,12 @@ exposes the three boundaries we need: ``project_path``, ``source_roots``, and
 
 from __future__ import annotations
 
-import re
 import sysconfig
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from pyeye.path_utils import normalize_path, relative_within
-from pyeye.project_layout import RootsBoundary, is_package_dir, project_roots
+from pyeye.project_layout import RootsBoundary, dir_name_matches, is_package_dir, project_roots
 
 if TYPE_CHECKING:
     from .analyzers.jedi_analyzer import JediAnalyzer
@@ -112,8 +111,7 @@ _BUILD_ARTIFACT_TOPLEVEL: frozenset[str] = frozenset(("build", "dist"))
 
 # ``_BUILD_ARTIFACT_ANYWHERE`` names are semantically unambiguous regardless of
 # depth: no real source file lives inside ``.tox/`` or ``__pycache__/``.
-_BUILD_ARTIFACT_ANYWHERE: frozenset[str] = frozenset((".tox", "__pycache__"))
-_BUILD_ARTIFACT_SUFFIX_RE = re.compile(r"^.+\.egg-info$")
+_BUILD_ARTIFACT_ANYWHERE: frozenset[str] = frozenset((".tox", "__pycache__", "*.egg-info"))
 
 
 def _has_build_artifact_segment(path: Path, project_root: Path | None = None) -> bool:
@@ -150,11 +148,9 @@ def _has_build_artifact_segment(path: Path, project_root: Path | None = None) ->
     # Under the root, skip the root's own segments and its ancestors (#515).
     start = toplevel_idx if toplevel_idx is not None else 0
     for i, part in enumerate(parts[start:], start):
-        folded = part.casefold()
-        # Top-level-only names
-        if folded in _BUILD_ARTIFACT_TOPLEVEL:
+        # Top-level-only names, matched by the scan's own name predicate (#1116).
+        if dir_name_matches(part, _BUILD_ARTIFACT_TOPLEVEL):
             # #1104: the scan's package rule — a ``build``/``dist`` PACKAGE is source.
-            # The name match stays case-folded here, as it always was.
             if is_package_dir(Path(*parts[: i + 1])):
                 continue
             if toplevel_idx is not None and i == toplevel_idx:
@@ -164,9 +160,7 @@ def _has_build_artifact_segment(path: Path, project_root: Path | None = None) ->
                 # (preserves behaviour for callers that do not pass a root)
                 return True
         # Anywhere names
-        if folded in _BUILD_ARTIFACT_ANYWHERE:
-            return True
-        if _BUILD_ARTIFACT_SUFFIX_RE.match(part):
+        if dir_name_matches(part, _BUILD_ARTIFACT_ANYWHERE):
             return True
     return False
 

@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "The scan excludes venvs by pyvenv.cfg and excluded names only when not a package, with one rule for scan, watcher and scope (#1104)"
 issues: [1104, 517, 507, 738, 1092]
 anchors: ["pyeye.project_layout.excluded_scan_dir", "pyeye.project_layout.is_package_dir", "pyeye.async_utils.filtered_rglob", "pyeye.cache.CodebaseWatcher._is_ignored", "pyeye.scope._has_build_artifact_segment", "tests/test_scan_excluded_package_dirs.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-16-517-every-whole-tree-scan-goes-through-filtered-rglob.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1116-excluded-directory-names-match-in-any-case.md"]
 superseded_by: []
 ---
 
