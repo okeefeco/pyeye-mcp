@@ -14,6 +14,7 @@ from ..path_utils import path_to_key, relative_within
 from ..project_layout import module_name_for_file
 from ..resolver import Resolved, resolve_item
 from .base import AnalyzerPlugin, Scope
+from .detection import Detection, declares, scan_for_imports
 
 logger = logging.getLogger(__name__)
 
@@ -332,41 +333,20 @@ class FlaskPlugin(AnalyzerPlugin):
 
     def detect(self) -> bool:
         """Detect if this is a Flask project."""
-        # Check for common Flask entry points
-        common_files = ["app.py", "application.py", "wsgi.py", "run.py"]
-        for file_name in common_files:
+        return self.detection() == "detected"
+
+    def detection(self) -> Detection:
+        """Flask imported by an entry point or declared, else imported in a bounded scan (#1143)."""
+        markers = ("from flask import", "import flask")
+        for file_name in ("app.py", "application.py", "wsgi.py", "run.py"):
             file_path = self.project_path / file_name
             if file_path.exists():
                 content = self._read_text_or_skip(file_path)
-                if content is not None and (
-                    "from flask import" in content or "import flask" in content
-                ):
-                    return True
-
-        # Check for Flask in requirements
-        requirements_files = [
-            "requirements.txt",
-            "requirements/base.txt",
-            "Pipfile",
-            "pyproject.toml",
-        ]
-        for req_file in requirements_files:
-            req_path = self.project_path / req_file
-            if req_path.exists():
-                content = self._read_text_or_skip(req_path)
-                if content is not None and "flask" in content.lower():
-                    return True
-
-        # Check for Flask imports in any Python files
-        for py_file in filtered_rglob("*.py", self.project_path):
-            if py_file.is_file():
-                content = self._read_text_or_skip(py_file)
-                if content is not None and (
-                    "from flask import" in content or "import flask" in content
-                ):
-                    return True
-
-        return False
+                if content is not None and any(marker in content for marker in markers):
+                    return "detected"
+        if declares(self.project_path, "flask"):
+            return "detected"
+        return scan_for_imports(self.project_path, markers, self._read_text_or_skip)
 
     def register_tools(self) -> dict[str, Callable]:
         """Register Flask-specific tools."""

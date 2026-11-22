@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "configure_packages announces the tools it adds; pyeye advertises tools.listChanged (#770)"
 issues: [770, 659, 629]
 anchors: ["pyeye.mcp.list_changed.announces_new_tools", "pyeye.mcp.list_changed.channel_for", "pyeye.mcp.list_changed.run_stdio", "pyeye.mcp.list_changed.initialization_options", "tests/test_tools_list_changed.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-16-659-configure-packages-re-detects-frameworks-add-only.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1143-plugin-detection-declared-first-bounded-in-background.md"]
 superseded_by: []
 ---
 

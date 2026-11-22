@@ -6,7 +6,7 @@ anchors: ["pyeye.mcp.server.redetect_plugins", "pyeye.mcp.server._activate_if_de
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-20-770-configure-packages-announces-new-tools.md"]
+amended_by: ["2026-11-20-770-configure-packages-announces-new-tools.md", "2026-11-23-1143-plugin-detection-declared-first-bounded-in-background.md"]
 superseded_by: []
 ---
 
