@@ -27,6 +27,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from .._module_scope import iter_module_scope_imports
 from ..path_utils import relative_within
 from .facts import ExtractionError
 
@@ -72,7 +73,8 @@ def _assigned(body: list[ast.stmt], name: str) -> ast.expr | None:
 def _imported_from(tree: ast.Module, module: str, name: str) -> tuple[str, str] | None:
     """``(module, name)`` when *name* is imported from a pyeye module, else ``None``."""
     package = module.rsplit(".", 1)[0] if not module.endswith(".__init__") else module
-    for node in tree.body:
+    # The one module-scope import walk (#360); a guarded import binds nothing reliably.
+    for node in iter_module_scope_imports(tree, include_guarded=False):
         if not isinstance(node, ast.ImportFrom):
             continue
         for alias in node.names:
