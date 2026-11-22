@@ -1,0 +1,95 @@
+[
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "The 2025 numbers are lost from the docs; they remain in git history.",
+        "text": "Remove the figures. Keep a short history: on 2025-08-20 (f840b8b5, #45) a baseline was taken before the async I/O work (b6a1d047), the diagnosis it led to, and the planned next steps without multipliers. Keep benchmarks/benchmark_simple.py as the script added then, and do not quote numbers from it."
+      },
+      {
+        "cost": "Needs a checkout and re-run at a 2025 commit, with a 2025 environment. The record then holds far less than the page does now, and the p95/p99/throughput/memory/write figures must still go, because no command produces them.",
+        "text": "Turn the page into a record: registry kind `record`, front matter date 2025-08-20, commit f840b8b5, command `uv run python benchmarks/benchmark_simple.py`, and replace the figures with only what that command outputs (min/median/max ms for 100 files), re-run at f840b8b5."
+      }
+    ],
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "Every measured figure on the page (Summary; Small Codebase; Medium Codebase: p95/p99 ms, req/s, MB, the 113->33 req/s and 70% drop comparisons, the 0.16-0.58ms write cost) has no record. The page itself states no date, no command and no commit, so it cannot simply be relabelled as a record. Git supplies two of the three: it was added in f840b8b5 on 2025-08-20 (#45). The command is the gap. The only script committed alongside it, benchmarks/benchmark_simple.py (still present), cannot have produced these numbers: it builds 10/100/1000-file projects (not 100/1,000), runs only the 'medium' (100-file) project, times JediAnalyzer.find_symbol 10 times, and prints min/median/max. It reports no p95, p99, throughput, memory or file-write timing.",
+    "question": "Remove the unbacked measurements and keep a short account of what happened, or turn the page into a `record`?",
+    "recommendation_anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "recommended": 0,
+    "section": "performance-baseline-results"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "'establishing current performance before optimizations' reads as present-day performance. This page is history, and the async I/O and caching work it anticipates has since landed (b6a1d047 and later).",
+    "replacement": "A baseline taken on 2025-08-20 (commit f840b8b5, #45), before the async I/O and caching work.",
+    "section": "performance-baseline-results"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "'(would be **230-520ms for 10,000 files**)' is an extrapolation stated as a result, and the lead 'significant bottlenecks that will severely impact large-scale usage' is a forecast. Note too that the 23ms lower bound appears nowhere in Detailed Results.",
+    "replacement": "Delete the '(would be 230-520ms for 10,000 files)' parenthetical, and replace the lead sentence with a past-tense one that makes no forecast, e.g. 'The baseline was taken to find bottlenecks before the async I/O work.' (Whether the remaining measured bullets stay depends on the record decision in the first section.)",
+    "section": "summary"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "The whole section is a projection ('Based on linear scaling': ~520ms, ~1580ms, ~10 req/s, ~70MB). Nothing was measured at 10,000 files. The data doesn't even show linear scaling: p99 at 1,000 files (158.26ms) is lower than at 100 (165.73ms), and memory fell (7.38MB to 7.25MB).",
+    "replacement": "Delete the section.",
+    "section": "projected-large-codebase-10000-files"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "The items are stated as present-tense absolutes that nothing on the page backs: 'Performance degrades linearly with file count' (contradicted by the p99 and memory figures), 'All operations block the server', 'Concurrent requests serialize'. As history, the diagnosis happened, but it is presented as fact about the code.",
+    "replacement": "Introduce the list as the 2025 diagnosis ('The diagnosis recorded with this baseline was:'), drop item 1 (Linear scaling), and soften items 2-3 to what was observed then: 'Blocking file I/O on the request path' and 'Concurrent requests did not run in parallel'.",
+    "section": "critical-issues-identified"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "The section is targets and projections: the 'Current (Projected)' column, the targets (<100ms, <200ms, >100 req/s, <50MB) and the 'Improvement Needed' multipliers (5x, 8x, 10x). The ruling removes projections and targets outright.",
+    "replacement": "Delete the section.",
+    "section": "performance-targets"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "benchmarks/BASELINE_RESULTS.md",
+    "problem": "Each step carries a forecast gain stated as fact: '(5-10x improvement)', '(2-3x improvement)', '(10x throughput)'. The plan itself is history worth keeping; the multipliers are projections.",
+    "replacement": "Retitle the section 'Planned next steps (August 2025)' and drop the three parenthetical multipliers. Keep the four items: Async I/O, Smart Caching, Parallel Processing and Configurable Limits.",
+    "section": "next-steps"
+  }
+]

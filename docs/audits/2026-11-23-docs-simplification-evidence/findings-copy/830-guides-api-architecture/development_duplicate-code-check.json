@@ -1,0 +1,62 @@
+[
+  {
+    "anchor": {
+      "id": "duplication.default.min_tokens",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/development/duplicate-code-check.md",
+    "problem": "Restates the default minimum clone length (35 tokens) by hand; it is the duplication.default.min_tokens fact.",
+    "replacement": "Any run of at least <!-- fact:begin duplication.default.min_tokens -->35<!-- fact:end --> identical tokens (by default; `--min-tokens` changes it)",
+    "section": "what-it-does",
+    "subject": "Any run of at least 35 identical tokens"
+  },
+  {
+    "anchor": {
+      "id": "duplication.default.max_occurrences",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/development/duplicate-code-check.md",
+    "problem": "Restates the occurrence cap (50) by hand; it is the duplication.default.max_occurrences fact. The '51-way copy' later in the bullet is derived from it.",
+    "replacement": "A token window that appears more than <!-- fact:begin duplication.default.max_occurrences -->50<!-- fact:end --> times ... so a copy past the cap fails the ratchet like a 2-way one.",
+    "section": "what-it-does",
+    "subject": "A token window that appears more than 50 times"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/development/duplicate-code-check.md",
+    "problem": "An absolute claim about the repository's current state with no test or record behind it; it goes stale silently if a 50+ repeated window appears.",
+    "replacement": "Delete the sentence.",
+    "section": "what-it-does",
+    "subject": "On this repository the cap changes nothing."
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/development/duplicate-code-check.md",
+    "problem": "An unbacked timing figure used to compare against pylint; no benchmark or performance test records it.",
+    "replacement": "The AST check finds all three of those copies and needs no new dependency.",
+    "section": "why-not-pylint-duplicate-code",
+    "subject": "runs in under a second"
+  },
+  {
+    "anchor": {
+      "id": "duplication.default.min_tokens",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/development/duplicate-code-check.md",
+    "problem": "Restates the default minimum token count by hand.",
+    "replacement": "Short copies under <!-- fact:begin duplication.default.min_tokens -->35<!-- fact:end --> tokens (a few lines) aren't reported by default.",
+    "section": "limits",
+    "subject": "Short copies under 35 tokens"
+  }
+]

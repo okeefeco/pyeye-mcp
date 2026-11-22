@@ -1,0 +1,20 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.docs_facts.facts.view",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "view(view_id: str, members: Iterable[Fact], markdown: str) -> View"
+      }
+    ],
+    "page": "docs/development/docs-facts.md",
+    "problem": "The parenthesised list of group IDs (tool.trace.params, tools.core, edges.*, ceilings.table, env.all, env.deprecated, cli.all) reads as complete but isn't: extractors also build views such as scopes.options, duplication.commands, duplication.flags, duplication.reasons, resolver.strategy, resolver.bare_name, review.axes, review.grades, security.writes, env.<VAR>.default and tool.<name>.params for every tool.",
+    "replacement": "Group IDs, which render a table or list over several facts (for example `edges.table`, `env.all` or `tool.<name>.params`), aren't in the snapshot because they have no value of their own.",
+    "route": "wording",
+    "route_reason": "No extractor lists the view IDs as a fact, and an executed example only runs MCP tools, not the docs_facts tooling.",
+    "section": "using-a-fact-in-a-page"
+  }
+]

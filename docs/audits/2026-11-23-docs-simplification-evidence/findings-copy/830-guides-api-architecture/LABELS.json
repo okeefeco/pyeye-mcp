@@ -1,0 +1,26 @@
+[
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "assessment": "unanchored: judgment only. dependabot.yml sets `labels: [dependencies]` for the uv ecosystem, so `python:uv` is likely a leftover auto-created label; deleting it keeps the page complete without a new entry.",
+    "category": "style",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "one more label to keep; dependabot.yml already applies `dependencies`, so it may be redundant",
+        "text": "Add `python:uv` under Development as Dependabot's ecosystem label for uv dependency PRs."
+      },
+      {
+        "cost": "Dependabot may recreate it on its next uv PR",
+        "text": "Delete the `python:uv` label from the repository (`gh label delete python:uv`)."
+      }
+    ],
+    "page": "docs/LABELS.md",
+    "problem": "The label set is GitHub repository state, and the page has drifted from it: `gh label list` shows `python:uv`, which the page doesn't mention. Every label the page does list exists.",
+    "question": "Document `python:uv`, or delete it from the repository?",
+    "section": "github-labels-guide",
+    "subject": "This document describes the label system used for issues and pull requests in the PyEye project."
+  }
+]

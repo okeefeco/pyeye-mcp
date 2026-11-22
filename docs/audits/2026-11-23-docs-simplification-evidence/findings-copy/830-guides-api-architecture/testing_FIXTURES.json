@@ -1,0 +1,132 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "the page stays mostly generic",
+        "text": "Keep the patterns but strip every repo-path label, and add a short section linking tests/conftest.py and tests/fixtures/factories.py as where the real shared fixtures and factories live."
+      },
+      {
+        "cost": "restates names that will drift unless bound",
+        "text": "Rewrite the core sections around the real fixtures (temp_project_dir, sample_python_project, namespace_package_dirs, the autouse watcher/cache/worker resets, ProjectFactory.create)."
+      }
+    ],
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "Most snippets are labelled with real repo paths (`# tests/conftest.py`, `# tests/fixtures/factories.py`, `# tests/performance/conftest.py`) but show fixtures and helpers that don't exist there (temp_project, large_project, mock_config, mock_analyzer, python_version, async_client, base_config, create_test_file ...). A reader looking for them in the repo finds different names.",
+    "question": "Keep the page as generic pytest patterns, or rewrite it around the repo's real fixtures?",
+    "recommendation_anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "recommended": 0,
+    "section": "overview",
+    "subject": "Fixtures provide reusable test setup and teardown logic, ensuring consistent test environments and reducing code duplication."
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "There is only one conftest.py (tests/conftest.py); tests/unit/conftest.py, tests/integration/conftest.py, tests/fixtures/projects/ and tests/fixtures/data/ do not exist. Sample projects live as named directories directly under tests/fixtures/.",
+    "replacement": "Show tests/conftest.py, tests/fixtures/factories.py and tests/fixtures/<sample_project>/ only, and drop the per-tier conftest.py lines and projects/, data/.",
+    "section": "directory-structure",
+    "subject": "\u2502   \u2514\u2500\u2500 conftest.py      # Unit test specific fixtures"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "Labelled `# tests/conftest.py`, but that file has no temp_project or large_project; its project fixtures are temp_project_dir, sample_python_project, namespace_package_dirs, sample_flask_project and sample_pydantic_project.",
+    "replacement": "Drop the path label and link tests/conftest.py for the shared project fixtures, keeping the snippet only as a pattern.",
+    "section": "project-fixtures",
+    "subject": "def temp_project(tmp_path):"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.settings.PerformanceSettings",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "All settings can be configured via environment variables"
+      }
+    ],
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "The mock .pyeye.json carries cache_ttl and max_projects, implying they are config-file keys. They are read only from the environment (PYEYE_CACHE_TTL, PYEYE_MAX_PROJECTS) by PerformanceSettings; in .pyeye.json they are silently ignored. The snippet is also labelled tests/conftest.py, which has sample_config_json and sample_pyproject_toml instead.",
+    "replacement": "Remove \"cache_ttl\" and \"max_projects\" from mock_config (keep packages and namespaces) and drop the `# tests/conftest.py` label; if the page needs them, add: \"Cache TTL and project limits are environment variables, see docs/reference/env-vars.md.\"",
+    "route": "wording",
+    "route_reason": "The claim is implied by a sample config inside a fixture, so there is nothing to bind and no tool output to execute; the fix removes the two keys and links the env-var reference.",
+    "section": "configuration-fixtures"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "Labelled `# tests/conftest.py`, but that file has no mock_analyzer or mock_project_manager; its mocks are mock_jedi_project, mock_jedi_script, mock_watchdog_observer and mock_mcp_server. JediAnalyzer also has no get_references method.",
+    "replacement": "Drop the path label and the get_references stub, and link tests/conftest.py for the real mock fixtures.",
+    "section": "mock-fixtures",
+    "subject": "def mock_analyzer():"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "There is no pyeye.models module, factory_boy and Faker are not dependencies, and the real tests/fixtures/factories.py the block is labelled with contains plain classes (ProjectFactory.create, FileFactory, ConfigFactory, CacheFactory, SymbolFactory, NamespacePackageFactory), not factory_boy factories.",
+    "replacement": "Delete the Factory Boy subsection and its reference link, and link tests/fixtures/factories.py as the project's factory module.",
+    "section": "using-factory-boy",
+    "subject": "from pyeye.models import Project, Symbol, Module"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "Labelled `# tests/fixtures/factories.py`, but that module has no create_test_file or create_namespace_package; the equivalents are FileFactory and NamespacePackageFactory.",
+    "replacement": "Replace the block with a link to tests/fixtures/factories.py and one sentence on when to use a factory instead of a fixture.",
+    "section": "custom-factory-functions",
+    "subject": "def create_test_file(path: Path, content: str = None) -> Path:"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "Labelled `# tests/conftest.py`, but no python_version or project_size fixture exists there or anywhere in tests/; the version list also reads like the supported versions, which it isn't.",
+    "replacement": "Drop the path label and use neutral parameter values (e.g. sizes only), so the snippet is clearly a pattern.",
+    "section": "parametrized-fixtures",
+    "subject": "def python_version(request):"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/FIXTURES.md",
+    "problem": "There is no tests/performance/conftest.py; timer, benchmark_data and performance_threshold exist nowhere in tests/, and generate_data is undefined.",
+    "replacement": "Drop the path label and the undefined helper, or replace the section with a link to tests/utils/performance.py.",
+    "section": "performance-testing-fixtures",
+    "subject": "# tests/performance/conftest.py"
+  }
+]

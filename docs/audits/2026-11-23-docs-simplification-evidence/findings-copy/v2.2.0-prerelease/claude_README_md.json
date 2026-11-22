@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/README.md",
+    "page_hash": "8eca345d",
+    "problem": "The tree lists a `feedback/` directory that does not exist in `.claude/`, and omits the `skills/` directory that does (docs-review, pyeye-scenarios, pyeye-verify).",
+    "replacement": "Replace the `\u251c\u2500\u2500 feedback/        # Learning/logs` line with `\u251c\u2500\u2500 skills/          # Repo-internal skills (not shipped)`.",
+    "section": "directory-structure",
+    "subject": "\u251c\u2500\u2500 feedback/        # Learning/logs"
+  },
+  {
+    "anchor": {
+      "id": "duplicated-prose",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/README.md",
+    "page_hash": "8eca345d",
+    "problem": "The prefix list repeats the 'File Organization in .claude/instructions/' list in .claude/instructions/00-documentation-system.md, and has already drifted from the directory: it stops at `09-10-*` while `11-pr-requirements.md` exists.",
+    "replacement": "Replace the list with one line: \"The instruction files load in numbered-prefix order; see the 'File Organization' section of [`instructions/00-documentation-system.md`](instructions/00-documentation-system.md) for what each prefix covers.\"",
+    "section": "understanding-the-system",
+    "subject": "The instruction files use a numbered prefix system:"
+  }
+]

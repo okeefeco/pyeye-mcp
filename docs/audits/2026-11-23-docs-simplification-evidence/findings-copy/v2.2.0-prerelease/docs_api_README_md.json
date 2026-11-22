@@ -1,0 +1,69 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/api/README.md",
+    "page_hash": "3dfcf663",
+    "problem": "Says the whole skill (mechanics, edge list, worked examples) can't drift silently. Only the edge list is held to the live registry: it is bound through fact blocks (edges.implemented, edges.deferred) checked by docs_facts and tests/test_docs_facts_skills.py. The mechanics prose and worked examples have no such guarantee.",
+    "replacement": "Narrow the claim to what is checked: \"Its supported-edge list is bound to the live edge registry, so that list can't drift the way a hand-maintained copy here would.\"",
+    "section": "-core-navigation-where-its-documented",
+    "subject": "so it can't drift silently"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.server.configure_packages",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "on the project the server started in, this also re-detects frameworks against the new layout"
+      }
+    ],
+    "page": "docs/api/README.md",
+    "page_hash": "3dfcf663",
+    "problem": "\"This applies only to the project the server started in.\" closes a paragraph that opens with \"Changes take effect immediately ... the project's active framework plugins get the new paths\", so it reads as covering the whole paragraph. Only the framework re-detection and activated_plugins are limited to the startup project; for any other project_path the new paths still take effect at once (analyzers and caches are invalidated, and reapply_plugin_paths gives that project's plugins the new paths), and activated_plugins is absent.",
+    "replacement": "Scope the last sentence to the activation it qualifies: \"Plugin activation (and `activated_plugins`) applies only to the project the server started in; on any other project the new paths still take effect at once.\"",
+    "route": "wording",
+    "route_reason": "A behaviour scoping of one call path; no extractor reads it, and an executed example can't show a call on a second, non-startup project.",
+    "section": "parameters"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.server._check_new_config_paths",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Refuse a new config entry whose final form fails the path check"
+      },
+      {
+        "docstring": "Naming the first refused entry; nothing has been changed."
+      }
+    ],
+    "page": "docs/api/README.md",
+    "page_hash": "3dfcf663",
+    "problem": "Says rejected_paths lists \"the config entries the path check refused and skipped\". That holds only for entries already in the config. An entry passed in this call (packages, namespaces, standalone_dirs) that fails the path check is not skipped or listed: the call fails with a validation error and nothing is changed or saved (#856). The page never says so, so a reader expects a bad new path to come back in rejected_paths.",
+    "replacement": "Add after the rejected_paths paragraph: \"Those are entries already in the config. An entry you pass in this call that fails the path check is not skipped: the call fails, naming it, and nothing is changed or saved (#856).\"",
+    "route": "wording",
+    "route_reason": "Executed examples show successful responses only; the error path has no fact extractor.",
+    "section": "returns"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api/README.md",
+    "page_hash": "3dfcf663",
+    "problem": "The merge rule for namespaces (a namespace named again replaces its repositories) is a hand-written behaviour claim that no fact or executed example carries. The package accumulation has an executed example under Returns; the namespace replacement has none.",
+    "replacement": "Back it with an executed example of two save=false calls that name the same namespace, e.g. ```json pyeye-example tool=configure_packages``` with [{\"namespaces\": {\"acme\": [\"myapp/db\"]}, \"save\": false}, {\"namespaces\": {\"acme\": [\"myapp/templates\"]}, \"save\": false}] and its pyeye-output showing only the second list under namespaces.acme; keep the prose to saying what the example demonstrates.",
+    "section": "parameters",
+    "subject": "`namespaces` are merged by name"
+  }
+]

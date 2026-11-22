@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "page_hash": "198dcca6",
+    "problem": "The example calls the `trace` tool synchronously inside a plain `def` test, but `pyeye.mcp.server.trace` is `async def`; as written `result` is a coroutine and `result[\"edges\"]` raises TypeError. It is the one example on the page that uses a real pyeye API, so a reader may copy it.",
+    "replacement": "Make the test `async def test_edge_case():` and write `result = await trace(\"pkg.a\", follow=[\"imports\"], project_path=project)` (asyncio_mode is auto, so no marker is needed).",
+    "section": "comments",
+    "subject": "result = trace(\"pkg.a\", follow=[\"imports\"], project_path=project)"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "page_hash": "198dcca6",
+    "problem": "The example shows its imports explicitly (`from tests.utils.performance import ...`) but never imports `time`, so copied as written it fails with NameError at `time.perf_counter()`.",
+    "replacement": "Add `import time` above the `from tests.utils.performance import PerformanceThresholds, assert_performance_threshold` line.",
+    "section": "timing-assertions",
+    "subject": "start = time.perf_counter()"
+  }
+]

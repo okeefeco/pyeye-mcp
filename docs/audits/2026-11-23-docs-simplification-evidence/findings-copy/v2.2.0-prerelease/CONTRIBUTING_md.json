@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "CONTRIBUTING.md",
+    "page_hash": "80a98fee",
+    "problem": "Absolute claim with wider scope than the repo guarantees. CI's 'Import the installed wheel outside the repo' step (.github/workflows/ci.yml, #851) runs `uv pip install` of the built wheel into a fresh venv. That resolves the wheel's dependencies from the index, not from uv.lock. The guarantee covers the `uv sync` / `uv run` installs, not every command.",
+    "replacement": "Scope the sentence to the environments it covers: \"pre-commit hooks, CI, local dev and release install their environments from the exact locked dependency set; none of those installs re-resolves.\" Or add a short note that CI's installed-wheel import check installs the built wheel outside the lock on purpose.",
+    "section": "dependency-lockfile-policy",
+    "subject": "and no command silently re-resolves"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "CONTRIBUTING.md",
+    "page_hash": "80a98fee",
+    "problem": "The parenthesised list of hook types is copied by hand from `default_install_hook_types` in .pre-commit-config.yaml. That is machine-readable repo config (C17), and no fact carries it yet. It will drift when a hook type is added or removed, and the paragraph already has to tell readers to re-run install when that happens.",
+    "replacement": "Add a repo_config fact for .pre-commit-config.yaml's `default_install_hook_types` (new: read that key), and bind it here in place of the hand-written list. Until that fact exists, drop the list and point at `default_install_hook_types` in .pre-commit-config.yaml.",
+    "section": "quick-start",
+    "subject": "This installs every hook type the project configures"
+  }
+]

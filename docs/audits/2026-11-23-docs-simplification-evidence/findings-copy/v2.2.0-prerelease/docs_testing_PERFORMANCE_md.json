@@ -1,0 +1,37 @@
+[
+  {
+    "anchor": {
+      "id": "tests.utils.performance.format_threshold_message",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "format_threshold_message(metric_name: str, actual_value: float, threshold: float, unit: str=\"ms\") -> str"
+      },
+      {
+        "docstring": "Format a consistent threshold violation message."
+      }
+    ],
+    "page": "docs/testing/PERFORMANCE.md",
+    "page_hash": "d2f4609b",
+    "problem": "Says assert_performance_threshold 'reports the environment in the failure message'. That holds only on CI: format_threshold_message appends the platform only when is_ci_environment() is true, so a local failure names no environment. Right except on the local path.",
+    "replacement": "`assert_performance_threshold` compares a measurement against it; on CI, the failure message also names the platform.",
+    "route": "wording",
+    "route_reason": "The helper lives in tests/, not an MCP tool, so there is no example route, and no extractor reads test helpers; the module is already linked from the Overview.",
+    "section": "ci-runners-are-slower-and-noisier"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/PERFORMANCE.md",
+    "page_hash": "d2f4609b",
+    "problem": "'each guard' overstates it: test_performance_regression.py has slowed-on-purpose tests only for the metrics-overhead and warm find_symbol guards. The memory-footprint assertion (TestMemoryEfficiency.test_metrics_memory_footprint) has no counterpart that proves it can fail.",
+    "replacement": "\"slowed on purpose\" tests that prove the timing guards can fail",
+    "section": "a-worked-example",
+    "subject": "\"slowed on purpose\" tests that prove each guard can fail"
+  }
+]

@@ -1,0 +1,300 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "uv-created environments don't include pip, so `uv run pip list` fails as written; and pyeye doesn't depend on fastmcp (it uses the mcp SDK's MCPServer).",
+    "replacement": "uv pip list | grep -E \"jedi|parso|mcp|watchdog\"",
+    "section": "dependency-conflicts",
+    "subject": "uv run pip list | grep -E \"jedi|fastmcp|mcp\""
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig.load_config",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Override file (.pyeye.override.json) - for local development"
+      }
+    ],
+    "extractor": "new: CONFIG_FILES, OVERRIDE_FILE and the global config paths from pyeye.constants / ProjectConfig._load_global_config",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "The location list includes 'Environment variables (PYEYE_*)', which carry no configuration (#556), and omits the override file .pyeye.override.json (highest precedence) and the other project files (.pyeye.yaml/.yml, .claude/pyeye.json) and ~/.pyeye.json. It also doesn't say that only the first project config file found is read.",
+    "replacement": "Bind the config-source list (global config, then the first project config file found, then .pyeye.override.json) as a fact block from a new extractor, and drop the environment-variables bullet; link the README's Performance Settings for the variables.",
+    "route": "fact",
+    "section": "config-file-not-found"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig._normalise_config_path",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Relative entries are taken relative to the project directory"
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Says relative paths are relative to the config file and that `~/` must be expanded by hand. Relative entries are taken relative to the project directory (not the file, which differs for .claude/pyeye.json and the global config), and pyeye expands `~` itself, as the example above already relies on.",
+    "replacement": "2. Use absolute paths, `~/` paths, or paths relative to the project directory (pyeye expands `~` and resolves relative entries against the project root).",
+    "route": "wording",
+    "route_reason": "This is path-resolution behaviour, not a value an extractor reads; an executed example would need a filesystem layout the docs runner doesn't provide.",
+    "section": "invalid-configuration"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_MAX_PROJECTS",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "'default: 10 cached projects' restates PYEYE_MAX_PROJECTS's default by hand.",
+    "replacement": "Bind the default with a fact block for env.PYEYE_MAX_PROJECTS.default and name the variable: 'Check the project limit, PYEYE_MAX_PROJECTS (default <fact>)'.",
+    "section": "multi-project-setup-problems"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.scope_utils.namespace_directory_structure",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "The repository itself when it holds Python files, plus each non-hidden subdirectory that does"
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Tells users to ensure `__init__.py` exists in namespace directories. pyeye doesn't require one (a package directory is any directory holding Python files), and for a PEP 420 namespace package the shared namespace directory (`mycompany/` in each repo) must NOT have an `__init__.py`, or the repos stop merging into one package.",
+    "replacement": "2. Make sure the shared namespace directory (`mycompany/`) in each repo has no `__init__.py` (PEP 420); the subpackages under it (`mycompany/auth/`) may.",
+    "route": "wording",
+    "route_reason": "This is guidance about the user's layout; no fact or executed example can show the absence of a requirement.",
+    "section": "namespace-package-configuration"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_MAX_PROJECTS",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "'Reduce cached projects (default: 10)' restates PYEYE_MAX_PROJECTS's default, and 'Cache auto-expires after 5 minutes' restates PYEYE_CACHE_TTL's. The section also names only PYEYE_MAX_PROJECTS although PYEYE_ARTIFACT_CACHE_MAX_ENTRIES, PYEYE_SCRIPT_CACHE_MAX_ENTRIES and PYEYE_PARSO_CACHE_MAX_ENTRIES are the live memory caps.",
+    "replacement": "Bind the defaults with fact blocks (env.PYEYE_MAX_PROJECTS.default, env.PYEYE_CACHE_TTL.default), replace the comment-only Python block with prose, and add the three *_CACHE_MAX_ENTRIES caps with a link to docs/reference/env-vars.md.",
+    "section": "high-memory-usage"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_CACHE_TTL",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "'(seconds, default 300)' restates PYEYE_CACHE_TTL's default by hand.",
+    "replacement": "Bind the default with a fact block for env.PYEYE_CACHE_TTL.default.",
+    "section": "cache-optimization"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.exceptions.ProjectNotFoundError",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Raised when a requested project cannot be found or accessed."
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Quotes the error as `Error: Project path '/path/to/project' not found`. ProjectNotFoundError's message is `Project not found: <path>`, so a user searching for the quoted text won't find it.",
+    "replacement": "**Problem**: `Project not found: /path/to/project`",
+    "route": "wording",
+    "route_reason": "A one-off error string; an executed example can't produce an MCP tool error, and an extractor for one message would be heavier than the fix.",
+    "section": "project-not-found-errors"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_ANALYSIS_TIMEOUT",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "The whole section describes an analysis timeout pyeye never enforces: PYEYE_ANALYSIS_TIMEOUT is deprecated with no effect (nothing ever used it, #592), no 'Analysis took longer than 30 seconds' error exists, 'Increase timeout as shown above' points at nothing, and 'exclusions' don't exist (#581).",
+    "replacement": "Delete the 'Analysis timeout' section and its Table of Contents reach; if slow calls need covering, point to 'Slow Analysis on Large Codebases'.",
+    "section": "analysis-timeout-errors"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "pyeye emits no such message, so the section's trigger refers to something absent. Unresolved imports surface as `unresolved_imports` in a trace with follow=['imports'].",
+    "replacement": "**Problem**: an import doesn't resolve (for example, it appears under `unresolved_imports` in `trace(..., follow=[\"imports\"])`).",
+    "section": "import-resolution-failures",
+    "subject": "**Problem**: `Cannot resolve import 'module_name'`"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "pyeye has no analysis mode setting, read-only or otherwise, so the step names something a user can't select.",
+    "replacement": "Delete the bullet.",
+    "section": "file-access-permissions",
+    "subject": "Use read-only analysis mode (default)"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig.get_ignored_top_level_keys",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Return the (sorted) top-level keys in the config that pyeye ignores"
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Recommends 'exclusion patterns' and 'increase timeouts'. Exclusion keys are ignored with a warning (#581; the FAQ just above says so), and the only timeout variable, PYEYE_ANALYSIS_TIMEOUT, has no effect; there is no memory-limit setting.",
+    "replacement": "1. Configure only the packages and namespaces you need\n2. Lower PYEYE_MAX_PROJECTS or the *_CACHE_MAX_ENTRIES caps if memory is tight (docs/reference/env-vars.md)\n3. Split into multiple smaller projects\n4. Pass a narrower `scope` to plugin tools",
+    "route": "wording",
+    "route_reason": "The fix is removing advice for settings that don't exist; there is no value to bind.",
+    "section": "how-to-handle-large-codebases"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "The memory figures per project size, and 'multiply by cache size' for cached projects, have no measurement record behind them; the per-file caches are bounded by entry caps, so memory doesn't scale linearly with cached projects.",
+    "replacement": "Delete the figures. Say memory grows with the number of cached projects (PYEYE_MAX_PROJECTS) and the cache entry caps (PYEYE_*_CACHE_MAX_ENTRIES), and suggest measuring with `ps` as High Memory Usage shows.",
+    "section": "memory-usage-expectations",
+    "subject": "Small project (<1000 files): 100-200MB"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Needs checking against the pinned Jedi/parso: the installed parso ships grammars for Python 3.6-3.14 only, so Python 2.7 source isn't parsed as Python 2.",
+    "replacement": "- **Analyzed code**: the Python 3 versions Jedi's parser (parso) has grammars for; Python 2-only syntax isn't supported",
+    "section": "supported-python-versions",
+    "subject": "**Analyzed code**: Python 2.7+ (Jedi supports legacy code)"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.mcp.server._activate_if_detected",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Detection covers the project root AND every configured package and namespace"
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Lists 'Check installed packages in environment', which no detector does, and says detection 'happens when project loads'. Detection reads the project root and every configured package and namespace path, at server startup and again after configure_packages; it never looks at the environment.",
+    "replacement": "Each plugin looks for framework-specific files (`manage.py`, Flask entry points such as `app.py`), framework imports in Python files, and requirement files (`requirements.txt`, `Pipfile`, and for Flask and Pydantic `pyproject.toml`), in the project root and every configured package and namespace path. Detection runs at server startup and again after `configure_packages` changes the layout.",
+    "route": "wording",
+    "route_reason": "Detection steps are code paths, not an exposed value; no MCP tool call demonstrates them.",
+    "section": "framework-detection-logic"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_CACHE_TTL",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "The 'Default settings' block restates the defaults of PYEYE_CACHE_TTL, PYEYE_MAX_PROJECTS and PYEYE_WATCHER_DEBOUNCE by hand.",
+    "replacement": "Replace the block with fact blocks for env.PYEYE_CACHE_TTL.default, env.PYEYE_MAX_PROJECTS.default and env.PYEYE_WATCHER_DEBOUNCE.default, or link docs/reference/env-vars.md.",
+    "section": "optimal-cache-settings"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_WATCHER_DEBOUNCE",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "'# Default: 0.5 seconds' restates the default the File Watcher Performance section already binds.",
+    "replacement": "Drop the default comment and line from the block, and say before it: 'The default is <fact block env.PYEYE_WATCHER_DEBOUNCE.default> seconds.'",
+    "section": "debounce-settings"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.config.ProjectConfig.get_ignored_top_level_keys",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Return the (sorted) top-level keys in the config that pyeye ignores"
+      }
+    ],
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Item 1 'Exclude unnecessary directories' recommends exclusions, which pyeye ignores with a warning (#581).",
+    "replacement": "1. \u2705 Configure only the packages and namespaces you need",
+    "route": "wording",
+    "route_reason": "Removing advice for a setting that doesn't exist; there is no value to bind.",
+    "section": "optimization-checklist"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_ANALYSIS_TIMEOUT",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Item 2 'Set appropriate timeouts for your codebase size': PYEYE_ANALYSIS_TIMEOUT is deprecated with no effect, and there is no other timeout setting.",
+    "replacement": "Delete item 2.",
+    "section": "optimization-checklist"
+  },
+  {
+    "anchor": {
+      "id": "env.PYEYE_MAX_WORKERS",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "Item 4 'Adjust worker count for your CPU': PYEYE_MAX_WORKERS is deprecated with no effect (nothing ever used it, #592).",
+    "replacement": "Delete item 4.",
+    "section": "optimization-checklist"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "pydantic isn't a pyeye dependency (it reports 'not installed' for a healthy install), and parso, aiofiles, filelock and psutil, which are, aren't checked. The script also reads PYEYE_* from the shell, which the page says isn't what the server sees, and checks only two of the config locations.",
+    "replacement": "packages = [\"jedi\", \"parso\", \"mcp\", \"watchdog\", \"aiofiles\", \"filelock\", \"psutil\"]",
+    "section": "quick-diagnostics-script",
+    "subject": "packages = [\"jedi\", \"mcp\", \"watchdog\", \"pydantic\"]"
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/TROUBLESHOOTING.md",
+    "problem": "A volatile date stamp that's already stale relative to the page's content (it mentions 2026 log lines and #581/#592) and will drift again; git history records the date.",
+    "replacement": "Delete the line.",
+    "section": "quick-diagnostics-script",
+    "subject": "Last updated: August 2025"
+  }
+]

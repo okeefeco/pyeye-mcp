@@ -1,0 +1,101 @@
+[
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Lines 16-19 give a grep-vs-MCP split (~85% / ~15%), '100% manual' file reading and '0% using find_references'. They are framed as a measured baseline to compare against, but the only source is 'analysis of recent development patterns' (line 12). No record gives a date, command and commit. These are the seeds for '85%', '15%', '100%' and '0%' on lines 16-19.",
+    "replacement": "Delete the '#### Tool Usage Patterns' heading and its four bullets (lines 14-19). No record backs any of the figures, so they go rather than being reworded.",
+    "section": "tool-usage-patterns"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Lines 31-33 state average durations ('30-60 seconds', '5-10 minutes', '2-3 minutes') for grep and manual navigation, as a baseline for an implied MCP speed-up. Nothing was timed with a recorded command, so there is no record. These are the seeds for '60 seconds', '10 minutes' and '3 minutes'.",
+    "replacement": "Delete the '#### Time Inefficiencies' heading and its three bullets (lines 29-33).",
+    "section": "time-inefficiencies"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Line 37 '- [ ] Achieve 30% MCP tool usage' is a target (seed '30%'). The ruling removes targets outright. Every other item in the section is also a numeric target ('Document 5', 'Identify 3', 'Prevent at least 1 bug'), and none was ever checked off. Deleting only line 37 would leave a section of targets.",
+    "replacement": "Delete the '### Week 1 Goals (2025-08-22 to 2025-08-29)' heading and its four checklist items (lines 35-40).",
+    "section": "week-1-goals-2025-08-22-to-2025-08-29"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Lines 51-62 give uptime, find_symbol avg_ms 225, success_rate 66% and cache_hit_rate 0% with no record (no date, command or commit that produced them). The block is also invalid JSON ('66%' and '0%' are unquoted), so it can't have been pasted from real output as written. The D12 pattern seeds don't include it, but the same rule applies.",
+    "replacement": "Delete the '### Initial MCP Performance Metrics' heading and its JSON block (lines 49-62).",
+    "section": "initial-mcp-performance-metrics"
+  },
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Line 69 'Current adoption rate: 100% (session just started)' (seed '100%') is an unbacked rate, and a volatile 'current' snapshot. Lines 67-68 (3 MCP queries, 0 grep) are the unbacked counts it was computed from. The session-start timestamp on line 66 is the only historical fact.",
+    "replacement": "Keep '- Session start: 2025-08-22 20:52:15' (line 66) and delete lines 67-69 ('MCP queries so far: 3', 'Grep usage: 0', 'Current adoption rate: 100% (session just started)').",
+    "section": "baseline-session-issue-135"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Line 76 says 'find_symbol would have found all', an absolute claim that the tool never guaranteed. Line 77 says analyze_dependencies 'would have shown gaps'. That is unbacked, and the tool was later removed for answering wrongly (it classified first-party src/ modules as third-party). Both are counterfactuals stated as fact.",
+    "replacement": "Line 76: '- PR #121: Path issues across 8 files'. Line 77: '- PR #122: Test coverage gaps'.",
+    "section": "historical-context"
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Lines 81-86 are projections: '50-70% reduction in navigation time' (seed '70%'), '90% reduction in refactoring bugs' (seed '90%'), '10+ documented workflow improvements' (seed '10+ documented') and 'Clear feature roadmap'. The ruling removes projections outright.",
+    "replacement": "Delete the '### Expected Improvements' heading and lines 81-86.",
+    "section": "expected-improvements"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Lines 7-8 say the document is 'kept unedited as a record of where adoption started'. Once the figures above are removed, that is false.",
+    "replacement": "Replace 'The document is kept unedited as a record of where adoption started.' with 'It is kept as a record of where adoption started. Figures with no reproducible record, and the targets and projections, were removed (#830).'",
+    "section": "date-2025-08-22"
+  },
+  {
+    "anchor": {
+      "id": "right-audience",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/METRICS_BASELINE.md",
+    "problem": "Line 100 '2. Document it in CLAUDE.md' (prior sweep C-N8, still wrong) sends a human's discovered time-saver into CLAUDE.md, which holds Claude's behaviour instructions, not human findings (.claude/instructions/00-documentation-system.md).",
+    "replacement": "2. Describe it in the issue or PR where you found it",
+    "section": "how-to-contribute"
+  }
+]

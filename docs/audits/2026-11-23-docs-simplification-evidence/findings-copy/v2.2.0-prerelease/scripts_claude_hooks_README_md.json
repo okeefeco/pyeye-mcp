@@ -1,0 +1,80 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "The hooks log the full text of every grep-like Bash command and its description (detect_grep_usage.py writes `command` and `description` to grep_usage.jsonl) and every pyeye call's `tool_input` (track_mcp_call.py writes it to mcp_calls.jsonl). Commands and arguments can carry paths, search strings or secrets, so the absolute claim is not true.",
+    "replacement": "- Data is logged locally only: the JSONL files keep the full Bash command (and its description) of each detected search and the arguments of each pyeye call, so review them before sharing",
+    "section": "-notes",
+    "subject": "No sensitive information is logged"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "The setup script needs `jq` to keep existing settings: without it, it replaces `~/.claude/settings.json` with the hooks alone (after a backup). Even with `jq` it sets the whole `hooks` key, so any hooks the user already has are dropped. The page gives neither prerequisite nor warning.",
+    "replacement": "Add before the code block: \"The setup script needs `jq` to keep your other settings; without it, it replaces `~/.claude/settings.json` with the monitoring hooks (a timestamped backup is made first). Either way it replaces your whole `hooks` section, so re-add any hooks of your own from the backup.\"",
+    "section": "-quick-start",
+    "subject": "bash scripts/claude_hooks/setup_mcp_monitoring.sh"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "Re-running the setup script is advised as safe because it backs up settings, but the re-run replaces the whole `hooks` key (and, without `jq`, the whole settings file), so any hooks the user added since are lost unless restored from the backup. \"copies the hook matchers ... into\" reads as a merge.",
+    "replacement": "once; it backs up your settings first, then replaces your whole `hooks` section (and, without `jq`, the whole file), so restore any hooks of your own from the backup afterwards.",
+    "section": "updating-an-existing-setup",
+    "subject": "once; it backs up your settings first."
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "The manual steps never say where the hooks come from: the source is `scripts/claude_hooks/hooks.json`, whose top-level `hooks` object is what goes into settings.json.",
+    "replacement": "# Copy the \"hooks\" object from scripts/claude_hooks/hooks.json into ~/.claude/settings.json (requires manual JSON merge)",
+    "section": "-manual-installation",
+    "subject": "# Add hooks to settings.json (requires manual JSON merge)"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "`~/.claude/mcp_monitoring/aliases.sh` is only written by setup_mcp_monitoring.sh; the Manual Installation steps never create it, so a manual install has no aliases to source.",
+    "replacement": "After sourcing aliases (`~/.claude/mcp_monitoring/aliases.sh`, written by the setup script; a manual install has to run `python3 scripts/claude_hooks/mcp_analytics.py` directly):",
+    "section": "-available-commands",
+    "subject": "After sourcing aliases:"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "scripts/claude_hooks/README.md",
+    "page_hash": "dfd922b7",
+    "problem": "\"MCP Python Intelligence\" names nothing in the repo; the rest of the page (and the hooks) track pyeye tools.",
+    "replacement": "pyeye MCP tool usage",
+    "section": "mcp-monitoring-for-claude-code",
+    "subject": "MCP Python Intelligence tool usage"
+  }
+]

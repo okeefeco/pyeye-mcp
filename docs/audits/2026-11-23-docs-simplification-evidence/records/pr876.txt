@@ -1,0 +1,65 @@
+# PR 876 docs: fix CONTRIBUTING, DOCUMENTATION and the example configs (#830)
+## Description
+
+The rest of #830's slice 2: CONTRIBUTING.md, DOCUMENTATION.md and `examples/`. The README and SECURITY.md were already done in #866 and #859. The rules are the same as for the README (C15, C16, D12).
+
+- **DOCUMENTATION.md:**
+  - It no longer describes behaviour pyeye doesn't have: the `../` rejection, input sanitisation, the file-size limit, the on-disk `.pyeye_cache`, the `--debug` flag, env vars as a package-config source, user-loaded plugins (`find_patterns`, `load_plugins`), and unbacked memory figures. Its claim seeds are cleared.
+  - Its security section links `SECURITY.md#security-model`.
+  - The core and plugin tool lists and the required Python version are fact blocks. Everything else links `docs/reference/` or the architecture pages.
+  - The config-file precedence links the README, with a TODO for the pending config-keys fact.
+  - **Setup bug:** `uv --directory ~/pyeye-mcp run …` starts the server in pyeye's checkout, so pyeye analyzed itself instead of your project. It now uses `uv run --project … pyeye-mcp`. I checked that this keeps the caller's working directory.
+- **Example configs:**
+  - `enterprise.json` used `namespace:company` and `namespace:company.sdk`, and `monorepo.json` used `./packages/app-*` and `./tools/*`. All of them search nothing. They're fixed, and the ignored `performance` block is gone.
+  - New tests in `tests/integration/test_scope_configuration.py` cover every example: every scope (alias values and defaults, after one level of alias expansion) must resolve; no ignored top-level keys; no namespace globs.
+  - The tests fail on the old enterprise and monorepo configs.
+- **Namespace globs (#872, filed here):** a glob in a `namespaces` entry is never expanded, so that namespace gets no repositories. The globs are removed from the README, DOCUMENTATION.md, `enterprise.json` and `plugin-system.json`. Globs under `packages` do work and are kept.
+- **CONTRIBUTING.md:**
+  - installs pre-commit before `pre-commit install`;
+  - drops the stale module tree (now links the architecture pages) and the GitHub Discussions link (Discussions aren't enabled);
+  - binds the Python version;
+  - softens two absolute lockfile claims;
+  - links `.pre-commit-config.yaml` instead of a partial tool list.
+
+## /docs-review
+
+Run with a fresh reviewer per page.
+
+- **DOCUMENTATION.md:** 10 findings, all applied.
+- **CONTRIBUTING.md:** 8 findings. 5 are applied. 3 are left for a config-facts decision:
+  - the hook-type list;
+  - the per-environment uv flags;
+  - steps 7–8 restating `changes/README.md` and `DECISIONS.md`.
+
+  These restate config and workflow files, not code. C15's reach over config files is unstated.
+
+## Related Issue
+
+Refs #830 (also refs #872)
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 4832 passed, 29 skipped, 1 xfailed, coverage 94.57%.
+- `docs_facts check` passes, and `mkdocs build --strict` is clean.
+- `changelog.py check` OK, `no-breaking` prints 0, `decisions.py check` OK.
+- The path ratchet passes, and the duplicate-code report is unchanged. No allow-list entries were added.
+
+Fragment: `changes/830-6.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/876?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

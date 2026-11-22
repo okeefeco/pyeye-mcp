@@ -1,0 +1,27 @@
+# PR 997 docs(changelog): #994 supersedes #830-6's DOCUMENTATION.md install entry (#978)
+## Summary
+Fragments only (`changes/`).
+
+- #830-6 said `DOCUMENTATION.md`'s Claude Code and Claude Desktop setup "now uses `uv run --project`". #994 removed that route in the same release, so no release shipped it. The 830-6 bullet is dropped.
+- `994.fixed.md`'s DOCUMENTATION sub-bullet now states the fix 2.1.0 users see. `DOCUMENTATION.md`'s own setup used `uv --directory`, which made pyeye analyse its own checkout instead of your project, and it now points to the README.
+
+Checked and left as is:
+- #993 is an open forward pointer.
+- The README still shows `.mcp.json` pointing at the project venv's Python, so #983 holds.
+- The README still links the vendors' Copilot docs, so #830-4 holds.
+- "Four skills" matches `skills/`.
+
+## Test plan
+- [x] `changelog.py check` passes, and `no-breaking` prints 0.
+- [x] `docs_facts.py check` passes.
+- [x] Full suite: 5686 passed, 29 skipped; coverage 96.23%.
+
+Addresses #978
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+📚 **Documentation-only change detected**
+
+No source, test, or workflow files changed in this PR, so the
+test matrix, type-checking, and coverage jobs were skipped.
+
+Pre-commit hooks, security scanning, and file validation still ran.

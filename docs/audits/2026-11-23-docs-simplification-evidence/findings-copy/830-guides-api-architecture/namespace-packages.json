@@ -1,0 +1,185 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.scope_utils.resolve_scope_paths",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Resolve a search scope to the directories it covers"
+      }
+    ],
+    "extractor": "scopes",
+    "page": "docs/namespace-packages.md",
+    "problem": "The hand-written scope list omits the `standalone` and `package:<path>` forms resolve_scope_paths accepts, and describes `all` as 'main + packages + namespaces' although it also covers the standalone directories. It doesn't say that a dotted `namespace:a.b` resolves under namespace `a`, which later examples (`namespace:company.models`) rely on.",
+    "replacement": "Replace the bullet list (keep the 'Custom aliases' note as prose) with a fact block for `scopes.table`, as docs/api/README.md does.",
+    "route": "fact",
+    "section": "scopes"
+  },
+  {
+    "anchor": {
+      "id": "scope.default.plugin",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/namespace-packages.md",
+    "problem": "The numbered list restates the plugin-tool default order (scope_defaults.methods.<tool name>, then scope_defaults.global, then main) by hand.",
+    "replacement": "Bind the order with a fact block for `scope.default.plugin` and keep only the why ('framework code usually lives in the main project') and the alias note in prose.",
+    "section": "default-scopes-for-plugin-tools"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": "The block calls internal JediAnalyzer methods on an undefined `analyzer`; find_models doesn't exist on JediAnalyzer at all (it is a Pydantic/Django plugin method), and find_symbol/find_subclasses are no longer MCP tools. A reader of this guide can only pass `scope` to the plugin tools.",
+    "replacement": "Rewrite the block as plugin-tool calls a client can make: `find_pydantic_models(scope=\"main\")`, `find_django_models(scope=\"all\")`, `find_pydantic_models(scope=\"namespace:company\")`.",
+    "section": "basic-scopes",
+    "subject": "models = await analyzer.find_models(scope=\"namespace:company\")"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": "find_subclasses was removed as an MCP tool in v2.0 (subclasses are now `expand(handle, edge=\"subclasses\")`, which takes no scope), and `analyzer` is undefined. The example shows a call a client cannot make.",
+    "replacement": "Show the list form with a plugin tool: `find_flask_routes(scope=[\"main\", \"namespace:plugins\", \"packages\"])`.",
+    "section": "combined-scopes",
+    "subject": "results = await analyzer.find_subclasses("
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": "find_routes is a FlaskPlugin method, not an analyzer method, and `analyzer` is undefined. The MCP tool is find_flask_routes.",
+    "replacement": "routes = await find_flask_routes(scope=\"backend\")",
+    "section": "using-aliases",
+    "subject": "routes = await analyzer.find_routes(scope=\"backend\")"
+  },
+  {
+    "anchor": {
+      "id": "imprecise-limit",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": "The scoped cache's TTL is PYEYE_CACHE_TTL (JediAnalyzer builds ScopedCache(ttl_seconds=settings.cache_ttl)), a configurable default, stated here as a fixed 5 minutes. The three-layer list also predates the file-artifact, Script and parso caches.",
+    "replacement": "Replace the list with a link to docs/architecture/caching.md, which binds env.PYEYE_CACHE_TTL.default and describes the current layers.",
+    "section": "caching-strategy",
+    "subject": "5-minute TTL for analysis results"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.scope_utils.LazyNamespaceLoader",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Load namespace paths only when needed."
+      }
+    ],
+    "page": "docs/namespace-packages.md",
+    "problem": "Says namespace packages are loaded on demand. The only lazy loader, LazyNamespaceLoader, is deprecated and used by nothing in pyeye; the example also calls the nonexistent `analyzer.find_models`.",
+    "replacement": "Delete the Lazy Loading section (and its Table of Contents reach). A scope's paths come from the configuration each time a plugin tool searches; there is no separate on-demand namespace loading.",
+    "route": "wording",
+    "route_reason": "This is an absence (no lazy loading exists), which neither a fact nor an executed example can show; the honest fix is deleting the section.",
+    "section": "lazy-loading"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.analyzers.jedi_analyzer.JediAnalyzer._search_all_scopes",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Find every project definition of *name* across the requested scope."
+      }
+    ],
+    "page": "docs/namespace-packages.md",
+    "problem": "Claims `analyzer.find_symbol(\"User\", scope=\"all\")` searches the namespace paths in parallel. find_symbol goes through _search_all_scopes, which looks the name up in the whole-project AST name index and filters by the scope's paths; parallel_search is used only for file globbing in JediAnalyzer.get_project_files. find_symbol is also not an MCP tool.",
+    "replacement": "Delete the Parallel Search section: name lookups use a project-wide index filtered to the scope, so there is no per-path search for a user to tune.",
+    "route": "wording",
+    "route_reason": "An internal search strategy isn't an exposed value an extractor reads, and no MCP tool call demonstrates it; the section should go.",
+    "section": "parallel-search"
+  },
+  {
+    "anchor": {
+      "id": "right-audience",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/namespace-packages.md",
+    "problem": "The user-facing way to see what a scope covered is the plugin tools' `envelope=true` option (it returns `searched` and `unsearched_scopes`). Instead the section recommends ScopeDebugger, a deprecated class built on the private `analyzer._resolve_scope_to_paths`, which only a pyeye developer could construct.",
+    "replacement": "Call any plugin tool with `envelope=true` (e.g. `find_pydantic_models(scope=\"namespace:company\", envelope=true)`) and read `searched` and `unsearched_scopes` to see which configured scopes the call covered; link docs/reference/tools.md for the parameter. Drop the ScopeDebugger block.",
+    "section": "debugging-scope-resolution",
+    "subject": "Use the debug tools to understand scope resolution:"
+  },
+  {
+    "anchor": {
+      "id": "right-audience",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/namespace-packages.md",
+    "problem": "Recommends the deprecated, unused ScopeValidator to users of the MCP server. An unknown `namespace:` scope is logged as 'Namespace not found' and an envelope call lists the configured scopes, which is what a user can actually check.",
+    "replacement": "Replace the section with: an unknown `namespace:<name>` logs `Namespace not found: <name>`; call a plugin tool with `envelope=true` to see every configured scope in `searched` / `unsearched_scopes`.",
+    "section": "validating-scopes",
+    "subject": "validator = ScopeValidator(namespace_paths, additional_paths, scope_aliases)"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": "There is no setting that enables parallel search, so this step refers to something a user can't do (and the version note is long past).",
+    "replacement": "Delete the bullet.",
+    "section": "2-slow-searches",
+    "subject": "Enable parallel search (automatic in v0.2+)"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/namespace-packages.md",
+    "problem": ".pyeye.json is read with json.load, so adding comments to it makes the file fail to load. Only the pyproject.toml form can carry comments.",
+    "replacement": "**Document your configuration** - explain the namespace structure in comments in `[tool.pyeye]` (pyproject.toml) or in your README; `.pyeye.json` is plain JSON and can't hold comments",
+    "section": "best-practices",
+    "subject": "Add comments explaining namespace structure"
+  },
+  {
+    "anchor": {
+      "id": "tool.trace.param.max_depth",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/namespace-packages.md",
+    "problem": "The prose and the code comment restate trace's max_depth default (3) by hand ('max_depth defaults to 3', 'max_depth (default 3)').",
+    "replacement": "Bind the default with a fact block for tool.trace.param.max_depth in the 'Bounded by two caps' bullet, and drop the number from the code comment ('raise max_depth or you will only see short cycles').",
+    "section": "4-circular-dependencies"
+  },
+  {
+    "anchor": {
+      "id": "tool.trace.param.max_nodes",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/namespace-packages.md",
+    "problem": "The 'Bounded by two caps' bullet restates trace's max_nodes default (50) by hand.",
+    "replacement": "Bind the default with a fact block for tool.trace.param.max_nodes instead of writing 50.",
+    "section": "4-circular-dependencies"
+  }
+]
