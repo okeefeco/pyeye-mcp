@@ -306,12 +306,13 @@ def test_load_time_facts_are_the_registry_facts() -> None:
 def test_every_static_load_time_fact_is_live() -> None:
     """The other direction: the docs' edge and scope facts all reach the slots.
 
-    Only ``edges.inspect_unmeasured`` is docs-only: it is read from a test file,
-    which a wheel install doesn't have (#851).
+    None is docs-only: ``edges.inspect_unmeasured`` was, while it was read from
+    a test file a wheel install doesn't have (#851); it comes from the edge
+    registry now (#1120).
     """
     prefixes = {p for n in describe.LOAD_TIME_EXTRACTORS for p in _prefixes(n)}
     static_ids = {i for i in build(_ROOT) if i.split(".", 1)[0] in prefixes}
-    assert static_ids - set(describe.load_time_facts()) == {"edges.inspect_unmeasured"}
+    assert static_ids - set(describe.load_time_facts()) == set()
 
 
 def _prefixes(extractor: str) -> tuple[str, ...]:

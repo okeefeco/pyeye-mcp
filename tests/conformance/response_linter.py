@@ -259,6 +259,8 @@ import re
 from collections.abc import Iterator
 from typing import Any, TypeGuard
 
+from pyeye.mcp.operations.edges import INSPECT_EXPECTED_EDGES, INSPECT_UNMEASURED_EDGES
+
 # ---------------------------------------------------------------------------
 # Shared type helpers
 # ---------------------------------------------------------------------------
@@ -383,59 +385,12 @@ KNOWN_EDGE_TYPES: frozenset[str] = frozenset(
 # B.2 — Plugin edge pattern: e.g. "validators@pydantic"
 _PLUGIN_EDGE_RE: re.Pattern[str] = re.compile(r"^\w+@\w+$")
 
-# B.3 — Measured edges per kind.
-# Maps kind → frozenset of edge keys that MUST be present (possibly 0) when
-# the implementation measured them.  "other" kinds produce no measurements.
-#
-# Only edges derivable from the symbol's own definition are measured by inspect.
-#
-# ``subclasses`` was REMOVED from ``class`` (see #392): counting it requires the
-# same project-wide inheritance scan as listing them, so it has no cheap-preview
-# value and is now an expand-only edge.  It lives in ``_PHASE4_UNMEASURED_EDGES``
-# (forbidden in inspect's edge_counts).
-#
-# ``callers`` and ``references`` were REMOVED from every kind (see #332): they
-# were derived from Jedi's budget-capped ``get_references`` and under-reported
-# non-deterministically, so they are no longer measured and now live in
-# ``_PHASE4_UNMEASURED_EDGES`` (forbidden).  function/method/attribute/property/
-# variable handles therefore have NO required edges — an empty edge_counts is
-# valid for them.  They return once an indexed backend lands (#333).
-#
-# ``submodules`` is a CONDITIONAL-PRESENCE edge for the ``module`` kind (#423):
-# it is measured only when the module is a package (module_path == ``__init__.py``),
-# so it is intentionally NOT listed below as a required ``module`` edge — requiring
-# it would force plain modules to emit it, violating the absence-vs-zero invariant
-# (packages: present, possibly 0; plain modules: absent).  It is in
-# ``KNOWN_EDGE_TYPES`` (B.2) but NOT in ``_PHASE4_UNMEASURED_EDGES``, so its
-# presence is permitted but never demanded.
-_PHASE4_EXPECTED_EDGES: dict[str, frozenset[str]] = {
-    "class": frozenset({"members", "superclasses"}),
-    "module": frozenset({"members"}),
-}
-
-# B.3 — Keys that must NOT appear (unmeasured edges).
-# These are in KNOWN_EDGE_TYPES (future vocab) but are NOT measured.
-# Their presence with any value (including 0) is a false claim about measurements.
-# ``subclasses`` is here because it is expand-only, not inspect-measured (#392).
-# ``callers``/``references`` are here pending the indexed-backend fix (#332/#333).
-_PHASE4_UNMEASURED_EDGES: frozenset[str] = frozenset(
-    {
-        "subclasses",
-        "callers",
-        "references",
-        "callees",
-        "read_by",
-        "written_by",
-        "passed_by",
-        "decorated_by",
-        "decorates",
-        "imports",
-        "imported_by",
-        "enclosing_scope",
-        "overrides",
-        "overridden_by",
-    }
-)
+# B.3 — Measured and unmeasured edges per kind: the edge registry's sets, so
+# product code states what ``inspect`` measures and the docs fact reads the same
+# sets (#1120). Why each edge is where it is: the comments on the registry's
+# ``INSPECT_EXPECTED_EDGES`` / ``INSPECT_UNMEASURED_EDGES``.
+_PHASE4_EXPECTED_EDGES: dict[str, frozenset[str]] = INSPECT_EXPECTED_EDGES
+_PHASE4_UNMEASURED_EDGES: frozenset[str] = INSPECT_UNMEASURED_EDGES
 
 # B.4 — Optional fields that may not have a null value.
 _NULLABLE_FORBIDDEN_FIELDS: tuple[str, ...] = ("re_exports", "highlights", "tags", "properties")
