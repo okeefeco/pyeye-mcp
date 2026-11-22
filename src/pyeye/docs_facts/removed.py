@@ -122,9 +122,9 @@ def _entry(raw: Mapping[str, Any]) -> Removed:
     )
 
 
-def load(root: Path) -> list[Removed]:
+def load(root: Path, record: str = REMOVED) -> list[Removed]:
     """The committed entries (none if the file doesn't exist yet)."""
-    path = root / REMOVED
+    path = root / record
     if not path.is_file():
         return []
     data = json.loads(path.read_text(encoding="utf-8"))

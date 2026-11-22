@@ -378,7 +378,7 @@ def test_check_fails_on_an_orphaned_dismissal(monkeypatch: pytest.MonkeyPatch) -
     ghost = Fact("env.PYEYE_GHOST", {"default": 1}, "")
     state: dict[str, Any] = {}
     review.dismiss_uncovered(state, ghost.id, {ghost.id: ghost}, "gone soon", "2026-11-18")
-    monkeypatch.setattr(review, "load", lambda _root: state)
+    monkeypatch.setattr(review, "load", lambda _root, *_state: state)
     problems = cli.plan(Path(__file__).resolve().parents[1]).problems
     assert any("env.PYEYE_GHOST" in p and "no longer exists" in p for p in problems)
 
@@ -575,7 +575,7 @@ def memory_state(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
         "findings": [],
         "confirmed_non_issues": [],
     }
-    monkeypatch.setattr(review, "load", lambda _root: state)
+    monkeypatch.setattr(review, "load", lambda _root, *_state: state)
     monkeypatch.setattr(review, "save", lambda _root, _s: None)
     return state
 

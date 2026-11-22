@@ -27,7 +27,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, changed, docs, examples, ledger, registry, removed, review, rules
+from . import binding, changed, config, docs, examples, ledger, registry, removed, review, rules
 from .facts import Bindable, snapshot
 from .setup import Setup, pyeye_setup
 
@@ -75,7 +75,7 @@ def plan(
     for path in docs.missing_files(root, setup.docs):
         if path not in generated:
             result.problems.append(f"{path}: registered in the doc registry but missing")
-    entries = removed.load(root)
+    entries = removed.load(root, setup.paths.removed)
     live = removed.live_names(facts)
     changelog = root / setup.changelog if setup.changelog else None
     major = removed.current_major(
@@ -109,23 +109,28 @@ def plan(
         result.problems.extend(_removed_name_problems(path, entry, found))
     for path, build_page in setup.pages.items():
         result.outputs[path] = build_page(facts)
-    result.outputs[SNAPSHOT] = snapshot_text(facts)
+    result.outputs[setup.paths.snapshot] = snapshot_text(facts)
     result.problems.extend(rules.run(root, facts, setup.docs, setup.rules))
     result.notes.extend(rules.skipped(setup.rules, facts))
-    old_snapshot = _committed_snapshot(root)
-    result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
-    review_state = review.load(root)
+    old_snapshot = _committed_snapshot(root, setup.paths.snapshot)
+    result.outputs[setup.paths.removed] = removed.render(
+        removed.updated(entries, old_snapshot, facts)
+    )
+    review_state = review.load(root, setup.paths.review_state)
     result.problems.extend(review.orphaned(review_state, facts, root, review.project_symbols(root)))
-    result.outputs[ledger.UNCOVERED] = ledger.render(
+    result.outputs[setup.paths.uncovered] = ledger.render(
         ledger.updated(
-            ledger.load(root), facts, covered, review.dismissed_uncovered(review_state, facts)
+            ledger.load(root, setup.paths.uncovered),
+            facts,
+            covered,
+            review.dismissed_uncovered(review_state, facts),
         )
     )
     return result
 
 
-def _committed_snapshot(root: Path) -> dict[str, object]:
-    current = _current(root, SNAPSHOT)
+def _committed_snapshot(root: Path, path: str = SNAPSHOT) -> dict[str, object]:
+    current = _current(root, path)
     if current is None:
         return {}
     facts: dict[str, object] = json.loads(current)["facts"]
@@ -211,16 +216,28 @@ def check(root: Path, setup: Setup | None = None) -> int:
 
 def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
-    head = _committed_snapshot(root)
-    before = changed.base_snapshot(root, base, SNAPSHOT)
-    if before is None:
-        print(f"### Docs facts changed against `{base}`\n\n`{base}` has no `{SNAPSHOT}`.")
-        return 0
     setup = pyeye_setup() if setup is None else setup
+    snapshot = setup.paths.snapshot
+    head = _committed_snapshot(root, snapshot)
+    before = changed.base_snapshot(root, base, snapshot)
+    if before is None:
+        print(f"### Docs facts changed against `{base}`\n\n`{base}` has no `{snapshot}`.")
+        return 0
     facts = registry.build(root, setup.extractors)
     bound = changed.bound_pages(root, facts, setup.docs)
     print(changed.summary(changed.diff(before, head, bound), base))
     return 0
+
+
+def _setup_for(root: Path) -> Setup | None:
+    """The repository's configured setup (#1091), or ``None`` for pyeye's own.
+
+    A repository with a ``docs_facts`` config is checked by it alone. Without
+    one, the default is pyeye's own setup until pyeye's repository declares
+    its own (the ``preset`` question with the maintainer), when no config
+    becomes an error (``config.load`` already says so).
+    """
+    return config.load(root) if config.find(root) is not None else None
 
 
 def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
@@ -235,11 +252,16 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     )
     args = parser.parse_args(argv)
     try:
+        setup = _setup_for(args.root)
+    except config.ConfigError as error:
+        print(f"docs_facts: {error}", file=sys.stderr)
+        return 1
+    try:
         if args.command == "generate":
-            return generate(args.root)
+            return generate(args.root, setup)
         if args.command == "changed":
-            return report_changed(args.root, args.base)
-        return check(args.root)
+            return report_changed(args.root, args.base, setup)
+        return check(args.root, setup)
     except ValueError as error:
         # An extractor whose source changed shape, or two sources of one fact
         # that disagree (e.g. the coverage threshold in pyproject and ci.yml).
