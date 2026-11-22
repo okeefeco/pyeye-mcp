@@ -1,0 +1,50 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "problem": "The tree is stale: tests/performance/load_tests/, tests/fixtures/projects/ and tests/fixtures/data/ do not exist, and it omits directories that do (tests/unit/handle/, tests/unit/mcp/, tests/integration/api_redesign/, tests/conformance/, tests/utils/), plus the many top-level tests/test_*.py files.",
+    "replacement": "Drop load_tests/, projects/ and data/; add conformance/ (response-shape conformance), utils/ (shared helpers such as performance.py) and note that cross-cutting tests sit directly under tests/. Keep only the top level so the tree does not rot again.",
+    "section": "directory-structure",
+    "subject": "\u2502   \u2514\u2500\u2500 load_tests/   # Load testing"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "problem": "JediAnalyzer.find_symbol is async and takes (name, fuzzy=False, scope=None), so this call returns an un-awaited coroutine and passes the source code as `fuzzy`; JediAnalyzer() with no argument analyses the current directory, not the test code.",
+    "replacement": "Use a neutral example that does not call pyeye internals (e.g. a pure function), or `result = await analyzer.find_symbol(\"TestClass\")` inside an async test with the analyzer built on a tmp project.",
+    "section": "arrange-act-assert-pattern",
+    "subject": "result = analyzer.find_symbol(\"TestClass\", test_code)"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "problem": "flaky is registered in pyproject only as a label; the reruns argument needs pytest-rerunfailures, which is not a dependency, so the test is never rerun.",
+    "replacement": "Show `@pytest.mark.flaky` without reruns and say it only labels the test, or drop the example.",
+    "section": "standard-markers",
+    "subject": "@pytest.mark.flaky(reruns=3)"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/CONVENTIONS.md",
+    "problem": "The benchmark fixture needs pytest-benchmark, which is not in the dev dependency group, and `assert benchmark.stats[\"mean\"] < 0.1` is the hard-coded timing assertion the next section (and the project rules) replace with PerformanceThresholds.",
+    "replacement": "Delete the Benchmark Tests subsection and keep Timing Assertions as the one performance pattern.",
+    "section": "benchmark-tests",
+    "subject": "def test_search_performance(benchmark):"
+  }
+]

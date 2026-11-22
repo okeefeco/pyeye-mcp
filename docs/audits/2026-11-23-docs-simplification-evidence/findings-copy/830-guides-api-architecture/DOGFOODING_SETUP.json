@@ -1,0 +1,50 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "problem": "The sample note credits MCP with finding all references; pyeye doesn't answer who-references-this (deferred to the Pyright backend, #333) and `find_references` was removed in v2.0.",
+    "replacement": "mcp-saved 10 \"Traced the call chain with MCP instead of grep\"",
+    "section": "-manual-commands",
+    "subject": "mcp-saved 10 \"Found all references with MCP instead of grep\""
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "problem": "The sample credits MCP with catching a circular dependency; cycle detection went with `analyze_dependencies`, removed in v2.0 (#505).",
+    "replacement": "mcp-bug \"MCP showed a re-export pointed at the wrong definition\"",
+    "section": "-manual-commands",
+    "subject": "mcp-bug \"MCP caught circular dependency that grep missed\""
+  },
+  {
+    "anchor": {
+      "id": "D12-projection",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "problem": "The section states week-by-week adoption targets as what 'you should see', with no record behind them.",
+    "replacement": "Delete the Expected Metrics section; 'Checking Your Progress' already shows how to read your own numbers.",
+    "section": "-expected-metrics",
+    "subject": "**Week 1**: 30% MCP adoption rate"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_SETUP.md",
+    "problem": "`scripts/dogfooding_metrics.py` imports `click` and `pyeye`, which are only in the project's uv environment; a bare `python` outside an activated venv fails with ImportError. The `mcp-*` aliases and the grep alias call bare `python` too, and swallow the error (`2>/dev/null || true`), so tracking silently does nothing. The .pre-commit-config.yaml hook uses `uv run --frozen` for this reason.",
+    "replacement": "uv run --frozen python scripts/dogfooding_metrics.py --help   # bare `python` needs the project's .venv activated",
+    "section": "metrics-not-tracking",
+    "subject": "python scripts/dogfooding_metrics.py --help"
+  }
+]

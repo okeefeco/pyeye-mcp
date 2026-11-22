@@ -180,6 +180,13 @@ _ENTRIES: tuple[DocEntry, ...] = (
     DocEntry("docs/migration-guide.md", _H, "history"),
     DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
     DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
+    # The dated evidence behind the docs-design simplification table (#1110). A
+    # D12 record: its front matter names the date, the commands and the pinned
+    # commit. Its raw captures beside it are .txt data, outside the registry.
+    # Kept off the site, like the rest of docs/audits/.
+    DocEntry(
+        "docs/audits/2026-11-23-docs-simplification-evidence/REPORT.md", _B, "record", site=False
+    ),
     DocEntry(
         "docs/CLAUDE_AGENTS.md",
         _H,

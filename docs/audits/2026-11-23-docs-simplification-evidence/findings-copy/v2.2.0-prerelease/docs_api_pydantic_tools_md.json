@@ -1,0 +1,40 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.plugins.pydantic.PydanticPlugin._extract_fields",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "It isn't a field when the value is a lambda, a call to one of v1's ignored types"
+      }
+    ],
+    "page": "docs/api/pydantic-tools.md",
+    "page_hash": "785444e9",
+    "problem": "Says that under v1 a public attribute without an annotation (`x = 1`) is a field, unconditionally. The code excludes several values on that path: a lambda, a call to one of v1's ignored types (property and the like), and a name that resolves to a class or function are not fields.",
+    "replacement": "Under v1, a public attribute without an annotation (`x = 1`) is a field unless its value is a lambda, a call to one of the types v1 ignores (such as `property`), or a name for a class or function.",
+    "route": "wording",
+    "route_reason": "The examples run against a single pydantic-2 model, so no executed example can show v1 classification without a new fixture project; the exclusion rule has no fact extractor.",
+    "section": "pydantic-tools"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.plugins.pydantic.PydanticPlugin._extract_config",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Extract Config class or model_config from a model."
+      }
+    ],
+    "page": "docs/api/pydantic-tools.md",
+    "page_hash": "785444e9",
+    "problem": "Says a model's configuration is reported only when its `model_config` can be read in full. That is right except on the v1 path: a nested `class Config:` is also read, and its settings are always reported (only plain-name assignments are collected, others are skipped), so it can be shown partial rather than left out.",
+    "replacement": "Add after the paragraph: \"A v1 nested `class Config:` is read too; its plain `name = value` assignments are reported as its settings.\"",
+    "route": "wording",
+    "route_reason": "The example project's one model has no v1 `class Config`, so no executed example can show this path; no fact extractor covers configuration reading.",
+    "section": "pydantic-tools"
+  }
+]

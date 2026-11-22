@@ -1,0 +1,46 @@
+[
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/api/README.md",
+    "problem": "Lines 42-48 restate every parameter's type and default by hand, which docs/reference/tools.md#configure_packages already generates from the code. The hand copy has already drifted: the types are written `list[str]`, `dict[...]`, but the code takes `list[str] | None` etc.",
+    "replacement": "Drop the Type and Default columns. Link [the generated parameter table](../reference/tools.md#configure_packages), and keep one line per parameter that says only what it means (packages: package paths to add; namespaces: namespace name to the repos that contribute to it; standalone_dirs: directories of standalone scripts; save: write .pyeye.json; project_path: the project whose .pyeye.json is read and written).",
+    "section": "parameters"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/api/README.md",
+    "problem": "Lines 71-81 are a hand-written TypeScript response shape (C15/C16: prose must not state code facts). It is already incomplete: it omits `activated_plugins`, which server.py:769-772 adds whenever the call configures the startup project (#659), and `warnings` also covers ignored top-level keys, not only the `standalone` ones.",
+    "replacement": "Replace the TypeScript block with an executed pair: ```json pyeye-example tool=configure_packages``` with body {\"save\": false}, followed by a ```json pyeye-output``` block showing {\"packages\": [\"<omitted>\"], \"namespaces\": {}, \"standalone\": {\"dirs\": []}, \"config_file\": \"<omitted>\", \"\u2026\": \"<omitted>\"}. Add one prose sentence saying what it demonstrates (the configuration now in use) and that `activated_plugins` appears when the call configures the project the server started in.",
+    "section": "returns"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api/README.md",
+    "problem": "Lines 85-93 write the call as Python (`configure_packages(packages=[...])`). No client calls an MCP tool that way, so readers cannot copy it, and CI never runs it, so it can drift unnoticed.",
+    "replacement": "Rewrite each call as a ```json pyeye-example tool=configure_packages``` block whose body is the arguments as JSON, e.g. {\"packages\": [\"../temp-package\"], \"save\": false}. Keep `save: false` so the run doesn't write .pyeye.json into the fixture. Keep the one-line caption \"Add a package for this session only, without writing .pyeye.json\".",
+    "section": "example"
+  },
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/api/README.md",
+    "problem": "Lines 95-96 (\"After a call, cached analyzers for every configured path are invalidated...\") describe behaviour, not the example. They sit under the Example heading and repeat what lines 55-56 already say (\"Changes take effect immediately\").",
+    "replacement": "Delete lines 95-96. Lines 55-57 already state that the next call sees the new configuration.",
+    "section": "example"
+  }
+]

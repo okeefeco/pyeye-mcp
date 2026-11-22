@@ -1,0 +1,24 @@
+[
+  {
+    "anchor": {
+      "id": "tests.test_plugin_tool_names_conformance._pinned",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "The client-visible plugin tool surface, from the committed facts snapshot."
+      },
+      {
+        "docstring": "this replaced a hand-kept ``EXPECTED_PLUGIN_TOOLS``"
+      }
+    ],
+    "page": "docs/architecture/plugin-system.md",
+    "page_hash": "29ea10a7",
+    "problem": "Step 4 tells the author to add 'the new names in tests/test_plugin_tool_names_conformance.py'. Since #825 the test keeps no hand list of names: `_pinned()` reads the plugin tool names from the committed facts snapshot (docs/facts/facts.json), which `docs_facts generate` rewrites from the live registration. A new plugin goes in the test's hand-kept `_PLUGINS` tuple and `MINIMUM_PLUGIN_TOOLS` map, and its names reach the pin only when the author regenerates the snapshot. The page never tells them to do that, so following it as written leaves `docs_facts check` failing.",
+    "replacement": "4. Add tests: positive and negative detection, and each tool against a fixture project. Add the class to `_PLUGINS`, and one anchor tool to `MINIMUM_PLUGIN_TOOLS`, in `tests/test_plugin_tool_names_conformance.py`. Then run `uv run python scripts/docs_facts.py generate`: it pins the new names in `docs/facts/facts.json`, which is what the conformance test checks (see [docs facts](../development/docs-facts.md)).",
+    "route": "wording",
+    "route_reason": "This is contributor procedure over a test module and a CLI script. No extractor covers it, and examples run MCP tools only.",
+    "section": "adding-a-plugin"
+  }
+]

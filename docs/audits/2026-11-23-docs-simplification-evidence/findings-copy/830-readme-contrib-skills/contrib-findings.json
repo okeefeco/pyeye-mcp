@@ -1,0 +1,98 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "CONTRIBUTING.md",
+    "problem": "Refers to an issue template that doesn't exist: the repo has no .github/ISSUE_TEMPLATE (only pull_request_template.md), so a new issue opens blank.",
+    "replacement": "Replace the sentence's end with \"please include as many details as possible.\" The list below already says what a good report holds.",
+    "section": "reporting-bugs",
+    "subject": "please include as many details as possible using the issue template"
+  },
+  {
+    "anchor": {
+      "id": "duplication",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "CONTRIBUTING.md",
+    "problem": "Steps 7 and 8 restate the pages they link. Step 8 repeats the decisions.py commands that docs/decisions/DECISIONS.md already lists (with more options); step 7 repeats the fragment naming and bullet format from changes/README.md, plus what `changelog.py prepare` does to fragments (a code fact in prose, C15). Each copy can drift from its source.",
+    "replacement": "Keep each step's what and why and link the source: step 7 \"For a user-facing change, add a changelog fragment instead of editing CHANGELOG.md; changes/README.md gives the file name and categories.\" Step 8 \"A contract-significant decision gets its own file; docs/decisions/DECISIONS.md gives the format and the commands to list and check entries.\"",
+    "section": "pull-requests",
+    "subject": "`python scripts/decisions.py index` lists existing decisions and `python scripts/decisions.py check` validates them"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "CONTRIBUTING.md",
+    "problem": "Hand-writes the supported Python floor, a code fact (`requires-python` in pyproject.toml). The packet has no facts, so this can't anchor on the fact directly, but the `project.requires_python` fact already exists in the ci extractor.",
+    "replacement": "Bind the floor with a fact block for `project.requires_python` (e.g. \"Python <!-- fact:begin project.requires_python -->\u2026<!-- fact:end -->\") instead of writing 3.11.",
+    "section": "prerequisites",
+    "subject": "Python 3.11 or higher"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "CONTRIBUTING.md",
+    "problem": "Step 3 states code facts in prose (C15): the hook types `pre-commit install` installs (default_install_hook_types in .pre-commit-config.yaml) and what the post-merge/post-checkout hooks do (refresh the setuptools_scm version file, start a dogfooding metrics session). They match today, but nothing ties them to the config.",
+    "replacement": "Keep the how-to (re-run `pre-commit install` after an older clone; delete a hand-written .git/hooks/post-checkout and its .legacy copy) and drop the list and the behaviour sentence. Bind the hook types and their purposes as a fact (new extractor reading `default_install_hook_types` and the post-* hooks' names from .pre-commit-config.yaml), or link .pre-commit-config.yaml.",
+    "section": "quick-start",
+    "subject": "This installs every hook type the project configures"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "CONTRIBUTING.md",
+    "problem": "The bullets state, as prose, which flag each environment's config uses (hooks `uv run --frozen`, CI `uv sync --locked`, CI's pre-commit job running the hooks). Those are facts of .pre-commit-config.yaml and .github/workflows, so C15 says they come from a fact, not prose. The why behind each flag is the part prose should keep.",
+    "replacement": "Keep the policy and the why for each flag (frozen never rewrites the lock; locked fails on drift; UV_LOCKED conflicts with --frozen), and bind the per-environment flags as a fact (new extractor reading the hooks' `uv run` entries and the workflows' `uv sync` steps), so a workflow that drops `--locked` fails `docs_facts check`.",
+    "section": "dependency-lockfile-policy",
+    "subject": "**CI** pins `uv sync --locked`"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "CONTRIBUTING.md",
+    "problem": "Two absolutes go past what the setup guarantees. \"Every environment ... and release \u2014 builds from the exact locked dependency set\": release.yml's `uv build` resolves the build backend's requirements in an isolated build environment, outside uv.lock. \"So it works offline\": `uv sync --frozen` skips resolution but still downloads any package missing from the uv cache, so it works offline only with a warm cache.",
+    "replacement": "Scope both claims: \"every environment \u2014 pre-commit hooks, CI, local dev, and release \u2014 installs the project's dependencies from the exact locked set (the release build's own build backend is resolved separately)\", and \"never re-resolves, so it works behind a PyPI mirror, and offline once the packages are in uv's cache\".",
+    "section": "dependency-lockfile-policy",
+    "subject": "builds from the *exact* locked dependency set"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "CONTRIBUTING.md",
+    "problem": "The tool list restates part of .pre-commit-config.yaml (black, ruff, mypy) and leaves out hooks a contributor will hit on commit, such as bandit, detect-secrets, pydocstyle and the commit-msg check. A code fact in prose (C15), and already incomplete.",
+    "replacement": "Replace the list with one sentence: \"pre-commit runs the formatters, linters, type checker and security checks configured in .pre-commit-config.yaml on every commit\", linking that file; keep the `pre-commit run --all-files` how-to.",
+    "section": "code-style",
+    "subject": "This project uses several tools to maintain code quality:"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "CONTRIBUTING.md",
+    "problem": "Assumes the contributor already has pyeye connected to an MCP client. The page's setup (uv sync, pre-commit) never does that, and nothing here links to how. (The call itself works: `outline(\"pyeye\")` returns the package survey.)",
+    "replacement": "Add the link: \"connect pyeye to your MCP client (see the README's [Installation](README.md#installation)), point it at this checkout, and `outline` the `pyeye` package.\"",
+    "section": "project-structure",
+    "subject": "point pyeye at its own checkout and `outline` the `pyeye` package"
+  }
+]

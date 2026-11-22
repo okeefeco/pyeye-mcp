@@ -1,0 +1,96 @@
+[
+  {
+    "anchor": {
+      "id": "contradictory-directive",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "readers follow a link for the full rule",
+        "text": "Keep the #717 rule (`paths_equal()` for comparison, `.as_posix()` for display and assertions) in 10-cross-platform.md; replace this bullet with a pointer to it."
+      },
+      {
+        "cost": "reverses a recorded decision and the path-ownership ratchet",
+        "text": "Keep `.as_posix()` for all comparisons here and relax the #717 rule."
+      }
+    ],
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "This says to compare paths with `.as_posix()`, but .claude/instructions/10-cross-platform.md (\"One Owner for Path Normalisation and Comparison\", #717) says path comparison goes through `paths_equal()` and never compares paths outside pyeye.path_utils, keeping `.as_posix()` for display, storage and test assertions. Both directives can't be followed.",
+    "question": "Which rule governs comparing paths: `.as_posix()` everywhere, or `paths_equal()` for comparison and `.as_posix()` for display and test assertions?",
+    "recommendation_anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "recommended": 0,
+    "section": "windows-issues",
+    "subject": "Always use `.as_posix()` for path comparisons"
+  },
+  {
+    "anchor": {
+      "id": "human-explains",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "Human docs use enforcement language (\"Never\") instead of explaining why a fixed threshold fails.",
+    "replacement": "A single fixed time threshold either passes slow CI runners loosely or fails them; a per-platform threshold avoids both (see [Performance Testing Guide](../testing/PERFORMANCE.md)).",
+    "section": "ci-environment-considerations",
+    "subject": "Never use fixed time thresholds"
+  },
+  {
+    "anchor": {
+      "id": "human-explains",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "The checklist addresses a test generator with shouted enforcement (\"ANY\") on a human page; human docs explain rather than command.",
+    "replacement": "Before writing a test, it helps to:",
+    "section": "pre-generation-checklist",
+    "subject": "Before generating ANY test:"
+  },
+  {
+    "anchor": {
+      "id": "duplicated-prose",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "This section repeats docs/testing/PERFORMANCE.md, which owns performance-test guidance and deliberately avoids copying helper names into the page. The copied example also hard-codes a threshold constant name (CommonThresholds.GOTO_DEFINITION_P95, named after a removed tool and a P95 metric that PERFORMANCE.md argues against on few samples), so it will drift.",
+    "replacement": "**Solution**: Use a per-platform threshold instead of a fixed number; see the [Performance Testing Guide](../testing/PERFORMANCE.md) for why and how. (Drop the copied code example.)",
+    "section": "3-performance-testing",
+    "subject": "**Solution**: Use PerformanceThresholds"
+  },
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "The \"correct\" example doesn't show mocking datetime where it is looked up; it patches away the whole function that uses datetime, so the code under test is never run. It doesn't fix the problem the \"wrong\" example describes.",
+    "replacement": "Show patching the name in the namespace where the code looks it up, e.g. `with patch('module.datetime') as mock_dt:` when `module` does `from datetime import datetime` at top level, or `patch('datetime.datetime')`-style patching of the source module when the import happens inside the function, and keep the function under test unpatched.",
+    "section": "5-mock-patterns",
+    "subject": "with patch('module.function_that_uses_datetime'):"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/development/test_generation_guidelines.md",
+    "page_hash": "bb8b122a",
+    "problem": "Restates test configuration by hand, and misleadingly: pyproject.toml sets `asyncio_mode = \"auto\"` under pytest options, so async tests are collected without the marker and the marker is optional, not required.",
+    "replacement": "**Use proper async patterns** - write async tests as `async def`; pytest-asyncio's mode is set in pyproject.toml's pytest options (see [Testing Conventions](../testing/CONVENTIONS.md#async-test-patterns)).",
+    "section": "key-principles",
+    "subject": "**Use proper async patterns** - @pytest.mark.asyncio for async tests"
+  }
+]

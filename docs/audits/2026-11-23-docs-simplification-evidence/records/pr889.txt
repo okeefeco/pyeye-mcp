@@ -1,0 +1,81 @@
+# PR 889 docs(facts): repo and pyeye config as facts; pages link instead of restating (#830)
+## Description
+
+#830 slice 5, from C17 item 1 (design PR #887). C17 says a value in a committed, machine-readable file that a doc states is a fact. How-to policy with no config source stays prose.
+
+**New facts**
+- **`repo_config` extractor:**
+  - `precommit.hook.<id>`, with view `precommit.hooks`. The value is the hook's `repo`: `local` or the URL. `.pre-commit-config.yaml` is read by pattern, with no YAML dependency (as `ci.py` reads `ci.yml`). A file with no hooks fails loudly.
+  - `precommit.uv_run_flags`: the flags every `entry: uv run …` hook shares, today `--frozen`. A hook without them fails extraction.
+  - `config.key.*` (view `config.keys`), from the new `pyeye.config.CONFIG_KEYS`.
+  - `config.ignored_key.*` (view `config.ignored_keys`): all 9 of `IGNORED_TOP_LEVEL_KEYS`.
+  - `config.files.project`, `config.files.global` and `config.files.override`, from `pyeye.constants`.
+- **`ci.uv_sync_flags`** (in `ci.py`): the flags every `uv sync` in `ci.yml` shares, today `--locked`. A sync without them fails extraction.
+
+**`config.py` and `constants.py`: no behaviour change**
+- **`GLOBAL_CONFIG_FILES`** is lifted from the two paths that were written inline in `ProjectConfig._load_global_config`: `~/.config/pyeye/config.json`, then `~/.pyeye.json`. The loader now iterates `[Path.home() / name for name in GLOBAL_CONFIG_FILES]`, with the same order and the same "first that exists wins". Two tests pin it:
+  - `test_global_config_files_are_still_tried_in_order`: with both files present, the first wins;
+  - `test_the_loader_reads_the_global_config_files_constant`: monkeypatching the constant changes which file the loader reads, so the fact is the loader's own list.
+- **`CONFIG_KEYS`** is a new constant naming the top-level keys the code already reads: `packages`, `namespaces`, `standalone`, `scope_defaults` and `scope_aliases`. No code reads the constant, so nothing in behaviour changes. A fitness test, `test_config_keys_are_exactly_the_top_level_keys_code_reads`, AST-scans `src/pyeye` for reads of the pyeye config and fails if the set differs from `CONFIG_KEYS` in either direction.
+- `scripts/changelog.py no-breaking` prints `0`.
+
+**Bound prose**
+- README Configuration Methods: the global, project and override files, plus the keys pyeye reads.
+- DOCUMENTATION: the ignored keys. It had listed 5 of the 9.
+- SECURITY: the three security hooks.
+- CONTRIBUTING: `uv sync` with `ci.uv_sync_flags`, and `uv run` with `precommit.uv_run_flags`.
+
+**Linked instead of restated (C17 `duplicated-prose`, with the owner page kept):**
+- CONTRIBUTING steps 7 and 8 now point to `changes/README.md` and `docs/decisions/DECISIONS.md`, which own the fragment and decision rules.
+- `docs/api/README.md`'s "Configuration Sources" list now points to README's Configuration Methods.
+- The three plugin pages' shared intro (availability, shared parameters, records, how the examples work) now sits once, in the `docs/api/README.md` overview. Each page keeps its own fixture and tool specifics.
+
+**`.claude/` duplicates, for worker (they need the user's approval):**
+1. `.claude/instructions/03-mcp-dogfooding.md` restates the removed-tools explanation, which the shipped `skills/python-explore/SKILL.md` owns. 03 already says tool mechanics live in that skill, so 03 should point at it.
+2. `.claude/instructions/11-pr-requirements.md` repeats `06-workflow-commits.md`'s test-requirements list ("Every PR that adds or modifies code MUST include: 1. Unit tests …").
+
+**Other notes**
+- **detect-secrets:** a hook fact named `precommit.hook.detect-secrets` with a string value tripped detect-secrets. The structured `{repo}` value avoids it without touching `.secrets.baseline`.
+- **The #573 guard:** `tests/test_local_uv_sync_frozen.py` reads raw text. It now drops fact markers and joins adjacent code spans first, so the fact-bound CONTRIBUTING line reads as `uv sync --locked`. A new matcher case covers a bound flag. It still catches what it was written for: the existing cases (`uv sync`, ``run `uv sync` first``) still fail, and two new negative cases confirm that a bare `uv sync` followed by a fact block (``run `uv sync` <fact>`pyeye`</fact> first``) or by another code span (``run `uv sync` `pytest` first``) still fails.
+- **Uncovered ledger:** 28 `precommit.hook.*` facts appear as new entries. Only the three security hooks are bound in prose. The ledger is non-blocking (D5): they can be covered or dismissed later.
+- **Ordering:** this queues after #886 (4c), which shares `uncovered.json`. I'll merge main once it lands.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+- [x] Code refactoring
+
+## Checklist
+
+- [x] My code follows the project's style guidelines
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] I have added tests that prove my fix is effective or that my feature works
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully (detect-secrets included)
+
+## Coverage Requirements
+
+- [x] Coverage maintained or improved: 94.77%
+- [x] New code has >90% coverage
+
+## Testing
+
+- **Full suite**, capped at `MemoryMax=2G`: 4935 passed, coverage 94.77%. The one failure was the #573 guard above; after its fix, those tests and the repo_config tests pass (28).
+- **Gates:**
+  - `docs_facts check`: 85 files;
+  - `decisions check`: 109 OK;
+  - `changelog check`: OK, and `no-breaking` prints 0;
+  - path ratchet and dup ratchet: clean.
+- **Fragment:** `changes/830-11.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/889?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

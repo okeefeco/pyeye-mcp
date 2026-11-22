@@ -1,0 +1,76 @@
+# PR 880 docs(guides): docs/, docs/testing and docs/development guides from facts (#830)
+## Description
+
+#830 slice 3: the 20 guide pages under `docs/` (not `api/`, `architecture/` or `reference/`), `docs/testing/` and `docs/development/`. There are no `.claude/` files.
+
+**Review:** the internal `/docs-review` ran on all 20 pages with five fresh read-only reviewers. It found **145 findings, all validated**:
+- 3 needed a decision;
+- 6 were marked PENDING-CONFIG for the open config-files ruling.
+
+**The user decided:**
+- Apply all.
+- PENDING-CONFIG: delete the 5 that describe things that don't exist, and leave only the line that restates a real config value.
+- **`testing/PERFORMANCE.md`: rewrite.** It keeps the why (CI tolerance, warm medians over p95) and links the real helpers and suite.
+- **`testing/FIXTURES.md`:** generic patterns with no fake repo-path labels, plus links to the real fixtures.
+- **`LABELS.md`:** document `python:uv`.
+
+**What changed (C15, C16, D12):**
+- **Facts bound instead of hand-written:**
+  - `ci.coverage_threshold`: COVERAGE and STRATEGY. Commands no longer carry the number; pyproject's `addopts` enforces it.
+  - `env.*.default`: cache and project limits in TROUBLESHOOTING.
+  - `scopes.table` and `scope.default.plugin`: namespace-packages.
+  - `tool.trace.param.*`: the trace caps.
+  - `duplication.default.*`: duplicate-code-check.
+  - `security.writes.metrics`: the metrics directory in UNIFIED_METRICS.
+- **Code contradictions corrected:**
+  - debugging-connection-drops: logger names and live tool names in the log samples, and the heartbeat's location.
+  - UNIFIED_METRICS: the metrics path (`~/.pyeye/metrics`, not `~/.pyeye/unified_metrics`), `filelock` rather than `fcntl`, cleanup, and the test paths.
+  - DOGFOODING_INTEGRATION: `sync` doesn't record MCP calls from the CLI; it now points at the hooks.
+  - TROUBLESHOOTING: config sources, path anchoring, the PEP 420 advice, and timeout and worker settings that do nothing.
+  - namespace-packages: the scope list, and the deprecated LazyNamespaceLoader, parallel-search, ScopeDebugger and ScopeValidator advice (now `envelope=true`).
+  - Testing pages: removed helpers, fixtures and dependencies.
+  - api-redesign: the `docstring` row, the `attributes` field that doesn't exist, and the `re_exports` deprecation.
+  - migration-guide: the rollback (0.1.x was `python-code-intelligence-mcp`).
+  - RELEASE: `X.Y.Z` throughout, the manual-tag precondition, and the merge-queue record.
+  - CLAUDE_AGENTS: `general-purpose` is a built-in, and the tool is `Agent`.
+- **D12:** every honest-claims seed on these 20 pages is cleared. That's 94 `claim_seeds.py` entries removed: 79 made stale by the edits, plus 15 cleared by hand. COVERAGE's stale `server-command` allowance is removed from `docs.py`.
+- **`docs/architecture/caching.md`** (from #877): the scoped cache holds each scope's file list, not lookup results. A reviewer caught it, and I checked it against the code; the only writer is `jedi_analyzer.py:524`.
+
+**Left as is:**
+- **Pending the config-files ruling:** the `ls dist/` wheel-name sample in RELEASE.md, which restates pyproject's `[project] name`.
+- **Needs facts that don't exist yet, so currently worded by hand:**
+  - api-redesign's `docstring` row and the deprecated inspect `re_exports` field: an inspect-node extractor;
+  - TROUBLESHOOTING's config-source list: an extractor over `CONFIG_FILES` and `OVERRIDE_FILE`.
+
+**Issue filed:** #879. The dogfooding scripts and aliases call bare `python`, and `sync` always records 0 calls.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully (markdownlint included)
+
+## Testing
+
+- **Full suite**, capped at `MemoryMax=2G`: 4886 passed, 29 skipped, coverage 94.70%.
+- **Gates:**
+  - `docs_facts check`: 81 files;
+  - `decisions check`: 108 OK;
+  - `changelog check`: OK, and `no-breaking` prints 0;
+  - path ratchet and dup ratchet: clean.
+- **Fragment:** `changes/830-7.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/880?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

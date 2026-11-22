@@ -1,0 +1,26 @@
+[
+  {
+    "anchor": {
+      "id": "orphaned-text",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/CLAUDE_AGENTS.md",
+    "problem": "`general-purpose` sits under 'Available agents' on a page about agents 'used in this repository', each 'defined by a markdown file in .claude/agents/'. It is a Claude Code built-in: `.claude/agents/` holds only smart-commit.md and smart-commit-examples.md.",
+    "replacement": "Delete the general-purpose heading and paragraph, and widen the note: \"Other entries in `/agents` (e.g. `general-purpose`, `statusline-setup`) are Claude Code built-ins, not defined in this repository.\"",
+    "section": "general-purpose",
+    "subject": "Catch-all for complex, multi-step research and search tasks that span many files."
+  },
+  {
+    "anchor": {
+      "id": "dated-claim",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/CLAUDE_AGENTS.md",
+    "problem": "Names Claude Code's subagent tool `Task`; current Claude Code calls it `Agent`. A third-party tool name that needs checking.",
+    "replacement": "Check the current Claude Code tool name and write e.g. \"a direct `Agent` tool call with `subagent_type: \"<name>\"`\".",
+    "section": "creating-a-new-agent",
+    "subject": "a direct `Task(subagent_type=\"<name>\", \u2026)` call"
+  }
+]

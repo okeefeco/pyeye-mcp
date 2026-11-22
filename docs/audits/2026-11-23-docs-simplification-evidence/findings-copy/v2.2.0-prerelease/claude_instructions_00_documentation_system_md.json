@@ -1,0 +1,105 @@
+[
+  {
+    "anchor": {
+      "id": "right-audience",
+      "kind": "audience_rule"
+    },
+    "assessment": "unanchored: judgment only. The page is directive and has no executable fixes, which reads as Claude-only.",
+    "category": "audience",
+    "needs_decision": true,
+    "options": [
+      {
+        "cost": "the page is no longer reviewed as a bridge page",
+        "text": "Keep the header; change the DocEntry audience to \"claude\"."
+      },
+      {
+        "cost": "a directive-only page is held to the bridge problem-plus-fix shape",
+        "text": "Keep the DocEntry; change the header to `Audience: Both`."
+      }
+    ],
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "The page's header comment declares its audience as Claude Code, but its DocEntry in src/pyeye/docs_facts/docs.py registers it as \"both\". The two declarations disagree, and review and scoring tasks key on the registered one.",
+    "question": "Is this page Claude-only (fix the DocEntry) or a bridge page (fix the header)?",
+    "section": "",
+    "subject": "Audience: Claude Code"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "A new file in .claude/instructions/ is loaded only if CLAUDE.md @-imports it, and CLAUDE.md, not the numeric prefix, sets the load order (it imports 11-* before 03-*). The step never says to add the import, so a new instruction file following it is silently never loaded.",
+    "replacement": "File naming: use the next numbered prefix, and add an `@.claude/instructions/<file>` import for it to CLAUDE.md (CLAUDE.md's import order is the load order)",
+    "section": "mandatory-determine-audience-first",
+    "subject": "File naming: Use numbered prefix for load order"
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "The audience the tooling reads is the page's DocEntry in src/pyeye/docs_facts/docs.py; 07-validation.md requires a DocEntry (audience and kind) for every new .md file. This step gives only the comment, so a page created by following it fails the docs_facts check.",
+    "replacement": "Action: Mark with `<!-- Audience: Both -->` comment, and register the page with audience \"both\" in a DocEntry (see 07-validation.md, \"Docs Built on Facts\")",
+    "section": "mandatory-determine-audience-first",
+    "subject": "Action: Mark with `<!-- Audience: Both -->` comment"
+  },
+  {
+    "anchor": {
+      "id": "broken-link",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "docs/guides/ does not exist in the repository.",
+    "replacement": "Point the user-guide branch at a directory that exists (e.g. docs/development/ or docs/), or delete the branch.",
+    "section": "when-updating-documentation",
+    "subject": "User guide? \u2192 docs/guides/"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "The list restates the instruction set by hand and is wrong: the load order is CLAUDE.md's @-import order, which is not numeric (11-* loads before 03-*), and the list omits 11-pr-requirements.md entirely.",
+    "replacement": "Files carry a numbered prefix that groups them by role; the load order is the import order in CLAUDE.md, which owns the list. Drop the hand-written range list, or add `11-*` - PR requirements and say it groups by role, not load order.",
+    "section": "file-organization-in-claudeinstructions",
+    "subject": "Files are numbered for load order priority:"
+  },
+  {
+    "anchor": {
+      "id": "broken-link",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "docs/architecture.md does not exist; architecture docs live in the docs/architecture/ directory.",
+    "replacement": "`docs/architecture/` or `README.md`",
+    "section": "examples-of-correct-placement",
+    "subject": "`docs/architecture.md`"
+  },
+  {
+    "anchor": {
+      "id": "broken-link",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": ".claude/instructions/00-documentation-system.md",
+    "page_hash": "8697d824",
+    "problem": "docs/setup.md does not exist; setup guidance lives in README.md and CONTRIBUTING.md.",
+    "replacement": "`README.md` or `CONTRIBUTING.md`",
+    "section": "examples-of-correct-placement",
+    "subject": "`docs/setup.md`"
+  }
+]

@@ -1,0 +1,49 @@
+# PR 903 docs(scenarios): move the scenario baselines into dated records (#830)
+## Description
+
+The maintainer's option (c1) for the `pyeye-scenarios` claim seeds (design C18). **The user approved these `.claude/` edits directly in the editing session.**
+
+- Each scenario's "Probe suite + recorded baseline" section moves into a registered `record`:
+  - `django`: the probe table, the timings, the round-trip probe and the tripwire;
+  - `namespace-jaraco`: the probe table and the round-trip, with the stale notice kept;
+  - `multirepo-namespace`: the probe table.
+
+  Each file is `.claude/skills/pyeye-scenarios/baselines/<scenario>.md`, with `date`, `command`, `commit` and `machine` front matter. Each date and commit is the capture's own. The machine wasn't recorded at capture, so the front matter says so instead of guessing.
+- **Byte-for-byte:** the moved sections equal `main`'s text exactly, checked by script. The only change is the section heading going from `###` to `##` under the record's title, which markdownlint MD001 requires. Nothing was re-measured.
+- **`pyeye-scenarios/SKILL.md`:**
+  - links each record and states no figures (repo sizes are now "small" and "large");
+  - "Adding a scenario" says to write a new record;
+  - its 20 claim seeds are cleared.
+- **`pyeye-verify/SKILL.md`:** reads its baselines and round-trip counts from the records, and on a fix records a new dated baseline instead of editing the old one.
+- **`docs.py`:** registers `.claude/skills/pyeye-scenarios/baselines/*.md` as kind `record`. The front matter is checked by `record_problems`.
+
+**Shared files:** `src/pyeye/docs_facts/docs.py` (with #902, a different entry) and `src/pyeye/docs_facts/claim_seeds.py`. There is no overlap with #889.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 5052 passed, 28 skipped, 1 xfailed.
+- `docs_facts check` passes, including the record front-matter check. `no-breaking` prints 0, and `changelog check` and `decisions check` pass.
+- The path ratchet passes, and the dup report is unchanged. No allow-list entries were added.
+
+Fragment: `changes/830-13.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/903?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

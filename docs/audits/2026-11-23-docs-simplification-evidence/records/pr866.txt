@@ -1,0 +1,63 @@
+# PR 866 docs(readme): bind README's code facts and drop its unbacked claims (#830)
+## Description
+
+The #830 README slice (worker-4's step-1 table, slice 2: README rows). README.md is the docs site's home page.
+
+- **Code facts come from facts, not prose (C15).** The core, plugin and edge lists and the artifact-cache default are now fact blocks. The env-var table, tool parameters and entry points link the generated `docs/reference/` pages. The edge list carries the Static-surface ceiling note, linked to `docs/reference/edges.md#ceilings`.
+- **Unbacked claims removed (D12).** README's seeds in `claim_seeds.py` are cleared:
+  - the cache-sizing measurement table (no registered record; the advice stays, citing #768);
+  - "As of 2025".
+
+  Also removed:
+  - the performance-baselines table: its operations don't exist, and `PERFORMANCE_BASELINES` is never applied;
+  - the stale architecture tree, now links to `docs/architecture/`;
+  - the `find_patterns` plugin example (plugins are built in), now links "Adding a plugin";
+  - the "automatically git-ignored" claim for `.pyeye.override.json`.
+- **A-N8 (GitHub Copilot config), resolved against current docs.** The walkthrough no longer matched current VS Code and GitHub docs, read 2026-11-18:
+  - no `github.copilot.chat.mcpServers` settings key;
+  - `@mcp list` isn't a chat command;
+  - Copilot Free and Pro aren't gated by the org policy;
+  - the config location depends on the harness version.
+
+  The walkthrough is replaced by links to those docs, plus the two facts that are stable: **MCP: List Servers**, and the **MCP servers in Copilot** policy for Business and Enterprise.
+- **Internal `/docs-review`** (`docs_review.py scope README.md`, with a fresh reviewer) found 7 issues in the new text, all applied:
+  - "notebooks" overclaimed `.ipynb` support;
+  - the plugin hook's command and paths were hand-written;
+  - `claude mcp add … -- python -m pyeye.mcp` fails after a pipx install, so it now uses `pyeye-mcp`;
+  - the tuning examples used `export`, which rarely reaches the server, so they now set `-e` on the server entry;
+  - `configure_packages(...)` was shown as a Python call, now JSON tool arguments (two places);
+  - the "API Reference" link now points to `docs/reference/tools.md`.
+
+Not done here, because they need config-key facts that don't exist yet (C15 forbids adding them as prose): A-M5, A-M6 and A-M7 (yaml and `.claude/pyeye.json` sources, the `standalone` snippet, `scope_defaults`/`scope_aliases`).
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 4768 passed, 29 skipped, coverage 94.55%. The docs tests (625) were re-run after the last README edit.
+- `docs_facts.py check` passes, and `mkdocs build --strict` is clean.
+- `changelog.py check` OK, `no-breaking` prints 0, `decisions.py check` OK.
+- The path ratchet passes, and the duplicate-code report is unchanged. No allow-list entries were added.
+
+## Additional Notes
+
+Fragment: `changes/830-4.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/866?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)

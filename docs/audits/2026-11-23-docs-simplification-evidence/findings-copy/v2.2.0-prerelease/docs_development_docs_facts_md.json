@@ -1,0 +1,21 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.docs_facts.claims.record_problems",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "signature": "record_problems(path: str, text: str) -> list[str]"
+      }
+    ],
+    "extractor": "new: the doc kinds from pyeye.docs_facts.docs.Kind, with a one-line meaning each",
+    "page": "docs/development/docs-facts.md",
+    "page_hash": "d6bcf548",
+    "problem": "The kind table lists four kinds (prose, reference, skill, history), but the registry's Kind literal also has `record` (used by .claude/skills/pyeye-scenarios/baselines/*.md), which check treats differently: record_problems requires its front-matter keys. A reader adding a record page finds no kind for it here.",
+    "replacement": "Replace the hand-written kind table with a fact block bound to a new doc-kinds fact read from pyeye.docs_facts.docs.Kind, so `record` (a dated record page whose front matter check requires) appears and no kind can be added without the table following.",
+    "route": "fact",
+    "section": "the-doc-registry"
+  }
+]

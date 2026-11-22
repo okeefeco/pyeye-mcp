@@ -1,0 +1,28 @@
+[
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "page_hash": "5a532dad",
+    "problem": "True only of the ~/.local/bin wrappers (grep_tracker.sh's should_track). `bash scripts/setup_dogfooding.sh` (the Setup section) also runs scripts/setup_aliases.sh, which aliases `grep` to a `tracked_grep` shell function that logs EVERY interactive grep run in the project directory, whatever the pattern, and then calls `command grep`, which reaches the wrapper and can log the same search a second time.",
+    "replacement": "Scope the claim to the wrappers: \"The `~/.local/bin` wrappers count only searches that look like code searches. The full setup (`scripts/setup_dogfooding.sh`) also installs a `grep` shell alias (`scripts/setup_aliases.sh`) that counts every interactive `grep` in the project, so a code search there can be counted twice.\"",
+    "section": "grep-usage-detection",
+    "subject": "Only searches that look like code searches are counted."
+  },
+  {
+    "anchor": {
+      "id": "missing-prerequisite",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/DOGFOODING_INTEGRATION.md",
+    "page_hash": "5a532dad",
+    "problem": "The comment promises `mcp-report` and `mcp-logs`, but setup_mcp_monitoring.sh only writes them to ~/.claude/mcp_monitoring/aliases.sh, which nothing sources; the page never says to source it. And the first command, setup_dogfooding.sh, runs setup_aliases.sh, which appends its own `alias mcp-report=... dogfooding_metrics.py report` to the shell rc file, so after `source ~/.bashrc` `mcp-report` runs the dogfooding CLI report, not the hooks report the page describes, unless aliases.sh is sourced afterwards.",
+    "replacement": "After the setup_mcp_monitoring.sh line, add the step `source ~/.claude/mcp_monitoring/aliases.sh` (in the shell rc file, after the dogfooding aliases), with a note that setup_dogfooding.sh also defines an `mcp-report` alias for `dogfooding_metrics.py report`, and the one sourced last wins.",
+    "section": "setup",
+    "subject": "bash scripts/claude_hooks/setup_mcp_monitoring.sh"
+  }
+]

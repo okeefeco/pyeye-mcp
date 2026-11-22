@@ -1,0 +1,14 @@
+[
+  {
+    "anchor": {
+      "id": "invalid-example",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/migration-guide.md",
+    "problem": "This command fails: PyPI has no `pyeye-mcp` release below 1.0.1 (its releases are 1.0.1, 1.1.1, 1.1.2, 2.0.0, 2.1.0). In 0.1.x the package was `python-code-intelligence-mcp` with module `pycodemcp` (renamed in 1.0.0, CHANGELOG), and PyPI publishing started in 1.0.1.",
+    "replacement": "Replace step 1 of the Rollback Procedure with: \"0.1.x was never published to PyPI as `pyeye-mcp` (it was `python-code-intelligence-mcp`, module `pycodemcp`). To run it, check out the repository's `v0.1.0` tag and install from that checkout.\"",
+    "section": "rollback-procedure",
+    "subject": "pip install \"pyeye-mcp<0.2\""
+  }
+]

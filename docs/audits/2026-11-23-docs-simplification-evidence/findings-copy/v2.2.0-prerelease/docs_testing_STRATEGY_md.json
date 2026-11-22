@@ -1,0 +1,40 @@
+[
+  {
+    "anchor": {
+      "id": "edge.references",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "docs/testing/STRATEGY.md",
+    "page_hash": "4bca597d",
+    "problem": "The example workflow has a '# Get references' step, implying pyeye can list a symbol's references. The references edge is deferred to the reference backend (edge.references), and find_references was removed, so an end-to-end test cannot do that step.",
+    "replacement": "Drop the '# Get references' line from the example (or replace it with a step pyeye supports, such as '# Expand the symbol's structural edges'), and keep the refactoring workflow to steps the tool surface provides.",
+    "section": "end-to-end-tests"
+  },
+  {
+    "anchor": {
+      "id": "restated-code",
+      "kind": "style_rule"
+    },
+    "category": "style",
+    "page": "docs/testing/STRATEGY.md",
+    "page_hash": "4bca597d",
+    "problem": "The list hand-copies the CI matrix's runner OSes (ubuntu-latest, macos-latest, windows-latest in .github/workflows/ci.yml). That is machine-readable CI config, a fact (C17), with no extractor yet; it will drift when the matrix changes, and it hides that macOS and Windows run only some of the Python versions.",
+    "replacement": "Bind the CI test matrix through a new ci-extractor fact (it would read the `os` / `python-version` pairs of the test job's matrix in .github/workflows/ci.yml) instead of listing the platforms by hand; until it exists, say 'the OSes in the CI test matrix (.github/workflows/ci.yml)' and link the workflow.",
+    "section": "supported-platforms",
+    "subject": "Linux (Ubuntu latest)"
+  },
+  {
+    "anchor": {
+      "id": "D12-absolute",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/testing/STRATEGY.md",
+    "page_hash": "4bca597d",
+    "problem": "An absolute rule with no scope, and the example marks `str(path)` as wrong outright. The project's own rule (CONTRIBUTING / cross-platform guidance) scopes `.as_posix()` to paths shown, stored or compared as strings; `str(path)` is correct for OS operations such as subprocess arguments, and comparisons/keys should use `paths_equal()` / `path_to_key()` from `pyeye.path_utils`.",
+    "replacement": "Use `.as_posix()` when a path is displayed, stored or asserted as a string, so it reads the same on every platform. For comparisons and dictionary keys use `paths_equal()` and `path_to_key()` from `src/pyeye/path_utils.py`; `str(path)` stays fine for passing a path to the OS.",
+    "section": "path-handling",
+    "subject": "Always use `.as_posix()` for cross-platform compatibility:"
+  }
+]

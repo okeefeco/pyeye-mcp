@@ -1,0 +1,67 @@
+[
+  {
+    "anchor": {
+      "id": "pyeye.duplication",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "Each file is flattened into a stream of AST tokens: the node type, plus\nattribute names (``.infer``) and constant *types*."
+      }
+    ],
+    "extractor": "new: the token kinds pyeye.duplication.tokenize keeps (node type, Attribute.attr, Constant value type) and drops (Name ids, def/arg names, docstrings, imports)",
+    "page": "skills/duplication-review/SKILL.md",
+    "problem": "Says 'Local names, literal values, docstrings, comments and imports are ignored', implying other names are kept. The tokenizer keeps only node types, attribute names and constant types: every bare Name is erased, so two functions that call entirely different globals or builtins (validate/scale/... vs sorted/len/...) match as one clone (verified with a two-file run: 46-token family). That under-warns Claude about false positives, the very thing the next bullet asks it to judge.",
+    "replacement": "Bind the normalisation rule as a fact (what is kept: node types, attribute names, constant types). Keep only the consequence in prose: 'so a copy with renamed variables still matches, and so can code that calls different functions with the same shape; read both regions.'",
+    "route": "fact",
+    "section": "what-this-is-and-is-not--read-first"
+  },
+  {
+    "anchor": {
+      "id": "duplication.flag.min-tokens",
+      "kind": "fact"
+    },
+    "category": "fact_drift",
+    "page": "skills/duplication-review/SKILL.md",
+    "problem": "The review flag table's Flag column, the dismiss synopsis and the dismiss bullet list hand-write every flag name (`--root`, `--min-tokens`, `--max-occurrences`, `--state`, `--today`, `--json`, `--family`, `--reason`, `--date`, `--review-after`) although each is a duplication.flag.* fact; the Default column next to it already binds its values. A renamed flag would leave the table stale with check still green.",
+    "replacement": "Bind each Flag-column cell and each flag in the dismiss synopsis and bullets to its duplication.flag.* fact (as the Default column binds duplication.default.*), and the command names `review`/`dismiss` to duplication.command.*.",
+    "section": "running-it"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.duplication.build_families",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "A site inside\none class keeps its method endpoints, unless one of them is also in a\ncross-class site: then it joins that class's family too."
+      }
+    ],
+    "page": "skills/duplication-review/SKILL.md",
+    "problem": "Says 'a copy inside one class stays with its methods, and a copy between a function and a class method is not folded into the class'. Both have an exception the code implements: when the method also takes part in a cross-class pair, that end becomes its class node, so the intra-class copy and the function-to-method copy join the class's family. Verified: f() copied into A.m and B.m gives ONE family of 3 sites, not a separate f<->A.m family.",
+    "replacement": "A family groups copies that connect: all the copies between two classes are one family, and any other copy of a method that is in such a pair (from a function, or within its class) joins that family too. Otherwise a copy inside one class stays with its methods, and a function-to-method copy is not folded into the class.",
+    "route": "wording",
+    "route_reason": "Grouping is an algorithm over a run's sites, not a static value an extractor can read, and executed examples run MCP tools, not this CLI.",
+    "section": "what-a-result-means"
+  },
+  {
+    "anchor": {
+      "id": "pyeye.duplication.apply_dismissals",
+      "kind": "symbol"
+    },
+    "category": "code_contradiction",
+    "evidence": [
+      {
+        "docstring": "``new_sites`` are the uncovered sites (only they\n  are shown) and ``new_locations`` the locations no dismissal names, which\n  is empty for a new copy bridging two dismissed families."
+      }
+    ],
+    "page": "skills/duplication-review/SKILL.md",
+    "problem": "Says a re-surfaced family shows 'Only the new or changed members'. The code shows only the uncovered sites (pairs), and for a new copy bridging two dismissed families there is no new member at all (new_locations is empty) yet the bridging site is shown. It also disagrees with the same page's 'Only the new sites are shown' under What a Result Means.",
+    "replacement": "Only the new sites are shown (a bridging copy can add a site with no new member).",
+    "route": "wording",
+    "route_reason": "Which sites a re-surfaced family shows depends on a run's dismissal state, not a static value an extractor can read; executed examples run MCP tools, not this CLI.",
+    "section": "dismissals"
+  }
+]

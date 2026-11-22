@@ -1,0 +1,24 @@
+[
+  {
+    "anchor": {
+      "id": "D12-comparison",
+      "kind": "claims_rule"
+    },
+    "category": "honest_claims",
+    "page": "docs/architecture/caching.md",
+    "problem": "Calls the parsed-file cache \"the main memory lever\", which no record backs. settings.py calls PYEYE_ARTIFACT_CACHE_MAX_ENTRIES a \"latency lever only\" and says PYEYE_SCRIPT_CACHE_MAX_ENTRIES, \"not the parso cap, is what bounds the memory of Jedi's parse trees in real use\".",
+    "replacement": "Delete \"This is the main memory lever.\" and say instead: \"Each cached Jedi script keeps alive every module it inferred, so the script cap, not the parso cap, is what bounds the memory of Jedi's parse trees.\"",
+    "section": "the-caches"
+  },
+  {
+    "anchor": {
+      "id": "link-not-restate",
+      "kind": "audience_rule"
+    },
+    "category": "audience",
+    "page": "docs/architecture/caching.md",
+    "problem": "Writes the defaults by hand: PYEYE_MAX_PROJECTS \"(default 10)\", PYEYE_CACHE_TTL \"(default 300)\", PYEYE_ARTIFACT_CACHE_MAX_ENTRIES \"(default 2000)\". docs/reference/env-vars.md generates them, and the same page already binds PYEYE_WATCHER_DEBOUNCE's default in a fact block. The hand-written ones are unchecked.",
+    "replacement": "Bind each default in a fact block, as line 44 does: `<!-- fact:begin env.PYEYE_MAX_PROJECTS.default -->\u2026<!-- fact:end -->`, and the same for env.PYEYE_CACHE_TTL.default and env.PYEYE_ARTIFACT_CACHE_MAX_ENTRIES.default.",
+    "section": "the-caches"
+  }
+]

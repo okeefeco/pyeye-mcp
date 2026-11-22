@@ -1,0 +1,82 @@
+# PR 881 docs: correct the shipped skills and the MCP tool descriptions (#830)
+## Description
+
+#830 slice 4a: the shipped skills under `skills/`, and the hand-written prose left in the MCP tool descriptions (`server.py`, the plugins and the operation docstrings). It covers worker-4's slice-D rows that fall outside `.claude/`. The rules are C15, C16 and D12. These are product files; `.claude/` comes in slice 4b.
+
+**Tool descriptions and operation docstrings** (each checked against live output or the code):
+- `inspect`:
+  - drops "Edge counts and highlights come in later phases" and `edge_counts={}`;
+  - says `edge_counts` holds only the cheap edges, and that an unmeasured one (including one over its time budget) is absent, never `0`;
+  - documents the deprecated re-export list, and that `superclasses` is omitted when the file can't be parsed.
+
+  It names no edges, to stay inside the #417 ceiling rule.
+- `resolve`: the success shape includes `location`.
+- `expand`: the shape block adds `transitive_hint`, the `max_stubs` truncation trio, and `bindings` on re-export stubs.
+- `get_connection_diagnostics`: lists the real `{connection, errors, pattern_warning, status}`; "signal handler status" is gone.
+- Plugin note: each record carries `scope` and `location`, plus `handle` or `unresolved`.
+- `get_model_schema` and `trace_model_inheritance`: `model_name` is a name or a handle; the not-found and ambiguous shapes are described.
+- `outline` and `python-explore`: name the `unparseable` truncation reason.
+- `stubs.py` lists `enum_member` and the real `line_end` rule: an attribute ends on its own line (#693). `trace.py`: `unparseable_files` also covers `re_exports`.
+
+**Skills** (internal `/docs-review`, one fresh reviewer per page, 20 findings):
+- `python-explore` (5 of 8 applied):
+  - wrong: "conditional imports" are invisible to `imports`. Guarded imports are listed; the line now binds `ceiling.static_imports`.
+  - binds `edges.deferred`;
+  - scopes "stable across edits";
+  - replaces the hard-coded cap numbers with a link to the tool reference;
+  - an example now says what it demonstrates instead of restating its output.
+- `architecture-review` (2 of 3 applied):
+  - binds `review.axes.table`;
+  - defers to `decision-log` instead of copying its rules (the copy had drifted).
+- `auditor.md` (5 of 5 applied):
+  - "unexpired" non-issues (they never expire);
+  - the claim-identity fallback for `other` and open axes;
+  - "will grow" (D12);
+  - `[]` contradicting the per-axis `no_signal` rule;
+  - primitive descriptions copied from python-explore.
+- `duplication-review` (3 of 4 applied, plus a D12 link):
+  - normalisation ignores all names, not only local ones;
+  - the method-in-a-cross-class-pair grouping exception;
+  - "new sites", not "members";
+  - the #495 precision figures link their decision record.
+
+**Left for decisions (not applied):**
+- `python-explore`:
+  - the hand-copied ceiling bullets (a `ceilings.table` block or a link);
+  - the envelope shape and the `resolve` lines as executed examples.
+- `architecture-review`: the rank line's hard-coded bucket order (it needs a template from the bucket map).
+- `duplication-review`: per-flag binding (the `duplication.flag.*` facts hold command lists, not names).
+- Code-docstring mismatches the reviewers found:
+  - `build_families`' "never folded";
+  - `duplication` `main`'s "exit 2 before scanning";
+  - `outline("src/x.py")`'s hint suggests `resolve('py')`.
+
+## Related Issue
+
+Refs #830
+
+## Type of Change
+
+- [x] Documentation update
+
+## Checklist
+
+- [x] I have performed a self-review of my own code
+- [x] I have added/updated documentation as needed
+- [x] New and existing unit tests pass locally with my changes
+- [x] I have run pre-commit hooks successfully
+
+## Testing
+
+- Full suite: 4897 passed, 29 skipped, 1 xfailed, coverage 94.70%. The skill conformance and docs-facts tests are included.
+- `docs_facts check` passes, including the edge-ceiling rule on tool descriptions, and `mkdocs build --strict` is clean.
+- `no-breaking` prints 0, and `changelog check` and `decisions check` pass.
+- The path ratchet passes, and the dup report is unchanged. No allow-list entries were added.
+
+Fragment: `changes/830-8.fixed.md`.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+## [Codecov](https://app.codecov.io/gh/okeefeco/pyeye-mcp/pull/881?dropdown=coverage&src=pr&el=h1&utm_medium=referral&utm_source=github&utm_content=comment&utm_campaign=pr+comments&utm_term=okeefeco) Report
+:white_check_mark: All modified and coverable lines are covered by tests.
+
+:loudspeaker: Thoughts on this report? [Let us know!](https://github.com/codecov/feedback/issues/255)
