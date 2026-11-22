@@ -27,8 +27,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import binding, changed, docs, examples, ledger, pages, registry, removed, review, rules
+from . import binding, changed, docs, examples, ledger, registry, removed, review, rules
 from .facts import Bindable, snapshot
+from .setup import Setup, pyeye_setup
 
 SNAPSHOT = "docs/facts/facts.json"
 CHANGELOG = "CHANGELOG.md"
@@ -44,10 +45,13 @@ class Plan:
     Attributes:
         outputs: Repo-relative path -> the text it should hold.
         problems: ``path:line: message`` for each marker or registry problem.
+        notes: What was left out, not a failure: each rule skipped because its
+            facts are absent (#1091).
     """
 
     outputs: dict[str, str] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)
 
 
 def snapshot_text(facts: Mapping[str, Bindable]) -> str:
@@ -55,23 +59,30 @@ def snapshot_text(facts: Mapping[str, Bindable]) -> str:
     return json.dumps({"facts": snapshot(facts)}, indent=2, sort_keys=True) + "\n"
 
 
-def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
-    """Compute the generated text of every registered doc, page and the snapshot."""
+def plan(
+    root: Path, facts: Mapping[str, Bindable] | None = None, setup: Setup | None = None
+) -> Plan:
+    """Compute the generated text of every registered doc, page and the snapshot.
+
+    *setup* is the repository's (#1091): its extractors, doc registry, rules and
+    pages. Default: pyeye's own (:func:`~.setup.pyeye_setup`).
+    """
+    setup = pyeye_setup() if setup is None else setup
     if facts is None:
-        facts = registry.build(root)
+        facts = registry.build(root, setup.extractors)
     result = Plan()
-    generated = set(docs.REFERENCE_PAGES)
-    for path in docs.missing_files(root):
+    generated = set(setup.pages)
+    for path in docs.missing_files(root, setup.docs):
         if path not in generated:
             result.problems.append(f"{path}: registered in the doc registry but missing")
     entries = removed.load(root)
     live = removed.live_names(facts)
-    changelog = root / CHANGELOG
+    changelog = root / setup.changelog if setup.changelog else None
     major = removed.current_major(
-        changelog.read_text(encoding="utf-8") if changelog.is_file() else ""
+        changelog.read_text(encoding="utf-8") if changelog and changelog.is_file() else ""
     )
     covered: set[str] = set()
-    for path, entry in docs.registered_files(root):
+    for path, entry in docs.registered_files(root, setup.docs):
         if path in generated:
             continue
         text = (root / path).read_text(encoding="utf-8")
@@ -96,10 +107,11 @@ def plan(root: Path, facts: Mapping[str, Bindable] | None = None) -> Plan:
         covered |= ledger.expand(entry.covers, facts)
         found = removed.mentions(path, text, entries, live, major)
         result.problems.extend(_removed_name_problems(path, entry, found))
-    for path, build_page in pages.PAGES.items():
+    for path, build_page in setup.pages.items():
         result.outputs[path] = build_page(facts)
     result.outputs[SNAPSHOT] = snapshot_text(facts)
-    result.problems.extend(rules.run(root, facts))
+    result.problems.extend(rules.run(root, facts, setup.docs, setup.rules))
+    result.notes.extend(rules.skipped(setup.rules, facts))
     old_snapshot = _committed_snapshot(root)
     result.outputs[removed.REMOVED] = removed.render(removed.updated(entries, old_snapshot, facts))
     review_state = review.load(root)
@@ -160,9 +172,9 @@ def _diff(root: Path, path: str, text: str) -> str:
     return "\n".join(lines)
 
 
-def generate(root: Path) -> int:
+def generate(root: Path, setup: Setup | None = None) -> int:
     """Write every stale output. Returns the exit code (1 on a problem)."""
-    result = plan(root)
+    result = plan(root, setup=setup)
     for path in stale(root, result):
         target = root / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -170,17 +182,21 @@ def generate(root: Path) -> int:
         print(f"docs_facts: regenerated {path}")
     for problem in result.problems:
         print(f"docs_facts: {problem}", file=sys.stderr)
+    for note in result.notes:
+        print(f"docs_facts: {note}", file=sys.stderr)
     return 1 if result.problems else 0
 
 
-def check(root: Path) -> int:
+def check(root: Path, setup: Setup | None = None) -> int:
     """Fail if any output is stale or any marker is malformed or unknown."""
-    result = plan(root)
+    result = plan(root, setup=setup)
     paths = stale(root, result)
     for path in paths:
         print(_diff(root, path, result.outputs[path]))
     for problem in result.problems:
         print(f"docs_facts: {problem}")
+    for note in result.notes:  # left out, not failed (#1091)
+        print(f"docs_facts: {note}")
     if paths:
         print(
             f"docs_facts: {len(paths)} file(s) differ from the code's facts. Run "
@@ -193,15 +209,17 @@ def check(root: Path) -> int:
     return 0
 
 
-def report_changed(root: Path, base: str) -> int:
+def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
     head = _committed_snapshot(root)
     before = changed.base_snapshot(root, base, SNAPSHOT)
     if before is None:
         print(f"### Docs facts changed against `{base}`\n\n`{base}` has no `{SNAPSHOT}`.")
         return 0
-    facts = registry.build(root)
-    print(changed.summary(changed.diff(before, head, changed.bound_pages(root, facts)), base))
+    setup = pyeye_setup() if setup is None else setup
+    facts = registry.build(root, setup.extractors)
+    bound = changed.bound_pages(root, facts, setup.docs)
+    print(changed.summary(changed.diff(before, head, bound), base))
     return 0
 
 

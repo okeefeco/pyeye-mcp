@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from ..async_utils import filtered_rglob
-from ..path_utils import normalize_path, relative_within
+from ..path_utils import relative_within
 from . import (
     binding,
     claims,
@@ -187,6 +187,10 @@ class Rule:
         strings: Whether it also scans the string literals of the ``pyeye.mcp``
             package: the hints and notes it returns inside responses, the most
             model-facing text pyeye has (design C10, Q8).
+        requires: The facts it reads (#1091): a fact ID, or a prefix ending in
+            ``.`` that some fact must start with. A rule whose facts are absent
+            (another repository has none of pyeye's) is skipped and reported,
+            never run on half a fact set (:func:`missing_facts`).
     """
 
     id: str
@@ -194,6 +198,30 @@ class Rule:
     descriptions: bool
     scan: Callable[[Page, Facts], list[Finding]]
     strings: bool = False
+    requires: frozenset[str] = frozenset()
+
+
+def missing_facts(rule: Rule, facts: Facts) -> list[str]:
+    """The requirements of *rule* that *facts* don't meet, sorted (#1091).
+
+    A requirement ending in ``.`` is a prefix: met when some fact ID starts with it.
+    """
+    missing = []
+    for need in rule.requires:
+        met = any(i.startswith(need) for i in facts) if need.endswith(".") else need in facts
+        if not met:
+            missing.append(need)
+    return sorted(missing)
+
+
+def skipped(rules: Iterable[Rule], facts: Facts) -> list[str]:
+    """``skipped rule <id>: needs <facts>`` for each rule whose facts are absent (#1091)."""
+    notes = []
+    for rule in rules:
+        missing = missing_facts(rule, facts)
+        if missing:
+            notes.append(f"skipped rule {rule.id}: needs {', '.join(missing)}")
+    return notes
 
 
 # ---------------------------------------------------------------------------
@@ -430,11 +458,7 @@ def missing_edge_ceiling(page: Page, facts: Facts) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 
-#: The checkout this package was loaded from: ``src/pyeye/docs_facts/`` -> the root.
-_CHECKOUT = normalize_path(Path(__file__)).parents[3]
-
-
-def _removed_names() -> frozenset[str]:
+def _removed_names(root: Path | None) -> frozenset[str]:
     """Env vars and commands that are gone: a live page may name one only beside "removed".
 
     Read from ``docs/facts/removed.json`` (#826, C2): every ``env.*`` and ``cli.*``
@@ -447,9 +471,9 @@ def _removed_names() -> frozenset[str]:
     """
     from . import removed
 
-    return frozenset(
-        e.name for e in removed.load(_CHECKOUT) if e.fact_id.startswith(("env.", "cli."))
-    )
+    if root is None:
+        return frozenset()
+    return frozenset(e.name for e in removed.load(root) if e.fact_id.startswith(("env.", "cli.")))
 
 
 # Includes lowercase suffixes, e.g. the once-documented ``PYEYE_NAMESPACE_company``.
@@ -464,14 +488,15 @@ def _says_removed(line: str) -> bool:
     return "removed" in line.lower()
 
 
-def env_name_claims(text: str, facts: Facts) -> list[Finding]:
+def env_name_claims(text: str, facts: Facts, root: Path | None = None) -> list[Finding]:
     """Each ``PYEYE_*`` name that doesn't take effect, on its line (#556, #628).
 
     A name passes when pyeye reads *and uses* it (status ``live``), or when it is
     deprecated and the line says so. A loaded-but-unused variable fails: the docs
-    would promise a knob that does nothing.
+    would promise a knob that does nothing. *root* is the repository the page
+    is in, whose ``removed.json`` names what was removed (#1091).
     """
-    removed = _removed_names()
+    removed = _removed_names(root)
     found: list[Finding] = []
     for number, line in _lines(text):
         for name in sorted(set(_ENV.findall(line))):
@@ -500,14 +525,15 @@ _MCP_DEV = re.compile(r"\bmcp dev\b")
 _INVALID_FORMS = ("claude mcp add /", '--command "', '--directory "/path/to/your')
 
 
-def server_command_claims(text: str, facts: Facts) -> list[Finding]:
+def server_command_claims(text: str, facts: Facts, root: Path | None = None) -> list[Finding]:
     """Each documented way to start the server that doesn't work (#553).
 
     The ways that work are the ``cli.*`` facts: the console scripts and
     ``python -m pyeye.mcp``. The server module can't run as a file (relative
-    imports), and ``mcp dev`` can't load it.
+    imports), and ``mcp dev`` can't load it. *root* is as for
+    :func:`env_name_claims`.
     """
-    removed = _removed_names()
+    removed = _removed_names(root)
     found: list[Finding] = []
     for number, line in _lines(text):
         for match in _RUN_SCRIPT.finditer(line):
@@ -560,15 +586,22 @@ def honest_claims(page: Page, facts: Facts) -> list[Finding]:  # noqa: ARG001
     ]
 
 
+#: The facts pyeye's edge rules read: its edges and their ceilings (#1091).
+_EDGE_FACTS = frozenset({"edge.", "ceiling."})
+#: pyeye's absence and edge_counts conventions are about its own edges: the
+#: set ``inspect`` leaves unmeasured is their marker (#1091).
+_EDGE_COUNT_FACTS = frozenset({UNMEASURED_FACT})
+
 RULES: tuple[Rule, ...] = (
-    Rule(STATIC_CEILING, _LIVE, True, missing_ceiling),
-    Rule(EDGE_CEILING, frozenset(), True, missing_edge_ceiling),
+    Rule(STATIC_CEILING, _LIVE, True, missing_ceiling, requires=_EDGE_FACTS),
+    Rule(EDGE_CEILING, frozenset(), True, missing_edge_ceiling, requires=_EDGE_FACTS),
     Rule(
         ABSENCE_PROSE,
         _LIVE,
         True,
         lambda page, _facts: absence_claims(page.prose),
         strings=True,
+        requires=_EDGE_COUNT_FACTS,
     ),
     Rule(
         EDGE_COUNTS_PROSE,
@@ -576,19 +609,22 @@ RULES: tuple[Rule, ...] = (
         True,
         lambda page, facts: edge_counts_claims(page.prose, _unmeasured(facts)),
         strings=True,
+        requires=_EDGE_COUNT_FACTS,
     ),
     Rule(HONEST_CLAIMS, _CLAIMS, False, honest_claims),
     Rule(
         ENV_NAME,
         _LIVE_AND_HISTORY,
         False,
-        lambda page, facts: env_name_claims(page.prose, facts),
+        lambda page, facts: env_name_claims(page.prose, facts, page.root),
+        requires=frozenset({"env."}),
     ),
     Rule(
         SERVER_COMMAND,
         _LIVE_AND_HISTORY,
         False,
-        lambda page, facts: server_command_claims(page.prose, facts),
+        lambda page, facts: server_command_claims(page.prose, facts, page.root),
+        requires=frozenset({"cli.script."}),
     ),
 )
 
@@ -769,7 +805,8 @@ def run(
         descriptions: Tool name -> description (default: the live registration).
         strings: The ``pyeye.mcp`` string literals (default :func:`code_strings`).
     """
-    rules = RULES if rules is None else tuple(rules)
+    # A rule whose facts are absent doesn't run (#1091); :func:`skipped` reports it.
+    rules = tuple(r for r in (RULES if rules is None else rules) if not missing_facts(r, facts))
     entries = doc_registry.DOCS if docs is None else docs
     problems = allow_problems(entries)
     for page, entry in pages(root, entries):

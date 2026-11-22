@@ -235,7 +235,7 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
     monkeypatch.setattr(pages, "PAGES", {})
-    monkeypatch.setattr(cli.registry, "build", lambda _root: FACTS)
+    monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
     monkeypatch.setattr(
         cli.rules, "RULES", ()
     )  # #825's prose rules: tested in test_docs_facts_rules
@@ -300,7 +300,7 @@ class TestCheck:
         self, repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         trimmed = index([Fact("tool.live", {}, "`live`")])
-        monkeypatch.setattr(cli.registry, "build", lambda _root: trimmed)
+        monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: trimmed)
 
         assert cli.check(repo) == 1  # snapshot, record and ledger are stale
         assert cli.generate(repo) == 0
@@ -350,7 +350,7 @@ class TestLedgerInCheck:
         self, repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         grown = index([*FACTS.values(), Fact("tool.added", {}, "`added`")])
-        monkeypatch.setattr(cli.registry, "build", lambda _root: grown)
+        monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: grown)
 
         assert cli.generate(repo) == 0
         assert ledger.load(repo) == ledger.Ledger(
@@ -362,9 +362,7 @@ class TestLedgerInCheck:
 class TestRulesHook:
     """#825's env-name and server-command rules read removed names from the record."""
 
-    def test_removed_names_are_the_env_and_command_entries(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_removed_names_are_the_env_and_command_entries(self, tmp_path: Path) -> None:
         (tmp_path / "docs/facts").mkdir(parents=True)
         (tmp_path / removed.REMOVED).write_text(
             removed.render(
@@ -376,11 +374,11 @@ class TestRulesHook:
             ),
             encoding="utf-8",
         )
-        monkeypatch.setattr(rules, "_CHECKOUT", tmp_path)
+        # The record is the checked repository's own (#1091), not pyeye's checkout.
+        assert rules._removed_names(tmp_path) == {"PYEYE_OLD", "pyeye-old"}
 
-        assert rules._removed_names() == {"PYEYE_OLD", "pyeye-old"}
-
-    def test_the_checkout_is_the_repo_root(self) -> None:
-        assert (rules._CHECKOUT / removed.REMOVED).is_file()
+    def test_pyeyes_own_record(self) -> None:
+        repo = Path(__file__).resolve().parents[1]
+        assert (repo / removed.REMOVED).is_file()
         # Today's record has no env var or command: none was ever removed.
-        assert rules._removed_names() == frozenset()
+        assert rules._removed_names(repo) == frozenset()
