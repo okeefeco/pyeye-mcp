@@ -1,0 +1,12 @@
+{
+  "facts": {
+    "demo.backends": [
+      "memory",
+      "disk"
+    ],
+    "demo.region": "ap-southeast-2",
+    "demo.requires_python": ">=3.11",
+    "demo.timeout": 30,
+    "demo.workers": 4
+  }
+}

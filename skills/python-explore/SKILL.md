@@ -196,12 +196,12 @@ of `outline` carries `ceiling`, and `trace` carries `ceilings: {edge: id}`. The 
 | Ceiling | Complete over |
 |---|---|
 | `declared_bases` | the bases written in the class statement; bases added at runtime are not included, and bases that don't resolve to exactly one class are listed in unresolved\_superclasses, an ambiguous base (imported by a try/except shim, or rebound by an if/else) among them (#1057) |
-| `literal_subclassing` | project classes whose class statement names this class as a base, resolved as superclasses resolves it: a class whose base is ambiguous (imported by a try/except shim, or rebound by an if/else) is not listed under any of its candidates (#1057). Classes built with type(), class factories or \_\_init\_subclass\_\_ registration are not included |
+| `literal_subclassing` | project classes whose class statement names this class as a base, resolved as superclasses resolves it: a class whose base is ambiguous (imported by a try/except shim, or rebound by an if/else) is not listed under any of its candidates (#1057). Classes built with type(), class factories or \_\_init\_subclass\_\_ registration are not included. The scan skips virtual environments (a directory holding pyvenv.cfg, whatever its name) and directories named like caches or build output (build, dist, env, venv, .tox and the like) unless they hold \_\_init\_\_.py or \_\_init\_\_.pyi; a PEP 420 namespace package with such a name is not scanned (#1104) |
 | `on_disk_modules` | modules and subpackages present on disk under the package; entries added to \_\_path\_\_ at runtime are not included |
 | `package_reexports` | import bindings written in source in the public modules of the symbol's own package (#712); re-exports from other packages and names provided lazily by a module \_\_getattr\_\_ are not included |
 | `static_calls` | calls whose target static analysis resolves; dynamic calls are counted in unresolved\_call\_sites, not listed |
 | `static_definitions` | definitions written in source: a class body (methods, nested classes, class-level assignments) or a module's top level. Instance attributes assigned in methods (self.x = ...) and anything injected at runtime (metaclass, setattr, \_\_getattr\_\_, type(), \_\_init\_subclass\_\_) are not included |
-| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933) |
+| `static_imports` | import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933). For imported\_by, the scan skips virtual environments (a directory holding pyvenv.cfg, whatever its name) and directories named like caches or build output (build, dist, env, venv, .tox and the like) unless they hold \_\_init\_\_.py or \_\_init\_\_.pyi; a PEP 420 namespace package with such a name is not scanned (#1104) |
 <!-- fact:end -->
 
 `enclosing_scope` has none: lexical nesting is exact.
@@ -744,7 +744,7 @@ anti-pattern. Map a few key modules with `expand(…, "imports")` to see which
 shape you have before refactoring.
 
 > Same static-surface ceiling as everywhere else: `imports` covers
-> <!-- fact:begin ceiling.static_imports -->import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933)<!-- fact:end -->, so an absent edge
+> <!-- fact:begin ceiling.static_imports -->import statements written in source; importlib / \_\_import\_\_ with a computed name is not included. A stub's (.pyi) own imports are declarations, not runtime imports: imported\_by doesn't count them, while imports on a stub module lists them (#933). For imported\_by, the scan skips virtual environments (a directory holding pyvenv.cfg, whatever its name) and directories named like caches or build output (build, dist, env, venv, .tox and the like) unless they hold \_\_init\_\_.py or \_\_init\_\_.pyi; a PEP 420 namespace package with such a name is not scanned (#1104)<!-- fact:end -->, so an absent edge
 > means "not imported in source," not "never loaded."
 
 ## Stating Your Mental Model

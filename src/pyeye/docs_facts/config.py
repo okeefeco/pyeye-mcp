@@ -24,6 +24,11 @@ appears. The keys:
 - ``reference_only``: fact families that are reference data, kept out of the
   uncovered-fact ledger (#1108).
 
+- ``preset``: ``"pyeye"`` selects the engine's built-in pyeye setup (its
+  extractors, doc registry, rules and pages), the bridge until that registry is
+  data too (#1107). It can't be combined with ``facts``, ``extractors`` or
+  ``docs``; ``rules``, ``changelog``, ``paths`` and ``reference_only`` override it.
+
 No config is an error: there is nothing to check.
 """
 
@@ -39,10 +44,19 @@ from ..path_utils import relative_within
 from . import data_facts, kinds, rules
 from .docs import Audience, DocEntry, Kind
 from .facts import check_families
-from .setup import Paths, Setup
+from .setup import Paths, Setup, pyeye_setup
+
+#: Setups built into the engine, selected by ``preset`` (the bridge until
+#: pyeye's own registry is data too, #1107). Each is pyeye's code describing
+#: pyeye, never the analysed repository's.
+PRESETS = {"pyeye": pyeye_setup}
 
 SECTION = "docs_facts"
-KEYS = frozenset({"facts", "extractors", "docs", "rules", "changelog", "paths", "reference_only"})
+KEYS = frozenset(
+    {"preset", "facts", "extractors", "docs", "rules", "changelog", "paths", "reference_only"}
+)
+#: What a preset provides, so a config naming one can't also give it.
+_PRESET_PROVIDES = frozenset({"facts", "extractors", "docs"})
 _FACT_KEYS = frozenset({"id", "from", "file", "key", "name"})
 _DOC_KEYS = frozenset({"path", "audience", "kind", "allow", "covers", "site"})
 _PATH_KEYS = frozenset(Paths.__dataclass_fields__)
@@ -83,6 +97,8 @@ def load(root: Path) -> Setup:
         )
     _refuse_code_refs(raw, SECTION)
     _only(raw, KEYS, SECTION)
+    if "preset" in raw:
+        return _preset(raw)
     facts = tuple(_fact(entry, i, root) for i, entry in enumerate(_list(raw, "facts")))
     built = tuple(_kind(entry, i) for i, entry in enumerate(_list(raw, "extractors")))
     return Setup(
@@ -93,6 +109,33 @@ def load(root: Path) -> Setup:
         changelog=_optional_str(raw, "changelog"),
         paths=_paths(raw.get("paths", {})),
         reference_only=_reference_only(raw.get("reference_only", [])),
+    )
+
+
+def _preset(raw: dict[str, Any]) -> Setup:
+    """A built-in setup, overridden by the config's rules, changelog, paths and reference_only."""
+    name = _str(raw, "preset", SECTION)
+    build = PRESETS.get(name)
+    if build is None:
+        raise ConfigError(f"{SECTION}: preset {name!r} isn't built in; known: {sorted(PRESETS)}")
+    mixed = sorted(_PRESET_PROVIDES & set(raw))
+    if mixed:
+        raise ConfigError(
+            f"{SECTION}: preset {name!r} can't be combined with {mixed}: it provides them"
+        )
+    base = build()
+    return Setup(
+        extractors=base.extractors,
+        docs=base.docs,
+        rules=_rules(raw["rules"]) if "rules" in raw else base.rules,
+        pages=base.pages,
+        changelog=_optional_str(raw, "changelog") if "changelog" in raw else base.changelog,
+        paths=_paths(raw["paths"]) if "paths" in raw else base.paths,
+        reference_only=(
+            _reference_only(raw["reference_only"])
+            if "reference_only" in raw
+            else base.reference_only
+        ),
     )
 
 

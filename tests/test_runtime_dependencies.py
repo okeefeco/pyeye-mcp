@@ -120,7 +120,8 @@ class TestDeclaredDependencies:
         imports = _third_party_imports()
 
         assert {"jedi", "mcp", "watchdog", "yaml"} <= set(imports)
-        assert "pyeye/config.py" in "".join(imports["yaml"])
+        # The one data-file reader (#1091) holds the import; config.py reads through it.
+        assert "pyeye/_data_files.py" in "".join(imports["yaml"])
 
     def test_the_closure_follows_requirements(self) -> None:
         """``parso`` arrives through ``jedi``; ``pyyaml`` through nothing but itself."""

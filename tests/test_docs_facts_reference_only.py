@@ -167,8 +167,15 @@ class TestTheLedger:
 
 
 class TestPyeyesOwnSetup:
-    def test_precommit_is_reference_only(self) -> None:
-        assert "precommit" in pyeye_setup().reference_only
+    def test_precommit_is_declared_reference_only_as_data(self) -> None:
+        """pyeye's own declaration lives in its pyproject config, not in code."""
+        assert "precommit" in config.load(Path(".")).reference_only
+        assert pyeye_setup().reference_only == frozenset()
+
+    def test_a_preset_takes_reference_only_as_an_override(self, tmp_path: Path) -> None:
+        root = _config(tmp_path, 'preset = "pyeye"\nreference_only = ["arch"]')
+
+        assert config.load(root).reference_only == frozenset({"arch"})
 
     def test_no_precommit_entry_is_in_the_ledger(self) -> None:
         data = json.loads(Path(ledger.UNCOVERED).read_text(encoding="utf-8"))

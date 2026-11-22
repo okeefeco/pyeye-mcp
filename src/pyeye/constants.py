@@ -31,7 +31,10 @@ METRICS_DIR = f".{PROJECT_NAME}/metrics"
 # pyproject.toml section name
 TOML_SECTION = f"tool.{PROJECT_NAME}"
 
-# Directories to exclude from file scanning (virtual envs, caches, build artifacts)
+# Directory names that hold no project source: virtual envs, caches, VCS and IDE
+# metadata, build output. ONE list for the project scan, the file watcher and
+# scope classification, applied by ``project_layout.excluded_scan_dir`` (#1104),
+# which still scans such a directory when it is a package.
 EXCLUDED_DIRS = frozenset(
     {
         ".venv",
@@ -51,5 +54,8 @@ EXCLUDED_DIRS = frozenset(
         "build",
         "dist",
         ".hg",
+        ".svn",
+        ".idea",
+        ".vscode",
     }
 )

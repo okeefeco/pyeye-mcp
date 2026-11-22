@@ -67,6 +67,7 @@ import sys
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Collection
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Literal
@@ -288,6 +289,60 @@ def is_module_file(file: str | Path) -> bool:
     """
     path = Path(file)
     return path.suffix == ".py" or is_stub_only_module(path) or is_namespace_stub_init(path)
+
+
+#: A directory holding this file is a virtual environment, whatever its name (#1104).
+VENV_MARKER = "pyvenv.cfg"
+#: A directory holding one of these is a regular package (a stub-only one for ``.pyi``).
+_PACKAGE_MARKERS = ("__init__.py", "__init__.pyi")
+
+
+def excluded_name(name: str) -> bool:
+    """Whether *name* names a directory that usually holds no project source (#1104)."""
+    from .constants import EXCLUDED_DIRS
+
+    return name in EXCLUDED_DIRS or name.endswith(".egg-info")
+
+
+def is_package_dir(directory: Path, entries: Collection[str] | None = None) -> bool:
+    """Whether *directory* is a regular package: it holds ``__init__.py`` or ``__init__.pyi``.
+
+    The one package test behind the scan rule (:func:`excluded_scan_dir`) and
+    scope classification (#1104). *entries*, when given, are its file names,
+    so nothing is looked up.
+    """
+    if entries is not None:
+        return any(marker in entries for marker in _PACKAGE_MARKERS)
+    return any((directory / marker).is_file() for marker in _PACKAGE_MARKERS)
+
+
+def excluded_scan_dir(directory: Path, entries: Collection[str] | None = None) -> bool:
+    """Whether *directory*, below a scan root, holds no project source (#1104).
+
+    The ONE rule for the project scan (:func:`pyeye.async_utils.filtered_rglob`),
+    the file watcher and scope classification:
+
+    - a virtual environment (it holds ``pyvenv.cfg``), whatever its name, is
+      excluded; it beats the package rule, since a venv's root is never a package;
+    - a directory named in ``constants.EXCLUDED_DIRS`` or ``*.egg-info``
+      (``env``, ``build``, ``dist``, caches…) is excluded UNLESS it holds
+      ``__init__.py`` or ``__init__.pyi``: a real package named ``env`` (Poetry's
+      ``poetry/utils/env/``) is project source;
+    - anything else is scanned.
+
+    The limit, stated in the scan edges' ceilings: a PEP 420 namespace package
+    (no ``__init__``) with one of those names is excluded, because a name alone
+    can't tell it from a build tree such as setuptools' ``build/lib``.
+
+    Args:
+        directory: The directory.
+        entries: Its file names, when the caller already listed it (a walk does):
+            then no file is looked up.
+    """
+    venv = VENV_MARKER in entries if entries is not None else (directory / VENV_MARKER).is_file()
+    if venv:
+        return True
+    return excluded_name(directory.name) and not is_package_dir(directory, entries)
 
 
 def iter_module_files(root: Path) -> list[Path]:

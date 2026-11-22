@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs, pages
+from pyeye.docs_facts import cli, config, docs, pages
 from pyeye.docs_facts.docs import DOCS, DocEntry, entry_for, is_excluded, registered_files
 from pyeye.docs_facts.extractors import ci
 from pyeye.docs_facts.facts import Fact, View, index
@@ -104,7 +104,8 @@ class TestDocRegistry:
 
 class TestRepoIsCurrent:
     def test_check_passes_on_the_repo(self, capsys: pytest.CaptureFixture[str]) -> None:
-        code = cli.check(ROOT)
+        """As the command runs it: with the repository's own config (#1091, #1108)."""
+        code = cli.check(ROOT, setup=config.load(ROOT))
 
         assert code == 0, capsys.readouterr().out
 
@@ -128,6 +129,11 @@ def tiny_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(pages, "PAGES", {"ref.md": lambda f: f["x.list"].markdown + "\n"})
     monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
     monkeypatch.setattr(cli.rules, "RULES", ())  # tested in test_docs_facts_rules
+    # The CLI checks only a repository that declares a config (#1091): this one
+    # selects pyeye's setup, whose (patched) constants it reads at call time.
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.pyeye.docs_facts]\npreset = "pyeye"\n', encoding="utf-8"
+    )
     return tmp_path
 
 

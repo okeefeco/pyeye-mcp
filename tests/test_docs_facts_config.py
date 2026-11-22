@@ -314,3 +314,65 @@ class TestLiteralKind:
         )
         with pytest.raises(config.ConfigError, match=message):
             config.load(root)
+
+
+class TestPreset:
+    """``preset = "pyeye"`` selects the engine's built-in pyeye setup, as data (the bridge to #1107)."""
+
+    def _preset(self, tmp_path: Path, body: str) -> Path:
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\n\n[tool.pyeye.docs_facts]\n' + body, encoding="utf-8"
+        )
+        return tmp_path
+
+    def test_selects_pyeyes_setup(self, tmp_path: Path) -> None:
+        from pyeye.docs_facts.setup import pyeye_setup
+
+        setup = config.load(self._preset(tmp_path, 'preset = "pyeye"\n'))
+        own = pyeye_setup()
+        assert (setup.extractors, setup.docs, setup.rules, setup.pages) == (
+            own.extractors,
+            own.docs,
+            own.rules,
+            own.pages,
+        )
+
+    def test_rules_changelog_and_paths_override(self, tmp_path: Path) -> None:
+        setup = config.load(
+            self._preset(
+                tmp_path,
+                'preset = "pyeye"\nrules = ["honest-claims"]\nchangelog = "NEWS.md"\n'
+                '[tool.pyeye.docs_facts.paths]\nsnapshot = "build/facts.json"\n',
+            )
+        )
+        assert [r.id for r in setup.rules] == ["honest-claims"]
+        assert (setup.changelog, setup.paths.snapshot) == ("NEWS.md", "build/facts.json")
+
+    @pytest.mark.parametrize("key", ["docs", "facts", "extractors"])
+    def test_cant_be_mixed_with_what_it_provides(self, tmp_path: Path, key: str) -> None:
+        root = self._preset(tmp_path, f'preset = "pyeye"\n{key} = []\n')
+        with pytest.raises(config.ConfigError, match=f"can't be combined with.*{key}"):
+            config.load(root)
+
+    def test_only_engine_built_ins(self, tmp_path: Path) -> None:
+        root = self._preset(tmp_path, 'preset = "mine"\n')
+        with pytest.raises(config.ConfigError, match="preset 'mine' isn't built in"):
+            config.load(root)
+
+
+def test_the_cli_refuses_a_repo_with_no_config(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No more fallback to pyeye's own setup: a foreign repo with no config has nothing to check."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "x"\n', encoding="utf-8")
+    assert cli.main(["check"], root=tmp_path) == 1
+    assert "nothing to check" in capsys.readouterr().err
+
+
+def test_this_repository_declares_the_preset() -> None:
+    root = Path(__file__).resolve().parents[1]
+    assert config.find(root) == {
+        "preset": "pyeye",
+        "changelog": "CHANGELOG.md",
+        "reference_only": ["precommit"],
+    }

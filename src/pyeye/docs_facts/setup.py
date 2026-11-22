@@ -110,11 +110,6 @@ class Setup:
         check_families(self.reference_only, "reference_only")
 
 
-#: pyeye's own reference-only families (#1108): the pre-commit hook list is
-#: reference data. ``arch`` joins when #1092's architecture facts register.
-REFERENCE_ONLY = frozenset({"precommit"})
-
-
 def pyeye_setup() -> Setup:
     """pyeye's own setup: its extractors, its doc registry, every rule and its pages.
 
@@ -127,5 +122,4 @@ def pyeye_setup() -> Setup:
         rules=rules.RULES,
         pages=pages.PAGES,
         changelog="CHANGELOG.md",
-        reference_only=REFERENCE_ONLY,
     )
