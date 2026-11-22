@@ -26,19 +26,13 @@ number, so the fact only changes when a site is added, removed or moved.
 from __future__ import annotations
 
 import ast
-import inspect
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import pyeye
-
-from ... import _jedi_project
 from ...async_utils import filtered_rglob
-from ...constants import CONFIG_FILE
 from ...path_utils import relative_within
-from ...validation import PathValidator
 from .. import static
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, text, view
 
@@ -290,18 +284,6 @@ def _static_sources(root: Path) -> _Sources:
     )
 
 
-def _imported_sources() -> _Sources:  # #1098 twin, deleted next
-    return _Sources(
-        rejected_sequences=PathValidator.REJECTED_SEQUENCES,
-        restricted_targets=PathValidator.RESTRICTED_TARGETS,
-        credential_paths=PathValidator.CREDENTIAL_PATHS,
-        user_homes=PathValidator.USER_HOMES,
-        check_forms_doc=inspect.getdoc(PathValidator.check_forms),
-        config_file=CONFIG_FILE,
-        unsafe_extensions=_jedi_project.LOAD_UNSAFE_EXTENSIONS,
-    )
-
-
 def _path_checks(src: _Sources) -> Iterator[Bindable]:
     """What :meth:`PathValidator.validate_path` rejects, from its constants and docstring."""
     rejected = Fact(
@@ -355,10 +337,6 @@ def _path_checks(src: _Sources) -> Iterator[Bindable]:
 def extract(root: Path) -> Iterator[Bindable]:
     """Yield the security facts, read from the checkout's ``src/pyeye`` (#1098, C19)."""
     return _facts(root / "src" / "pyeye", _static_sources(root))
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
-    return _facts(Path(pyeye.__file__).parent, _imported_sources())
 
 
 def _facts(package: Path, src: _Sources) -> Iterator[Bindable]:

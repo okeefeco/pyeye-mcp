@@ -90,7 +90,7 @@ def extract(root: Path) -> Iterator[Bindable]:
     yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))
 
 
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # #1098 twin, deleted next
+def _extract_imported(root: Path) -> Iterator[Bindable]:  # the live path #1098 Q1 decides
     yield from extract_code()
     unmeasured = inspect_unmeasured(root)
     yield Fact("edges.inspect_unmeasured", unmeasured, code_list(unmeasured))

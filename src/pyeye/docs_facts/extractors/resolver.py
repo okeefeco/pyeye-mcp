@@ -8,7 +8,8 @@ the code follows:
   (``all``, ``project`` or ``external``), its position and its summary;
 - ``resolver.bare_name.<rule>``: one fact per rule of the bare-name policy.
 
-It imports :mod:`pyeye.resolver` only, which sits below :mod:`pyeye.mcp`.
+The tables' ``Step(...)`` / ``NameRule(...)`` calls are read from the
+source (:mod:`..static`); the resolver is never imported (#1098, C19).
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
-from ... import resolver
 from .. import static
 from ..facts import Bindable, Fact, code, text, view
 
@@ -47,11 +47,6 @@ def extract(root: Path) -> Iterator[Bindable]:
         return [(n, s) for n, s in static.call_args(root, "pyeye.resolver", table, 2)]
 
     return _facts({t: rows(t) for _s, _h, t in _SIDES}, rows("BARE_NAME_POLICY"))
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
-    tables = {t: [(s.name, s.summary) for s in getattr(resolver, t)] for _s, _h, t in _SIDES}
-    return _facts(tables, [(r.name, r.summary) for r in resolver.BARE_NAME_POLICY])
 
 
 def _facts(tables: dict[str, list[_Row]], bare: list[_Row]) -> Iterator[Bindable]:

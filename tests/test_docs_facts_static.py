@@ -9,6 +9,7 @@ string operators. It never calls anything: any other expression is an
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 import pytest
@@ -107,3 +108,47 @@ def test_a_module_namespace_folds_on_access(tmp_path: Path) -> None:
     module = static.Module(root, "pyeye.m")
     assert (module.X, module.N) == ("x!", "x")
     assert module.file == root / "src/pyeye/m.py"
+
+
+#: pyeye modules an extractor may import: the engine's own file-walking helpers,
+#: never a source of facts.
+_TOOLS = ("pyeye.docs_facts", "pyeye.path_utils", "pyeye.async_utils")
+
+#: The fact sources still imported, each with the ruling that removes it. A
+#: ratchet: it only shrinks, and an entry no longer imported fails too.
+STILL_IMPORTED = {
+    ("mcp_surface", "pyeye.scope_utils"): "#1098 PR B",
+    ("mcp_surface", "pyeye.mcp"): "#1098 PR B",
+    ("edges", "pyeye.mcp.operations"): "#1098 Q1: the server's descriptions read it live",
+    ("scopes", "pyeye.scope_utils"): "#1098 Q1: the server's descriptions read it live",
+    ("security", "pyeye.validation"): "#1098 Q2: _RESTRICTED_ANCESTORS",
+}
+
+
+def _pyeye_imports(path: Path) -> set[str]:
+    """The pyeye modules *path* (an extractor) imports, anywhere in the file."""
+    found = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.ImportFrom):
+            if node.level:  # relative: extractors live at pyeye.docs_facts.extractors
+                base = ["pyeye", "docs_facts", "extractors"][: 3 - node.level + 1]
+                module = ".".join([*base, *(node.module.split(".") if node.module else [])])
+            else:
+                module = node.module or ""
+            found.add(module)
+        elif isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+    return {
+        m for m in found if (m == "pyeye" or m.startswith("pyeye.")) and not m.startswith(_TOOLS)
+    }
+
+
+def test_extractors_import_no_fact_source_beyond_the_ratchet() -> None:
+    """C19: facts are read from the source, so an extractor imports none of pyeye (#1098)."""
+    folder = ROOT / "src/pyeye/docs_facts/extractors"
+    imported = {
+        (path.stem, module)
+        for path in sorted(folder.glob("*.py"))
+        for module in _pyeye_imports(path)
+    }
+    assert imported == set(STILL_IMPORTED)

@@ -1,6 +1,7 @@
 """Environment-variable facts: every ``PYEYE_*`` variable pyeye reads.
 
-Two sources, both read from the installed package's own source:
+Two sources, both read from the checkout's ``src/pyeye`` source, never
+imported (#1098, C19):
 
 - ``settings.py``: each ``self.<attr> = self._get_<kind>_env("PYEYE_X", default,
   min_val=..., max_val=...)`` call gives the type, default and range.
@@ -20,7 +21,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ... import settings as settings_module
 from ...async_utils import filtered_rglob
 from ...path_utils import relative_within
 from .. import static
@@ -201,10 +201,6 @@ def extract(root: Path) -> Iterator[Bindable]:
     """
     settings = static.Module(root, "pyeye.settings")
     return _facts(settings.file, settings.DEPRECATED_ENV_VARS)
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
-    return _facts(Path(settings_module.__file__), settings_module.DEPRECATED_ENV_VARS)
 
 
 def _facts(settings_path: Path, deprecated_vars: dict[str, str]) -> Iterator[Bindable]:

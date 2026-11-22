@@ -1,8 +1,10 @@
-"""Each static extractor gives exactly what its import-based twin gave (#1098).
+"""A static extractor gives exactly what its import-based twin gives (#1098).
 
-While both exist, the static ``extract`` must yield the same facts and views,
-in the same order, as ``_extract_imported`` on this repository. The twins are
-deleted once every extractor passes, and this test with them.
+The static ``extract`` must yield the same facts and views, in the same order,
+as ``_extract_imported`` on this repository. Each extractor was proven this way
+before its import path was deleted. ``edges`` and ``scopes`` keep the twin: the
+server still fills its tool descriptions from the live constants (#1098 Q1), so
+this test holds the server's self-description equal to the docs' static facts.
 """
 
 from __future__ import annotations

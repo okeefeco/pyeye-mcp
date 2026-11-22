@@ -36,7 +36,8 @@ def extract(root: Path) -> Iterator[Bindable]:
     return _facts([(n, s, m) for n, s, m in forms], fallback)
 
 
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
+def _extract_imported(_root: Path) -> Iterator[Bindable]:
+    """The live path the server's descriptions read, until #1098 Q1 decides."""
     return extract_code()
 
 

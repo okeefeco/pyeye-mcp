@@ -7,12 +7,10 @@ thresholds and its closed set of dismissal reasons.
 
 from __future__ import annotations
 
-import argparse
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ... import duplication as dup
 from .. import static
 from ..facts import Bindable, Fact, code, code_list, view
 
@@ -34,21 +32,6 @@ def _words(commands: dict[str, tuple[str, ...]]) -> dict[str, list[str]]:
     return words
 
 
-def _vocabulary() -> dict[str, list[str]]:
-    """Each subcommand and long option -> the subcommands that accept it."""
-    words: dict[str, list[str]] = {}
-    for action in dup._parser()._actions:
-        if not isinstance(action, argparse._SubParsersAction):
-            continue
-        for command, sub in action.choices.items():
-            words.setdefault(command, [])
-            for option in sub._actions:
-                for flag in option.option_strings:
-                    if flag.startswith("--") and flag != "--help":
-                        words.setdefault(flag, []).append(command)
-    return words
-
-
 def extract(root: Path) -> Iterator[Bindable]:
     """Yield the CLI vocabulary, its defaults, thresholds and dismissal reasons.
 
@@ -57,10 +40,6 @@ def extract(root: Path) -> Iterator[Bindable]:
     """
     source = static.Module(root, "pyeye.duplication")
     return _facts(_words(source.COMMANDS), source)
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
-    return _facts(_vocabulary(), dup)
 
 
 def _facts(words: dict[str, list[str]], dup: Any) -> Iterator[Bindable]:

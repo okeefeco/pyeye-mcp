@@ -23,10 +23,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ... import (
-    config as live_config,
-    constants as live_constants,
-)
 from .. import static
 from ..facts import Bindable, ExtractionError, Fact, code, code_list, view
 
@@ -82,10 +78,6 @@ def extract(root: Path) -> Iterator[Bindable]:
     The config constants are read from the source, never imported (#1098, C19).
     """
     return _facts(root, static.Module(root, "pyeye.config"), static.Module(root, "pyeye.constants"))
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # #1098 twin, deleted next
-    return _facts(root, live_config, live_constants)
 
 
 def _facts(root: Path, config: Any, constants: Any) -> Iterator[Bindable]:

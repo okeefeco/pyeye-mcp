@@ -10,8 +10,6 @@ import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 
-import pyeye
-
 from ...async_utils import filtered_rglob
 from ...path_utils import relative_within
 from ..facts import Bindable, Fact, code, table, view
@@ -25,10 +23,6 @@ def extract(root: Path) -> Iterator[Bindable]:
     The package is the checkout's ``src/pyeye``, never the imported one (#1098, C19).
     """
     return _facts(root, root / "src" / "pyeye")
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # #1098 twin, deleted next
-    return _facts(root, Path(pyeye.__file__).parent)
 
 
 def _facts(root: Path, package: Path) -> Iterator[Bindable]:

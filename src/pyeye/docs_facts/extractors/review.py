@@ -12,7 +12,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from ...architecture_review import ranking, taxonomy
 from .. import static
 from ..facts import Bindable, Fact, code, code_list, table, view
 
@@ -28,10 +27,6 @@ def extract(root: Path) -> Iterator[Bindable]:
         static.Module(root, "pyeye.architecture_review.taxonomy"),
         static.Module(root, "pyeye.architecture_review.ranking"),
     )
-
-
-def _extract_imported(root: Path) -> Iterator[Bindable]:  # noqa: ARG001 - #1098 twin, deleted next
-    return _facts(taxonomy, ranking)
 
 
 def _facts(taxonomy: Any, ranking: Any) -> Iterator[Bindable]:
