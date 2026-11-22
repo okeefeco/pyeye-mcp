@@ -13,6 +13,8 @@ Environment variables:
 import logging
 import os
 import sys
+import threading
+from collections.abc import Callable
 
 
 def _configure_logging() -> None:
@@ -126,6 +128,39 @@ def cleanup() -> None:
             logger.exception("Shutdown cleanup step failed: %s", name)
 
 
+#: How long the shutdown cleanup may run before the process exits anyway (#1124).
+SHUTDOWN_DEADLINE_SECONDS = 10.0
+
+_shutdown_started = threading.Event()
+
+
+def request_shutdown(signum: int) -> None:
+    """Shut the server down on a signal, once (#1124).
+
+    Called from the signal handler on the main thread, which is inside the
+    event loop. The MCP SDK's stdin reader is a thread that cancellation can't
+    interrupt, so the loop can't be unwound until the client writes; instead a
+    helper thread cleans up and ends the process. A second signal while that
+    runs is ignored: the deadline already bounds it.
+    """
+    if _shutdown_started.is_set():
+        return
+    _shutdown_started.set()
+    threading.Thread(target=_terminate, args=(signum,), daemon=True, name="pyeye-shutdown").start()
+
+
+def _terminate(signum: int) -> None:
+    """Run :func:`cleanup` and exit 0; exit by the deadline even if cleanup hangs."""
+    deadline = threading.Timer(SHUTDOWN_DEADLINE_SECONDS, lambda: os._exit(0))
+    deadline.daemon = True
+    deadline.start()
+    logging.getLogger(__name__).info("Shutting down on signal %d", signum)
+    cleanup()
+    deadline.cancel()
+    # os._exit: the interpreter's own exit would wait on the blocked stdin read.
+    os._exit(0)
+
+
 def main() -> None:
     """Main entry point for the PyEye MCP server."""
     import atexit
@@ -134,14 +169,13 @@ def main() -> None:
 
     # Import diagnostics early (before server import)
     from .connection_diagnostics import (
-        log_connection_end,
         log_connection_start,
         setup_signal_handlers,
         start_heartbeat_monitor,
     )
 
     # Initialize connection diagnostics
-    setup_signal_handlers()
+    setup_signal_handlers(on_terminate=request_shutdown)
     log_connection_start()
 
     # Start heartbeat monitor (logs every 30 seconds)
@@ -164,8 +198,24 @@ def main() -> None:
 
     from .list_changed import run_stdio
 
+    serve_then_clean_up(lambda: anyio.run(run_stdio, mcp))
+
+
+def serve_then_clean_up(serve: Callable[[], None]) -> None:
+    """Run *serve*, then :func:`cleanup` before the interpreter starts to exit (#1124).
+
+    *serve* returns when stdin reaches EOF (the client went away). Cleanup runs
+    here, not only from ``atexit``: the interpreter joins every non-daemon
+    thread BEFORE it runs ``atexit`` handlers, and watchdog 7's reader thread on
+    Windows is non-daemon, so a watcher still running would hang the exit.
+    """
+    import atexit
+
+    from .connection_diagnostics import log_connection_end
+
+    logger = logging.getLogger(__name__)
     try:
-        anyio.run(run_stdio, mcp)
+        serve()
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt")
         log_connection_end("keyboard_interrupt")
@@ -173,6 +223,9 @@ def main() -> None:
         logger.error(f"Server crashed with error: {e}", exc_info=True)
         log_connection_end(f"crash: {type(e).__name__}")
         raise
+    finally:
+        atexit.unregister(cleanup)
+        cleanup()
 
 
 if __name__ == "__main__":

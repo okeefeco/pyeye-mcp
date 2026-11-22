@@ -11,7 +11,7 @@ Sometimes the MCP server process stays running, but the Claude Code session dies
 PyEye includes comprehensive connection diagnostics that track:
 
 1. **Connection lifecycle events** - startup, shutdown, activity, errors
-2. **Signal handling** - SIGTERM, SIGPIPE, SIGHUP to detect disconnects
+2. **Signal handling** - SIGTERM, SIGINT and SIGHUP are logged and shut the server down; SIGPIPE is logged as a disconnect
 3. **Error patterns** - consecutive errors, rapid error rates
 4. **Heartbeat monitoring** - periodic logs to identify silent periods
 5. **Activity tracking** - each analysis tool call (core and plugin tools) is logged with a timestamp
@@ -108,7 +108,7 @@ to the `claude mcp add` command above. In the Claude Desktop config:
 ### Signal Detection
 
 ```log
-2026-04-01 10:20:00 [PID 12345] pyeye.mcp.connection_diagnostics WARNING: Received SIGTERM - client likely disconnected
+2026-04-01 10:20:00 [PID 12345] pyeye.mcp.connection_diagnostics WARNING: Received SIGTERM - shutting down
 ```
 
 ```log
@@ -217,9 +217,9 @@ grep "\[PID 12345\]" ~/.pyeye/connection.log
 
 ### SIGTERM - Graceful Shutdown Request
 
-**Symptom**: `Received SIGTERM - client likely disconnected`
+**Symptom**: `Received SIGTERM - shutting down` (or `SIGINT`, `SIGHUP`)
 
-**Meaning**: The client requested a graceful shutdown.
+**Meaning**: Something asked the server to stop. It stops the Jedi worker and its file watchers, then exits 0; a deadline ends the process even if a cleanup step hangs (#1124).
 
 **Common Causes**:
 

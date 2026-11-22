@@ -102,6 +102,7 @@ from pyeye.resolver import (
     is_function_local,
     local_definition_handle,
     local_member_full_name,
+    prefer_runtime_bindings,
     resolve_external_item,
 )
 from pyeye.scope import classify_scope, is_stdlib_source
@@ -418,6 +419,49 @@ EXACT_EDGES: frozenset[str] = frozenset({"enclosing_scope"})
 #: (#874): ``trace`` gates its per-node map on it, and the docs and tool
 #: descriptions bind it as the ``edges.unparseable`` fact.
 UNPARSEABLE_FILE_EDGES: frozenset[str] = frozenset({"subclasses", "imported_by", "re_exports"})
+
+#: The edges ``inspect`` measures, per kind: each MUST be in ``edge_counts``
+#: (possibly 0). The one statement of what ``inspect`` measures (#1120): the
+#: response linter checks live responses against it, and the docs bind the
+#: unmeasured set below as the ``edges.inspect_unmeasured`` fact.
+#:
+#: Only edges derivable from the symbol's own definition are measured:
+#:
+#: - ``subclasses`` left ``class`` (#392): counting needs the same project-wide
+#:   scan as listing, so it has no cheap-preview value; it is expand-only.
+#: - ``callers`` and ``references`` left every kind (#332): Jedi's budget-capped
+#:   ``get_references`` under-reported them non-deterministically. They return
+#:   with an indexed backend (#333). So function, method, attribute, property
+#:   and variable handles measure nothing: an empty ``edge_counts`` is valid.
+#: - ``submodules`` is conditional (#423): measured only for a package (its
+#:   ``__init__.py``), so it isn't required of ``module``. A plain module must
+#:   leave it absent (absence is not zero). It isn't in the unmeasured set
+#:   either: present is permitted, never demanded.
+INSPECT_EXPECTED_EDGES: dict[str, frozenset[str]] = {
+    "class": frozenset({"members", "superclasses"}),
+    "module": frozenset({"members"}),
+}
+
+#: Edges ``inspect`` never measures: in ``edge_counts`` with any value,
+#: including 0, they would be a false claim of measurement.
+INSPECT_UNMEASURED_EDGES: frozenset[str] = frozenset(
+    {
+        "subclasses",
+        "callers",
+        "references",
+        "callees",
+        "read_by",
+        "written_by",
+        "passed_by",
+        "decorated_by",
+        "decorates",
+        "imports",
+        "imported_by",
+        "enclosing_scope",
+        "overrides",
+        "overridden_by",
+    }
+)
 
 #: What each ceiling id means: the one definition the docs and the skill use.
 CEILING_MEANINGS: dict[str, str] = {
@@ -914,23 +958,24 @@ def _module_member_names(
 def _collect_members(
     selected: Iterable[tuple[Any, str]], analyzer: JediAnalyzer
 ) -> list[tuple[Handle, Any]]:
-    """The one member-collection loop for ``_class_members`` / ``_module_members`` (#686).
+    r"""The one member-collection loop for ``_class_members`` / ``_module_members`` (#686).
 
     Each caller selects its ``(Jedi Name, full_name)`` pairs; this builds each
     handle through :func:`_handle_for_name` and dedupes on the handle it EMITS,
-    keeping the first ``Name``. The handle can differ from ``full_name`` (the
-    stdlib public-name and project-anchor rules, #544 / #714), so deduping on
+    in first-seen order. The handle can differ from ``full_name`` (the stdlib
+    public-name and project-anchor rules, #544 / #714), so deduping on
     ``full_name`` could emit one handle twice. Unplaceable names are skipped.
+
+    Of several ``Name``\ s for one handle the first is kept, except that a
+    runtime binding beats a TYPE_CHECKING-only one (#1106), as the resolver
+    anchors it (:func:`pyeye.resolver.prefer_runtime_bindings`).
     """
-    members: list[tuple[Handle, Any]] = []
-    seen: set[str] = set()
+    grouped: dict[str, tuple[Handle, list[Any]]] = {}
     for name, full_name in selected:
         h = _handle_for_name(name, analyzer, full_name)
-        if h is None or str(h) in seen:
-            continue
-        seen.add(str(h))
-        members.append((h, name))
-    return members
+        if h is not None:
+            grouped.setdefault(str(h), (h, []))[1].append(name)
+    return [(h, prefer_runtime_bindings(names)[0]) for h, names in grouped.values()]
 
 
 # ---------------------------------------------------------------------------

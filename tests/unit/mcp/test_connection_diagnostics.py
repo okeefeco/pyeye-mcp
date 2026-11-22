@@ -81,12 +81,19 @@ class TestConnectionDiagnostics:
         SIGTERM is available on all platforms; SIGHUP and SIGPIPE are POSIX-only
         and must not be registered (or asserted on) when running on Windows.
         """
-        setup_signal_handlers()
+        names = [n for n in ("SIGTERM", "SIGINT", "SIGHUP", "SIGPIPE") if hasattr(signal, n)]
+        saved = {n: signal.getsignal(getattr(signal, n)) for n in names}
+        try:
+            setup_signal_handlers(on_terminate=lambda _signum: None)
 
-        assert signal.getsignal(signal.SIGTERM) != signal.SIG_DFL
+            assert signal.getsignal(signal.SIGTERM) != signal.SIG_DFL
+            assert signal.getsignal(signal.SIGINT) is not signal.default_int_handler
 
-        if hasattr(signal, "SIGHUP"):
-            assert signal.getsignal(signal.SIGHUP) != signal.SIG_DFL
+            if hasattr(signal, "SIGHUP"):
+                assert signal.getsignal(signal.SIGHUP) != signal.SIG_DFL
 
-        if hasattr(signal, "SIGPIPE"):
-            assert signal.getsignal(signal.SIGPIPE) != signal.SIG_DFL
+            if hasattr(signal, "SIGPIPE"):
+                assert signal.getsignal(signal.SIGPIPE) != signal.SIG_DFL
+        finally:
+            for n, handler in saved.items():
+                signal.signal(getattr(signal, n), handler)

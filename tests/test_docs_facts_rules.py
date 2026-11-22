@@ -20,10 +20,11 @@ import pytest
 
 from pyeye.docs_facts import registry, rules
 from pyeye.docs_facts.docs import DocEntry, for_repo
-from pyeye.docs_facts.extractors.edges import inspect_unmeasured
 from pyeye.docs_facts.facts import Fact
+from pyeye.mcp.operations import edges as edge_registry
 from pyeye.mcp.operations.edges import resolve_members, resolve_subclasses
 from pyeye.mcp.operations.outline import outline as outline_operation
+from tests.conformance import response_linter
 from tests.conformance.response_linter import _PHASE4_UNMEASURED_EDGES
 
 ROOT = Path(__file__).parent.parent
@@ -173,13 +174,21 @@ class TestEdgeCountsRule:
         assert {"subclasses", "callers", "references"} <= _PHASE4_UNMEASURED_EDGES
         assert not {"members", "superclasses"} & _PHASE4_UNMEASURED_EDGES
 
-    def test_reading_the_set_fails_loudly_when_it_moves(self, tmp_path: Path) -> None:
-        linter = tmp_path / "tests" / "conformance" / "response_linter.py"
-        linter.parent.mkdir(parents=True)
-        linter.write_text("_PHASE4_UNMEASURED_EDGES = compute()\n", encoding="utf-8")
+    def test_the_sets_live_in_the_edge_registry(self) -> None:
+        """Product code owns them; the linter and the docs fact read them from there (#1120)."""
+        assert _PHASE4_UNMEASURED_EDGES is edge_registry.INSPECT_UNMEASURED_EDGES
+        assert response_linter._PHASE4_EXPECTED_EDGES is edge_registry.INSPECT_EXPECTED_EDGES
 
-        with pytest.raises(ValueError, match="no longer assigns"):
-            inspect_unmeasured(tmp_path)
+    def test_the_fact_reads_no_test_file(self, tmp_path: Path) -> None:
+        """A checkout with no ``tests/`` still yields the fact: it comes from ``src`` (#1120)."""
+        import shutil
+
+        shutil.copytree(ROOT / "src", tmp_path / "src")
+        from pyeye.docs_facts.extractors import edges
+
+        built = {f.id: f for f in edges.extract(tmp_path)}
+
+        assert set(built[rules.UNMEASURED_FACT].value) == edge_registry.INSPECT_UNMEASURED_EDGES
 
 
 # ---------------------------------------------------------------------------
