@@ -29,7 +29,14 @@ SKILL = ROOT / "skills" / "decision-log" / "SKILL.md"
 
 def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(  # nosec B603 - fixed argv
-        argv, capture_output=True, text=True, cwd=cwd, timeout=120, check=False
+        # The module writes UTF-8 (titles carry — and …); decode it as UTF-8 on
+        # every platform, not the locale's code page (cp1252 on Windows).
+        argv,
+        capture_output=True,
+        encoding="utf-8",
+        cwd=cwd,
+        timeout=120,
+        check=False,
     )
 
 
@@ -63,7 +70,9 @@ class TestTheModuleDefaults:
             "superseded_by": [],
         }
         body = "## 2026-01-02 — A decision (#1)\n\n**Applies-to:** `pkg.mod.f`\n"
-        (entries / "2026-01-02-1-a-decision.md").write_text(decisions.render(meta, body))
+        (entries / "2026-01-02-1-a-decision.md").write_text(
+            decisions.render(meta, body), encoding="utf-8", newline="\n"
+        )
 
         result = _module(["check"], tmp_path)
 
@@ -106,7 +115,11 @@ class TestTheModuleDefaults:
             "superseded_by": [],
         }
         name = "2026-01-02-1-old.md"
-        (entries / name).write_text(decisions.render(meta, "## 2026-01-02 — Old (#1)\n\nbody\n"))
+        (entries / name).write_text(
+            decisions.render(meta, "## 2026-01-02 — Old (#1)\n\nbody\n"),
+            encoding="utf-8",
+            newline="\n",
+        )
 
         assert _module(["check"], tmp_path).returncode == 1
         assert _module(["--grandfathered", name, "check"], tmp_path).returncode == 0
