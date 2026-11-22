@@ -537,7 +537,7 @@ class TestScope:
         head = changed.base_snapshot(_ROOT, "HEAD", SNAPSHOT)
         assert head is not None
         # scope() imports it from cli when called, so patch it there.
-        monkeypatch.setattr(cli, "_committed_snapshot", lambda _root: head)
+        monkeypatch.setattr(cli, "_committed_snapshots", lambda _root, _paths: head)
 
         out = review.scope(_ROOT, repo_facts, base="HEAD")
 
@@ -1176,23 +1176,33 @@ class TestReviewFixes864:
         assert found.handle == "pkg.core.run"
 
     @pytest.mark.parametrize(
-        "init",
+        ("init", "canonical"),
         [
-            "try:\n    from .thing import Maybe\nexcept ImportError:\n    Maybe = None\n",
-            "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
-            "    from .thing import Maybe\nelse:\n    Maybe = object\n",
+            (
+                "try:\n    from .thing import Maybe\nexcept ImportError:\n    Maybe = None\n",
+                "pkg.thing.Maybe",
+            ),
+            # #1106 ruling (i): the runtime placeholder wins over the type-only import.
+            (
+                "from typing import TYPE_CHECKING\n\nif TYPE_CHECKING:\n"
+                "    from .thing import Maybe\nelse:\n    Maybe = object\n",
+                "pkg.Maybe",
+            ),
         ],
         ids=["try_except", "type_checking"],
     )
-    def test_canonical_follows_a_branched_re_export(self, tmp_path: Path, init: str) -> None:
-        """The resolver keeps the first binding here by design (#857, #871); the anchor follows it."""
+    def test_canonical_follows_a_branched_re_export(
+        self, tmp_path: Path, init: str, canonical: str
+    ) -> None:
+        """The anchor follows the resolver: the first binding of a try/except (#857, #871),
+        the runtime binding over a TYPE_CHECKING-only one (#1106)."""
         from pyeye.docs_facts.review import _ProjectSymbols
 
         (tmp_path / "pkg").mkdir()
         (tmp_path / "pkg" / "__init__.py").write_text(init, encoding="utf-8")
         (tmp_path / "pkg" / "thing.py").write_text("class Maybe:\n    pass\n", encoding="utf-8")
 
-        assert _ProjectSymbols(tmp_path).canonical("pkg.Maybe") == "pkg.thing.Maybe"
+        assert _ProjectSymbols(tmp_path).canonical("pkg.Maybe") == canonical
 
     def test_a_subject_must_occur_exactly_once(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text(
