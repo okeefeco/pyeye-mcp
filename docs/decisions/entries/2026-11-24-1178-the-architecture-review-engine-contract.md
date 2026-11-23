@@ -22,7 +22,8 @@ superseded_by: []
   - Rules are the `CHECK no-import` lines on registered prose and skill pages, read as the `layering` rule reads them (R2).
   - Decisions come from `pyeye.decisions.load`, active and amended entries only (`--decisions-dir` points elsewhere).
   - Convention documents (R4's prose anchors, e.g. AGENTS.md) come from a repeatable `--convention PATH`, with no config schema change.
-- **Area (R3):** a configured `structure` `areas` ID uses its fnmatch patterns. Otherwise the name is a module prefix, `[P, P.*]`. A handle is in an area when it, or a dotted prefix of it, matches. Modules no configured area holds are listed as `unassigned`, a coverage gap, never their own area.
+- **Area (R3):** a configured `structure` `areas` ID uses its fnmatch patterns, inline or from its data file (#1175, read through `options.load`). Otherwise the name is a module prefix, `[P, P.*]`. A handle is in an area when it, or a dotted prefix of it, matches.
+- **What the packet carries about the area:** its modules' `members`, `imports` and `imported_by` facts, its `cross` and `pairs` facts, and its coverage gaps. `unassigned` is the recorded `coverage.gaps` category (#1175): one source, never recomputed, never its own area.
 - **Mechanical pass, no judgment:**
   - A check governs the area when its `A` names one of the area's modules, and it runs on those modules only.
   - Each check gives an adherence or a deviation, anchored on the rule (`no-import: A -> B`), with the importing modules as evidence.

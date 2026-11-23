@@ -101,11 +101,21 @@ def area(name: str, opts: options.Options) -> Area:
 
 
 def structure_options(root: Path) -> options.Options | None:
-    """The ``structure`` kind's options in *root*'s config, or ``None`` if it has none."""
+    """The ``structure`` kind's options in *root*'s config, or ``None`` if it has none.
+
+    Its ``areas`` and ``pairs`` data files (#1175) are read from *root*.
+
+    Raises:
+        config.ConfigError: If its options or data files aren't valid.
+    """
     raw = config.find(root) or {}
     for entry in raw.get("extractors", []) or []:
         if isinstance(entry, Mapping) and entry.get("kind") == "structure":
-            return options.parse({k: v for k, v in entry.items() if k != "kind"})
+            try:
+                parsed = options.parse({k: v for k, v in entry.items() if k != "kind"})
+                return options.load(parsed, root)
+            except ValueError as error:
+                raise config.ConfigError(str(error)) from error
     return None
 
 
@@ -267,9 +277,10 @@ def _area_facts(prefix: str, area_: Area, values: Mapping[str, Any]) -> dict[str
         out.update(
             {f: v for f, v in values.items() if f.startswith(head) and area_.holds(f[len(head) :])}
         )
-    cross = f"{prefix}.cross.{area_.id}"
-    if cross in values:
-        out[cross] = values[cross]
+    for family in ("cross", "pairs"):  # facts kept per area (#1092, #1175)
+        fid = f"{prefix}.{family}.{area_.id}"
+        if fid in values:
+            out[fid] = values[fid]
     return dict(sorted(out.items()))
 
 
@@ -332,11 +343,9 @@ def plan(
     if not mine:
         packet["notes"].append(f"{NO_ARCHITECTURE} (no recorded module is in area {area_.id!r})")
         return _empty(packet)
-    if opts.areas:
-        assigned = [Area(i, tuple(p), True) for i, p in opts.areas]
-        packet["unassigned"] = [
-            m.handle for m in modules if not any(a.holds(m.handle) for a in assigned)
-        ]
+    # With areas configured, a module in no area is a recorded coverage gap (#1175).
+    gaps = values.get(f"{opts.prefix}.coverage.gaps")
+    packet["unassigned"] = sorted(gaps.get("unassigned", ())) if isinstance(gaps, Mapping) else []
     rules, findings, unverified = _rule_pass(area_, mine, _rules(root, setup))
     entries, errors = decisions.load(decisions_dir or root / "docs" / "decisions" / "entries")
     packet["notes"].extend(f"decision entry unreadable: {e}" for e in errors)

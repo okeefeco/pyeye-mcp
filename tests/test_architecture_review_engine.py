@@ -149,6 +149,58 @@ class TestArea:
         assert not any("pkg.shapes" in fid for fid in core["facts"])
 
 
+class TestCurationAsData:
+    """#1175: areas and pairs may be data files; unassigned modules and pairs are recorded."""
+
+    def test_areas_from_a_data_file(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        (root / "areas.toml").write_text(
+            '[areas]\ncore = ["pkg.paths*", "pkg.util*"]\n', encoding="utf-8"
+        )
+        write_config(
+            root,
+            [DocEntry("docs/architecture.md", "human", "prose")],
+            changelog=None,
+            extractors=[{"kind": "structure", "include": ["pkg/*"], "areas": "areas.toml"}],
+        )
+        imports = {"runtime": [], "type_only": [], "unresolved": [], "measured": True}
+        _write_snapshot(root, {"arch.imports.pkg.util": imports})
+
+        packet = architecture.plan(root, "core", resolver=_NoSites())
+
+        assert packet["area"] == {"id": "core", "patterns": AREAS["core"], "configured": True}
+        assert packet["modules"] == ["pkg.util"]
+
+    def test_unassigned_is_the_recorded_gap(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        imports = {"runtime": [], "type_only": [], "unresolved": [], "measured": True}
+        _write_snapshot(
+            root,
+            {
+                "arch.imports.pkg.util": imports,
+                "arch.coverage.gaps": {"unassigned": ["pkg.stray"], "missing": []},
+            },
+        )
+
+        packet = architecture.plan(root, "core", resolver=_NoSites())
+
+        assert packet["unassigned"] == ["pkg.stray"]
+
+    def test_the_areas_curated_pairs_are_in_its_facts(self, tmp_path: Path) -> None:
+        root = _repo(tmp_path)
+        imports = {"runtime": [], "type_only": [], "unresolved": [], "measured": True}
+        pairs = [{"a": "pkg.util.normalise_path", "b": "pkg.paths.helper", "label": "delegates"}]
+        _write_snapshot(
+            root,
+            {"arch.imports.pkg.util": imports, "arch.pairs.core": pairs, "arch.pairs.shapes": []},
+        )
+
+        packet = architecture.plan(root, "core", resolver=_NoSites())
+
+        assert packet["facts"]["arch.pairs.core"] == pairs
+        assert "arch.pairs.shapes" not in packet["facts"]
+
+
 class TestTheRulePass:
     def test_a_broken_check_is_a_deviation_from_its_rule(self, core: dict[str, Any]) -> None:
         [deviation] = _by(core, "deviation")
