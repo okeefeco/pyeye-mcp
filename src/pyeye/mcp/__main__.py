@@ -14,7 +14,11 @@ import logging
 import os
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mcp.server.mcpserver import MCPServer
 
 
 def _configure_logging() -> None:
@@ -182,13 +186,14 @@ def main() -> None:
     start_heartbeat_monitor(interval_seconds=30)
 
     # Import server
-    from .server import initialize_plugins, mcp
+    from .server import mcp, prepare_plugins
 
     # Cleanup on exit
     atexit.register(cleanup)
 
-    # Initialize plugins for current directory
-    initialize_plugins(".")
+    # Plugins for the current directory: registry reset now; framework
+    # detection in the background once serving starts (#1143).
+    prepare_plugins(".")
 
     logger = logging.getLogger(__name__)
     logger.info("Starting PyEye Server with file watching and connection diagnostics")
@@ -196,9 +201,51 @@ def main() -> None:
     # Run the server: the SDK's stdio path, plus tools.listChanged (#770)
     import anyio
 
-    from .list_changed import run_stdio
+    serve_then_clean_up(lambda: anyio.run(serve_detecting_plugins, mcp, "."))
 
-    serve_then_clean_up(lambda: anyio.run(run_stdio, mcp))
+
+async def serve_detecting_plugins(
+    server: "MCPServer",
+    project_path: str,
+    transport: "Callable[[MCPServer], Awaitable[None]] | None" = None,
+) -> None:
+    """Serve *server*, detecting *project_path*'s frameworks in the background (#1143).
+
+    Detection walks files, so it runs on a daemon thread while *transport*
+    (default: :func:`~pyeye.mcp.list_changed.run_stdio`) serves: the server
+    answers, and notices a closed stdin, from the start. When detection ends,
+    the detected plugins' tools are registered on the event loop and announced
+    with a tools-changed event. A detection still running when serving ends
+    is abandoned with the process.
+    """
+    import anyio
+    import anyio.from_thread
+    import anyio.lowlevel
+
+    from .list_changed import ToolsChangedNotifier, run_stdio
+    from .server import commit_plugins, detect_plugins
+
+    notifier = ToolsChangedNotifier(server).install()
+    token = anyio.lowlevel.current_token()
+    logger = logging.getLogger(__name__)
+
+    async def commit(detected: list) -> None:
+        if commit_plugins(project_path, detected):
+            await notifier.announce()
+
+    def detect() -> None:
+        try:
+            detected = detect_plugins(project_path)
+        except Exception:
+            logger.exception("Plugin detection failed")
+            return
+        try:
+            anyio.from_thread.run(commit, detected, token=token)
+        except Exception:  # serving ended first: the loop is gone
+            logger.debug("Plugin detection finished after the server stopped", exc_info=True)
+
+    threading.Thread(target=detect, daemon=True, name="pyeye-plugin-detection").start()
+    await (transport or run_stdio)(server)
 
 
 def serve_then_clean_up(serve: Callable[[], None]) -> None:

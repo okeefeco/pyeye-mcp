@@ -118,3 +118,61 @@ async def run_stdio(server: MCPServer) -> None:
 
     async with stdio_server() as (read_stream, write_stream):
         await lowlevel.run(read_stream, write_stream, initialization_options(server))
+
+
+class ToolsChangedNotifier:
+    """Announce tools registered outside any request, such as by startup detection (#1143).
+
+    :func:`announces_new_tools` has a request's ``Context`` to send on. Tools
+    that startup's background detection registers have none, so this
+    middleware remembers the client's connection from the messages it sees
+    (from ``notifications/initialized`` on; ``initialize`` itself is skipped,
+    since nothing may be announced before the handshake completes).
+    :meth:`announce` sends at once when it knows the client, else when the
+    client's next message arrives. One event, on the channel the negotiated
+    protocol uses (:func:`channel_for`). A failure is logged, never raised.
+    """
+
+    def __init__(self, server: MCPServer) -> None:
+        """Announce for *server*; add it with :meth:`install`."""
+        self._server = server
+        self._session: Any = None
+        self._protocol_version: str | None = None
+        self._pending = False
+
+    def install(self) -> ToolsChangedNotifier:
+        """Add this notifier to the server's middleware chain; return it."""
+        self._server.middleware.append(self)
+        return self
+
+    async def __call__(self, ctx: Any, call_next: Callable[[Any], Awaitable[Any]]) -> Any:
+        """Pass *ctx* down the chain, then remember its connection and send a pending event."""
+        result = await call_next(ctx)
+        if ctx.method != "initialize":
+            self._session = ctx.session
+            self._protocol_version = ctx.protocol_version
+            if self._pending:
+                self._pending = False
+                await self._send()
+        return result
+
+    async def announce(self) -> None:
+        """Send one tools-changed event now, or when the client next writes."""
+        if self._session is None:
+            self._pending = True
+            return
+        await self._send()
+
+    async def _send(self) -> None:
+        channel = channel_for(self._protocol_version)
+        try:
+            if channel == "subscription":
+                from mcp.shared.subscriptions import ToolsListChanged
+
+                # The SDK's own Context publishes on this bus; there is no
+                # public handle outside a request.
+                await self._server._subscriptions.publish(ToolsListChanged())
+            else:
+                await self._session.send_tool_list_changed()
+        except Exception as error:  # the tools are registered either way
+            logger.warning(f"Could not announce new tools ({channel}): {error}")

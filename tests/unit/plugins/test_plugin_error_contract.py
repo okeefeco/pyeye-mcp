@@ -263,10 +263,11 @@ class TestPluginLoadFailureIsReported:
     def test_detect_error_is_logged_as_error_with_traceback(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def broken_detect(_self: AnalyzerPlugin) -> bool:
+        def broken_detect(_self: AnalyzerPlugin) -> str:
             raise RuntimeError("detect broke")
 
-        monkeypatch.setattr(FlaskPlugin, "detect", broken_detect)
+        # The server asks each plugin for detection() (#1143).
+        monkeypatch.setattr(FlaskPlugin, "detection", broken_detect)
         # register_plugin_tools returns the names it registered (#659 records them).
         monkeypatch.setattr(server_module, "register_plugin_tools", lambda *_a, **_k: [])
         caplog.set_level(logging.WARNING)
