@@ -120,6 +120,34 @@
       "first_seen": "2.2.0"
     },
     {
+      "fact_id": "review.axis.cross_cutting",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.dependency_acquisition",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.error_handling",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.layering",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.module_boundaries",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.naming_api_shape",
+      "first_seen": "unreleased"
+    },
+    {
+      "fact_id": "review.axis.validation_placement",
+      "first_seen": "unreleased"
+    },
+    {
       "fact_id": "tool.find_pydantic_models.param.max_unplaced",
       "first_seen": "2.2.0"
     }

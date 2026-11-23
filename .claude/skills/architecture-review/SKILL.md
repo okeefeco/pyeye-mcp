@@ -1,283 +1,138 @@
 ---
 name: architecture-review
-description: Use when auditing how a Python codebase's architectural conventions diverge — "review the architecture", "audit conventions", "where does this code disagree with itself", "find inconsistent error-handling/layering/validation patterns", "is this package internally consistent". Surfaces a ranked queue of "here are N ways your code does X — you decide", many entries with no recommendation by design. Audits convention DIVERGENCE, not duplication (that is the duplication-review skill, #495). Scope is caller-supplied. Requires the pyeye MCP server.
+description: Use when reviewing a Python codebase's architecture against what it has recorded — "review the architecture", "audit conventions", "does this area follow our decisions", "where does this code disagree with itself", "find inconsistent error-handling/layering/validation patterns". Reviews ONE area against its architecture facts, CHECK rules and decision entries, and reports adherence, deviation, decisions needed and ambiguity, each anchored. A resolved item becomes a decision entry (and, where it can be checked, a CHECK line), so each run leaves less to judge. Needs a docs-facts config with the structure kind; without recorded architecture it says so. Does NOT find duplicated code (that is duplication-review) and does NOT map the architecture (that is /arch-facts).
 ---
 
 # Architecture Review
 
-Surface and prioritise how a Python codebase's **architectural conventions
-diverge from each other**, with cited evidence and honest grades — so a human can
-decide which convention to keep. This skill is the single source of truth for
-*how* to run the audit; it orchestrates a fresh-context auditor over a supplied
-scope and drives the human review loop.
-
-The seed axes: <!-- fact:begin review.axes -->`layering`, `module_boundaries`, `dependency_acquisition`, `error_handling`, `validation_placement`, `naming_api_shape`, `cross_cutting`<!-- fact:end -->.
+Review **one area** of a codebase against its **recorded architecture**: the
+architecture facts pyeye extracted, the `CHECK` rules on its architecture pages,
+and its decision entries. Every finding is one of four outcomes, each anchored,
+and the maintainer decides what happens next. Each decision becomes a record
+the next run checks, so the review leaves less to judge every time.
 
 ## What This Is (and Is NOT) — Read First
 
-**Honest expectation.** This tool produces a **ranked queue of "here are N ways
-your code does X — you decide."** Many entries will carry **no recommendation by
-design** (see the honesty invariants). It makes *unknown divergences visible and
-ordered by impact* — it does **not** remove the work, and it is emphatically
-**not** "the AI cleans up its own mess." You still make the architectural calls;
-this just stops you from making them blind.
+- **It compares the code with records, never with itself alone.** A deviation
+  always names the rule, decision or convention it deviates from. Where no
+  record covers a pattern, the finding asks for a decision; it never picks one.
+- **The tool never decides.** Nothing is written, no rule and no decision entry,
+  without the maintainer.
+- **It needs recorded architecture.** It reads the repository's docs-facts
+  snapshot: the `structure` kind's facts (`/arch-facts` makes them). Without
+  them, the plan says "no recorded architecture for this area; run /arch-facts
+  first", and you stop there.
+- **Not duplication.** Copied code is [`duplication-review`](../duplication-review/SKILL.md).
 
-**Hard scope caveat — divergence, NOT duplication.** This audits **convention
-divergence** ("your code does X seven different ways"). It does **NOT** detect
-**semantic duplication** ("the same code copy-pasted in many places"). Duplication
-is a content-similarity problem this skill structurally cannot do. Use the
-[`duplication-review`](../duplication-review/SKILL.md) skill for copied code
-(#495). Do not run this expecting duplication detection — you will not get it.
+## The Four Outcomes
 
-**Scope is caller-supplied and REQUIRED.** You must hand this a scope — a package,
-module, or directory. Bounded-scope auto-iteration over a whole large repo is
-**deferred**; this skill audits exactly the scope it is given.
+| Outcome | Means | Rests on | Way forward |
+|---|---|---|---|
+| **adherence** | the code follows a recorded rule, decision or convention | that record | none: a confirmation |
+| **deviation** | the code contradicts one | that record | a recommendation |
+| **decision_needed** | no record covers it, and one pattern is clearly the norm | the evidence (a fact or a symbol) | the question, and one proposed decision |
+| **ambiguity** | no record covers it, and several patterns compete | the evidence | the question, 2–3 options with costs, and a recommendation on an anchor or an "unanchored: judgment only" assessment |
 
-## The Seven Seed Axes
+## Running It
 
-The auditor sweeps (at minimum) these seven convention axes. The keys are the
-single source of truth in `pyeye.architecture_review.taxonomy.SEED_AXES`; the
-auditor may also surface other axes it finds.
+The engine is `python -m pyeye.docs_facts architecture`. Run it from the
+repository root. Through the plugin:
 
-<!-- fact:begin review.axes.table -->
-| `axis` key | What it covers |
+```bash
+if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then  # the plugin's environment
+  CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}" CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+    uv run --no-project python "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py" \
+    python -m pyeye.docs_facts architecture plan AREA
+else  # pyeye's own repository, where this is a project skill: the checkout's environment
+  uv run --project "$(git rev-parse --show-toplevel)" --frozen \
+    python -m pyeye.docs_facts architecture plan AREA
+fi
+```
+
+Otherwise, any environment with `pyeye-mcp` installed:
+`python -m pyeye.docs_facts architecture …`. Every command prints JSON.
+
+| Command | Does |
 |---|---|
-| `layering` | Layering / dependency direction: which layers/packages may import which. |
-| `module_boundaries` | Module & placement boundaries: where a *kind* of thing lives. |
-| `dependency_acquisition` | Dependency acquisition: constructor-injection vs import vs global/singleton. |
-| `error_handling` | Error handling: raise vs return-sentinel vs result-type; exception types; where caught. |
-| `validation_placement` | Validation placement: at the boundary vs in core vs scattered. |
-| `naming_api_shape` | Naming & API shape: naming patterns, return-type conventions, sync/async split. |
-| `cross_cutting` | Cross-cutting access: logging, config, path handling. |
-<!-- fact:end -->
+| `plan AREA [--decisions-dir D] [--convention PATH ...]` | The area's packet: its facts, the rules in scope (already run), the candidate decisions, and the mechanical findings. |
+| `validate FINDINGS --packet PACKET` | Each invalid finding's problems; exit 1 when any. |
+| `report FINDINGS --packet PACKET` | The ranked report, with the mechanical findings and the valid reviewer ones. |
 
-> **Not an axis: code duplication.** That is the `duplication-review` skill
-> (#495; see the scope caveat above). It never appears as an axis here.
+**`AREA`** is an area ID from the `structure` kind's `areas` (inline or a data
+file), or else a module prefix (`pkg.core` covers `pkg.core` and
+`pkg.core.*`). It is required: never review the whole repository at once.
 
-## The Output Contract — Four Grades
+**`--convention PATH`**: for a repository with no decision entries, its
+convention document (`AGENTS.md`, `CONTRIBUTING.md`) is the prose anchor.
+Pass it, repeatable.
 
-Every finding the auditor emits carries exactly one of these four grades, and the
-human loop handles **exactly these four states** (there is no fifth branch —
-contest signals are deferred):
+## The Review Loop
 
-- `mechanical_fact` — extracted and deterministic; stated as context, no action.
-- `deterministic_single` — a single convention the codebase consistently follows
-  ("N/N do X"); presented for confirmation with evidence. Survives as
-  `deterministic_single` **only** if it passes the promotion chain (step 4).
-- `ambiguous` — multiple clusters with no deciding anchor; all clusters surfaced
-  with neutral evidence; usually carries **no** recommendation.
-- `no_signal` — nothing found on this axis; stated honestly.
+1. **Plan.** Run `plan AREA` and save the packet to a scratch file. If its
+   `notes` say there's no recorded architecture, tell the user and stop.
+2. **Dispatch the reviewer**, one fresh subagent for the area, with
+   [`reviewer.md`](reviewer.md) and the packet. It reads the packet's facts and
+   the candidate decisions, uses pyeye for evidence with targeted reads only,
+   and returns a JSON array of findings, nothing else.
+3. **Validate.** You run it, never the reviewer: write the findings to a
+   scratch file and run `validate FINDINGS --packet PACKET`. A finding with
+   problems goes back to the reviewer with the problems quoted; never fix it
+   up yourself.
+4. **Report.** Run `report` and present it to the user verbatim, in its order:
+   1. **rule deviations**;
+   2. **deviations from decisions and conventions**;
+   3. **decisions needed**;
+   4. **ambiguities**;
+   5. **adherence**, as a count, with the findings on request.
 
-**Grade by extraction where mechanical.** For a mechanically-determinable
-convention the grade is a *counting fact*, not an LLM label: `N == total` →
-`deterministic_single`; a split → `ambiguous`. Judgment is reserved for the
-within-axis question "does this divergence matter?", not for grades that fall out
-of the count.
+   Then what the review couldn't settle: unverified rules, unresolved
+   decision sites, unassigned modules and coverage gaps. Show each finding's
+   evidence as the report gives it; don't re-narrate it.
+5. **The user decides**, item by item:
+   - **a deviation:** fix the code, or decide the record changes (then codify
+     the new decision, step 6);
+   - **a decision needed or an ambiguity:** their answer, including "both
+     patterns are acceptable here", is codified (step 6);
+   - **deferred:** nothing is recorded. The item comes back on the next run.
 
-## Tool Mechanics Live in `python-explore`
+There are **no dismissals.** Every resolution is a decision entry, and the next
+run reports adherence to it instead of asking again.
 
-Both this orchestrator and the auditor build their structural model with pyeye
-primitives (`resolve` / `inspect` / `outline` / `expand` / `trace` over canonical
-handles). **Do not restate the primitives here** — follow the
-[`python-explore`](../python-explore/SKILL.md) skill for all tool mechanics,
-including its **honest-limits rule**: pyeye has no reverse-reference / caller data
-(deferred to #333), so never fake "who calls this" with `grep` — delegate caller
-questions to an LSP, or state the limit. `imported_by` (static importers) is fine and is a primary
-signal for the `layering` axis.
+## Codify (always on the user's decision)
 
-## Orchestration — The Seven Steps
+1. **Write the decision entry** through the [`decision-log`](../decision-log/SKILL.md)
+   skill's flow, which applies in full: its gates, fields and file convention.
+   Pull the question, the evidence and the chosen option from the finding
+   verbatim. Its `Applies-to` must name the sites the decision governs, by
+   canonical handle (the finding's evidence, and the rest of the area it
+   covers): that is how the next run's plan finds it as a candidate.
+2. **Draft a `CHECK` line** when the decision is one an existing rule kind can
+   check. Today that is `CHECK no-import: A -> B` ("modules under A never
+   import B at runtime"). Show the line and the architecture page it belongs on
+   (a registered page holding the area's other `CHECK` lines). Add it only when
+   the user confirms. From then on `docs_facts check` enforces it on every
+   commit, and the review reports adherence or deviation mechanically.
+3. A decision no existing rule kind can express stays a decision entry: future
+   reviews check it. Don't invent a rule kind.
 
-Run these in order. The deterministic substrate lives in
-`src/pyeye/architecture_review/` and is the authority for every mechanical step;
-the orchestrator's job is to wire the steps together and drive the human loop.
+## Honesty Invariants
 
-### 1. Resolve scope + load baseline and cross-run state
-
-- **Resolve the caller-supplied scope** to a canonical handle (a package, module,
-  or directory). Scope is **required** — if the caller gave none, ask for one; do
-  not default to the whole repo (auto-iteration is deferred).
-- **Load the Tier-3 baseline:** the decision log, one file per decision in
-  `docs/decisions/entries/` (list them with `python scripts/decisions.py index
-  --active` where that script exists, then open the relevant ones), plus any existing
-  conformance tests / fitness functions. These are the *only* first-strength
-  external anchors a recommendation may cite.
-- **Load prior cross-run state** with `state.load_state(path)`: prior coverage,
-  prior findings, and confirmed non-issues. This is what lets the audit suppress
-  things the human already dismissed and carry a per-project axis prior.
-
-### 2. Dispatch the auditor over the scope
-
-Dispatch the fresh-context auditor (`auditor.md`) over the resolved scope, seeding
-it with the Tier-3 baseline and the prior cross-run state (so it suppresses
-confirmed non-issues and does not re-surface settled forks). The auditor builds a
-structural model with pyeye, does targeted reads only, and returns **a JSON array
-of graded findings** — nothing else. (Run it as a fresh subagent so its judgment
-is uncontaminated by this conversation.)
-
-**Validate before merging (#498):** run `state.finding_problems(f)` on every
-returned finding and reject (re-dispatch, or drop and report) any with problems:
-a seed-axis finding must carry a `facet` from `taxonomy.AXIS_FACETS[axis]`, or
-`"other"`. This keeps unkeyed findings rare.
-
-### 3. Merge into cross-run state
-
-Merge the new findings into prior state with
-`state.merge_findings(prior, new)`, which dedups by `state.findings_equivalent`.
-A finding's identity is `state.observation_key` = **axis + facet + handle set
-(order-independent)**, and two findings are equivalent when the key and the grade
-match (#498). The `claim` wording is ignored, so a reworded claim is the same
-finding, and two observations at one location stay apart by facet. Duplicates
-across axes stay separate entries by design. An **unkeyed** finding (facet
-missing or `other`, or an open axis) falls back to the exact normalised claim,
-which can under-merge but never over-merges. The same predicate drives the
-reproduction gate below, which never promotes an unkeyed finding. This
-accumulates coverage across runs rather than starting cold each time.
-
-### 4. Promotion chain — two stages, in order
-
-A finding keeps `deterministic_single` **only if it passes BOTH** stages. Each
-stage can only *downgrade* a grade (to `ambiguous`); neither invents or promotes.
-
-1. **Reproduction gate** —
-   `gate.apply_reproduction_gate(findings, redispatch_fn, runs=DEFAULT_GATE_RUNS, equivalent=findings_equivalent)`.
-   Each `deterministic_single` candidate is re-dispatched `runs` times
-   (`DEFAULT_GATE_RUNS` = 3, configurable) over its scope; it keeps the grade only
-   if an equivalent finding appears in **every** re-run, else → `ambiguous`. This
-   checks **reproducibility, not truth.**
-2. **Cross-derivation guard (#494)** —
-   `guard.apply_cross_derivation_guard(findings, corroborate_fn)`. For each
-   *surviving* `deterministic_single`, the injected `corroborate_fn`
-   **independently re-derives its Tier-1 fact** from source / AST (or an LSP) —
-   **NOT** from another pyeye edge and **NOT** from the auditor's own evidence
-   (for import / layering facts, wire in `guard.corroborate_imports`, which
-   compares the edge's resolved imports and its `unresolved_imports` against
-   `guard.imports_via_ast`, a from-scratch stdlib `ast` reader). The verdict has
-   three states (#499):
-   - **corroborated**: the finding keeps `deterministic_single`.
-   - **divergent**: the guard rewrites the grade to `ambiguous` and sets
-     `possible_extractor_bug = True` (surface, do not confirm). This is what
-     catches a *reproducibly-wrong* Tier-1 fact (e.g. pyeye's `imports` edge
-     silently dropping a real import, #494) — the gate cannot, because a
-     reproducible error reproduces.
-   - **cannot_confirm**: the fact couldn't be decided (an import listed in
-     `unresolved_imports`, or source that doesn't parse). The grade becomes
-     `ambiguous` with `corroboration: "cannot_confirm"` and **no**
-     `possible_extractor_bug`: present it to the human as "needs review, could
-     not verify", never as confirmed and never as an extractor bug.
-
-Net: `deterministic_single` survives only when **reproduction-stable AND
-cross-derivation-corroborated.**
-
-### 5. Rank (ordering only)
-
-Rank the **post-gate** findings with
-`ranking.rank(findings, blast_fn, buckets=AXIS_STAKES_BUCKET, priors=AXIS_STAKES_PRIOR)`:
-tiered by post-gate grade, and **within a tier bucketed-lexicographically** — by
-explicit **stakes bucket** (`high → med → low`, from `AXIS_STAKES_BUCKET`) first,
-then **blast-radius** descending within the bucket, then the **stakes prior** as a
-within-bucket tiebreaker only. The bucket map is the source of truth for tier (a
-high-stakes finding outranks a low-stakes one regardless of blast — dominance by
-construction); the prior can no longer re-tier an axis (#492). Both are carried in
-cross-run state and are **per-project overridable** (re-tier by editing the bucket
-map).
-
-**Show the human the ranking basis verbatim, and offer to reorder.** The default
-bucket map, highest stakes first, is
-<!-- fact:begin review.buckets -->`high`: `error_handling`, `validation_placement` > `med`: `layering`, `module_boundaries`, `dependency_acquisition`, `cross_cutting` > `low`: `naming_api_shape`<!-- fact:end -->.
-If the project re-tiered the map, show the map you actually passed to `rank`:
-
-> Ranked by stakes bucket (<the bucket map, highest first>), then
-> blast-radius within the bucket — reorder?
-
-Ranking is **ordering only**: it never drops, suppresses, or recommends. It is a
-queue order, not a verdict.
-
-### 6. Human loop — exactly the four output-contract states
-
-Surface the auditor's structured findings **and cited evidence VERBATIM**
-(evidence-transparency, spec §5/§9) — do **not** re-narrate, so the human judges
-the facts, not your framing. Then, per grade:
-
-- `mechanical_fact` → state it as context. No action.
-- `deterministic_single` → "X is universal (N/N), evidence shown — recommend
-  codifying. Confirm?" → on confirm, codify (step 7).
-- `ambiguous` → surface **ALL** clusters with neutral cited evidence; offer a
-  recommendation **only if an external anchor exists** (often there is **none** →
-  "no recommendation — you decide"). The human picks/writes the norm, **or** marks
-  it a confirmed non-issue.
-- `no_signal` → note it honestly.
-
-There is **no fifth branch.** Contest signals are deferred — do not add one.
-
-### 7. Codify (human-gated) and save state
-
-Both paths below are **human-gated** — nothing is codified without explicit
-confirmation. Then call `state.save_state(path, state)` so the next run starts
-from this point.
-
-#### Dismissal path
-
-Call `state.build_non_issue(finding)` → append the returned `NonIssue` dict to
-`state["confirmed_non_issues"]`. Key design (#498): for a keyed finding,
-`build_non_issue` sets `structural_fact = "facet:<axis>/<facet>"` and `key =
-non_issue_key(handles, structural_fact)`, so:
-
-- Cosmetic source edits, a reworded claim or a grade change keep the **same
-  key**: the finding stays suppressed on the next run.
-- A genuine structural re-divergence changes the handles or the facet the auditor
-  reports → **new key** → the finding re-surfaces for human review.
-- An unkeyed finding falls back to `structural_fact = finding["claim"]`, which
-  re-surfaces whenever the claim is reworded.
-
-The auditor is seeded with `state["confirmed_non_issues"]` at step 2 so it skips
-findings whose `non_issue_key` matches an entry in this list.
-
-#### Positive-norm path (confirmed `deterministic_single`)
-
-Invoke the [`decision-log`](../decision-log/SKILL.md) skill's
-**human-gated propose → draft → confirm → write** flow. Its rules (the gate, the
-entry's fields and its File Convention) apply in full; follow that skill, not a
-copy here. When drafting the entry, pull evidence and handles from the finding
-verbatim.
-
-**Prefer an executable fitness-function or conformance-test stub** so the norm
-becomes a running check (anti-drift, spec §14): the stub lives in `tests/` and
-the decision-log entry's `Verify` cites it as a gold assertion. Only if the norm
-is non-executable (e.g. a naming convention that resists automated checking) fall
-back to an **explicitly-flagged checklist note** in the entry, with `Verify:
-unverifiable — <reason>` or `Verify: partial — <checkable part>; <residue> needs
-human review`.
-
-## Honesty Invariants — Non-Negotiable
-
-These bind the whole flow (spec §9). They are why most forks correctly produce
-**no** recommendation.
-
-- **prevalence ≠ correctness.** Never assert which cluster is correct, *even the
-  strict majority*. In an AI-written brownfield the majority pattern may *be* the
-  mess. Prevalence is a descriptive fact, never a justification.
-- **A recommendation is non-null ONLY with an external anchor** — a documented
-  decision / Tier-3 baseline, or a language / stdlib idiom. Import-graph and
-  structural facts of *this* codebase are **corroborating only, never sole
-  grounds** (deciding on them just re-entrenches the mess). For genuine
-  architecture forks the ladder usually yields no anchor → **an absent
-  recommendation is the correct output, not a defect.**
-- **ranking ≠ correctness.** The stakes bucket (then blast, then the prior
-  tiebreaker) orders the queue; it is never a recommendation, is always shown and
-  overridable (never a silent constant), and never suppresses a finding.
-- **the gate checks reproducibility, not truth.** A reproducibly-wrong Tier-1 fact
-  passes the reproduction gate — which is exactly why the cross-derivation guard
-  (#494) re-derives the fact independently.
-- **grade by extraction where mechanical.** For mechanically-determinable
-  conventions the grade falls out of counting, not an LLM label.
+- **No deviation without a record.** An unanchored "this looks wrong" is a
+  decision needed or an ambiguity, never a deviation.
+- **Prevalence is evidence, never correctness.** "Most sites do X" can make a
+  decision needed; it never makes the minority a deviation.
+- **Rule outcomes are mechanical.** The plan runs the `CHECK` lines; nobody
+  re-judges them. An unmeasured module leaves a rule unverified, never passing.
+- **An unresolved site is reported.** A decision site pyeye can't resolve is
+  listed, never treated as "not in this area".
 
 ## Failure Modes
 
-- **No scope supplied** → ask for one; do not audit the whole repo.
-- **pyeye unavailable** → the auditor degrades per `python-explore`'s failure mode
-  (note it, fall back to `Read`, warn that structural analysis is reduced).
-- **Auditor returns non-JSON** → its output contract is JSON-only; treat any
-  surrounding prose as a contract violation and re-dispatch.
-- **No LSP for the cross-derivation guard** → derive the Tier-1 fact from a
-  targeted source / AST read instead; never skip the guard for a
-  `deterministic_single` finding.
+- **No area given** → ask for one.
+- **No docs-facts config** → `plan` exits 1, "nothing to check". The repository
+  hasn't set up docs-facts: say so.
+- **No recorded architecture** → the plan's note; suggest `/arch-facts`.
+- **pyeye unavailable** to the reviewer → it can still judge from the packet's
+  facts, but can't check evidence handles; `validate` will reject unresolved
+  ones. Say the review is reduced.
+- **The reviewer returns non-JSON** → a contract violation: re-dispatch.

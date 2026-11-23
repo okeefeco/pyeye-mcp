@@ -211,7 +211,7 @@ audience = "claude"
 kind = "skill"
 
 [[doc]]
-path = ".claude/skills/architecture-review/auditor.md"
+path = ".claude/skills/architecture-review/reviewer.md"
 audience = "claude"
 kind = "skill"
 

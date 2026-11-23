@@ -28,8 +28,7 @@ keeps them right, while this review keeps the prose usable. It sits beside
     exists it still gives an assessment, labelled `unanchored: judgment only`,
     never presented as settled.
 
-This differs from `architecture-review`, which withholds a recommendation when
-nothing anchors one. Here an unanchored assessment is still given, and labelled.
+`architecture-review` uses the same validator, with its own outcomes (#1179).
 `scripts/docs_review.py validate` enforces the shape; a finding that fails it is
 never shown.
 

@@ -8,8 +8,6 @@ gate, ``merge_findings`` and the non-issue key.
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -23,14 +21,6 @@ from pyeye.architecture_review.state import (
     observation_key,
 )
 from pyeye.architecture_review.taxonomy import AXIS_FACETS, FACET_OTHER, SEED_AXES
-
-_AUDITOR = (
-    Path(__file__).resolve().parent.parent
-    / ".claude"
-    / "skills"
-    / "architecture-review"
-    / "auditor.md"
-)
 
 
 def _f(
@@ -192,10 +182,3 @@ class TestVocabularyConformance:
             assert facets, axis
             assert len(set(facets)) == len(facets), axis
             assert FACET_OTHER not in facets, axis
-
-    def test_auditor_lists_exactly_the_taxonomy_vocabulary(self) -> None:
-        """auditor.md's facet table lists each axis's facets verbatim (the #374 pattern)."""
-        text = _AUDITOR.read_text(encoding="utf-8")
-        rows = re.findall(r"^\|\s*`(\w+)`\s*\|\s*((?:`\w+`[\s,]*)+)\|\s*$", text, re.MULTILINE)
-        documented = {axis: tuple(re.findall(r"`(\w+)`", cells)) for axis, cells in rows}
-        assert documented == AXIS_FACETS
