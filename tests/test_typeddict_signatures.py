@@ -18,12 +18,14 @@ The ``=...`` spacing is the one every other rendered signature uses
 
 from __future__ import annotations
 
+import ast
 import textwrap
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from pyeye import _class_signatures
 from pyeye.analyzers.jedi_analyzer import JediAnalyzer
 from pyeye.mcp.operations.inspect import inspect
 from pyeye.mcp.operations.outline import outline
@@ -166,3 +168,89 @@ class TestTypedDictSignature:
 
     def test_a_plain_class_is_unchanged(self, nodes: dict[str, dict[str, Any]]) -> None:
         assert nodes["Plain"].get("signature") == "Plain()"
+
+
+class TestHelpers:
+    """The rules one at a time, without Jedi."""
+
+    @staticmethod
+    def _cls(src: str) -> ast.ClassDef:
+        node = ast.parse(textwrap.dedent(src)).body[0]
+        assert isinstance(node, ast.ClassDef)
+        return node
+
+    @pytest.mark.parametrize(
+        ("src", "total"),
+        [
+            ("class A(TypedDict): pass", True),
+            ("class A(TypedDict, total=False): pass", False),
+            ("class A(TypedDict, total=True): pass", True),
+            ("class A(TypedDict, total=FLAG): pass", None),  # not a literal: unknown
+        ],
+    )
+    def test_totality(self, src: str, total: bool | None) -> None:
+        assert _class_signatures._totality(self._cls(src)) is total
+
+    @pytest.mark.parametrize(
+        ("annotation", "total", "shown", "required"),
+        [
+            ("int", True, "int", True),
+            ("int", False, "int", False),
+            ("Required[int]", False, "int", True),
+            ("NotRequired[int]", True, "int", False),
+            ("typing.NotRequired[int]", True, "int", False),
+            ("ReadOnly[int]", False, "int", False),
+            ("ReadOnly[Required[list[int]]]", False, "list[int]", True),
+            ("Annotated[int, 'x']", True, "Annotated[int, 'x']", True),  # not a key qualifier
+        ],
+    )
+    def test_qualified(self, annotation: str, total: bool, shown: str, required: bool) -> None:
+        expr = ast.parse(annotation, mode="eval").body
+        result, is_required = _class_signatures._qualified(expr, total)
+        assert (ast.unparse(result), is_required) == (shown, required)
+
+    def test_a_non_class_name_is_not_a_typeddict(self) -> None:
+        class FakeName:
+            type = "function"
+
+        assert _class_signatures.typeddict_class(FakeName()) is None
+
+    def test_an_inference_failure_is_not_a_typeddict(self) -> None:
+        class FakeName:
+            type = "class"
+
+            def infer(self) -> list[object]:
+                raise RuntimeError("jedi")
+
+        assert _class_signatures.typeddict_class(FakeName()) is None
+
+
+NON_LITERAL = """\
+from typing import TypedDict
+
+FLAG = False
+
+
+class Flagged(TypedDict, total=FLAG):
+    a: int
+
+
+class NotTD:
+    b: int
+
+
+class Mixed(Flagged):
+    c: int
+"""
+
+
+@pytest.mark.asyncio
+async def test_a_non_literal_total_gives_no_signature(tmp_path: Path) -> None:
+    """Its keys' requiredness can't be known statically, here or in a subclass."""
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (tmp_path / "pkg" / "n.py").write_text(NON_LITERAL, encoding="utf-8")
+    analyzer = JediAnalyzer(tmp_path.as_posix())
+    for name in ("Flagged", "Mixed"):
+        result = await inspect(f"pkg.n.{name}", analyzer)
+        assert result["found"] and "signature" not in result, name
