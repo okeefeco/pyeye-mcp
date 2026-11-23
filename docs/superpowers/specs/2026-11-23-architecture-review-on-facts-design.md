@@ -23,7 +23,7 @@ The shipped `architecture-review` skill works out how a codebase diverges from i
 
 ## Goals
 
-1. A review of an area **reads the recorded architecture**, not the whole source: architecture facts (#1092), rules, and decision entries (`scripts/decisions.py`, or the repo's own equivalent if configured).
+1. A review of an area **reads the recorded architecture**, not the whole source: architecture facts (#1092), rules, and decision entries (read through `pyeye.decisions`, or the repo's convention documents if it has none).
 2. **Every finding is one of four outcomes,** each anchored:
    - **adherence:** the code follows a recorded decision or rule. Reported as a confirmation, with no action;
    - **deviation:** the code contradicts a recorded decision or rule. The anchor is that record, and the finding carries a recommendation;
@@ -56,9 +56,9 @@ The shipped `architecture-review` skill works out how a codebase diverges from i
 
 ### 1. Inputs
 
-- **Architecture facts** from #1092 (`arch.members.*`, `arch.imports.*`, `arch.imported_by.*` as importing areas, `arch.cross.*`, coverage gaps), read from the repo's snapshot.
+- **Architecture facts** from the structure kind (#1092, merged in #1161; `arch.members.*`, `arch.imports.*`, `arch.imported_by.*` as importing areas, `arch.cross.*`, coverage gaps), read from the repo's snapshot.
 - **Rules** configured in docs-facts (e.g. `CHECK no-import`), with their current pass or fail state.
-- **Decision entries** with their `Applies-to:` anchors, through the repo's decisions index. For a repo without one, its configured convention documents (e.g. AGENTS.md, CONTRIBUTING) are read as prose anchors.
+- **Decision entries** with their `Applies-to:` anchors, through `pyeye.decisions`. For a repo without one, its configured convention documents (e.g. AGENTS.md, CONTRIBUTING) are read as prose anchors.
 - **Code pointers** from pyeye (`inspect` and `expand` on the handles the facts name), used only as evidence for judgment findings.
 
 ### 2. Flow, per caller-supplied area
@@ -104,27 +104,25 @@ The first version targets only rule kinds that already exist (layering `no-impor
 
 ## Proposed sub-issues
 
-0. **A decisions library** (R5): the entry format and `Applies-to:` parsing move into `pyeye`, and `scripts/decisions.py` uses it.
 1. **The review engine:** plan, mechanical pass, packet, validation through the shared validator, and ranked report, with a CLI entry point, tested on a fixture repo with rules and decisions.
 2. **The skill rewrite** (`architecture-review`): the reviewer prompt for the four outcomes and the codify step through `decision-log`, plus a conformance test. This is a shipped skill, so it needs the maintainer's direct approval for the `.claude/` and `skills` edits.
 3. **Acceptance on Scrapy's `spidermiddlewares`:** reproduce the audit's 4 actionable findings, and record the cost against the audited run as a dated record.
 4. **Remove the old engine** (`gate.py`, `guard.py`, `taxonomy.py`, `ranking.py`) and its tests, keeping `state.py`.
 
-The order is 0 → 1 → 2 → 3 → 4. Sub-issue 3 also waits for #1092's extractor (R1). Nothing is removed until the acceptance run shows the new review finds what the old one did.
+The order is 1 → 2 → 3 → 4. Sub-issue 3 also waits for #1173 (R1). Nothing is removed until the acceptance run shows the new review finds what the old one did.
 
 ## Settled after the builder check (Claude's calls; correct any)
 
-- **R1. Dependencies and order.** Architecture facts don't exist yet: #1092's extractor is still open, and `/arch-facts` has no issue. So:
-  - **the engine (sub-issue 1)** is built and tested on hand-written facts in a fixture repo, and doesn't wait for #1092;
-  - **acceptance (sub-issue 3)** waits for #1092's extractor, run on Scrapy. It measures **the review alone**, and the cost of building Scrapy's map is recorded separately.
-  - `/arch-facts` isn't a prerequisite: a configured `areas` table (#1092's option A), or a module prefix, is enough to run.
+- **R1. Dependencies and order** (updated 2026-11-23). #1092's structure kind has merged (#1161): areas, pairs, `min_score`, the `arch.*` facts, and the layering and coverage rules. `/arch-facts` is #1173, with prerequisites #1175 (curated pairs, areas and pairs data files, the unassigned-module gap, `imported_by` by area) and #1176 (the prose-handle rule). So:
+  - **the engine (sub-issue 1)** is built and tested on real `arch.*` facts from a fixture repo, plus hand-written facts for edge cases;
+  - **acceptance (sub-issue 3)** depends on **#1173** producing Scrapy's map. It measures **the review alone**, and the cost of building the map is recorded separately.
 - **R2. "A rule as config data" means a `CHECK` line in the area's architecture doc,** the mechanism #1092 already parses (`structure/layering.py`). There's no new parameterised rules schema. The mechanical pass reads the same `CHECK` lines and their pass or fail state. A decision that no existing `CHECK` form can express stays a decision entry (§4).
-- **R3. An area** is a configured area ID (#1092's `areas`: area ID → module globs) or, with none configured, a module prefix treated as one implicit area. The CLI's main argument is the area. A decision's `Applies-to:` sites match an area when they fall inside its module globs.
+- **R3. An area** is an area ID from the repo's committed areas data file (#1173 ruling 2). With no areas file, it's a module prefix treated as one implicit area. An unassigned module is a coverage gap, not its own area (#1173 ruling C), and the review reports it as such. The CLI's main argument is the area. A decision's `Applies-to:` sites match an area when they fall inside its module globs.
 - **R4. Acceptance on Scrapy.**
   - Scrapy has no decision entries, so **its `AGENTS.md` is the prose anchor**, the fallback in goal 1. The audit's logging-style and module-docstring findings were anchored on it, so they become **deviations**.
   - **Passing means** all four audited items appear, each in an outcome its evidence supports, anchored wherever a record exists. Items with no record are "decision needed" or "ambiguity".
   - The cost target (an order of magnitude below the audited run) covers the review only.
-- **R5. A decisions library.** `scripts/decisions.py` isn't in the package, so the parsing of the entry format and its `Applies-to:` anchors moves into a small library in `pyeye`, which `scripts/decisions.py` then uses. The format is the one the shipped `decision-log` skill writes. This adds **sub-issue 0**, ahead of the engine.
+- **R5. The decisions library already exists.** `pyeye.decisions` ships in the package (#1093/#1095), with `parse`, `load` and `applies_to()`, and `scripts/decisions.py` wraps it. What's left is matching `Applies-to:` sites to an area's module globs, which belongs in the engine (sub-issue 1). The former sub-issue 0 is dropped.
 - **R6. The validator is generalised in place.** `docs_facts/review.py`'s category and anchor sets become per review kind (`docs`, `architecture`), adding the `rule` and `decision` anchor kinds and the four outcomes. `/docs-review`'s behaviour and skill text stay unchanged, and its tests must pass untouched.
 - **R7. No dismissals; every resolution is a decision entry.**
   - When the maintainer answers a "decision needed" or "ambiguity" item, including "both patterns are acceptable here", the answer becomes a decision entry.
