@@ -367,7 +367,8 @@ def _build_signature(jedi_name: Any) -> str | None:
 
     Uses Jedi's ``get_signatures()[0].to_string()`` to obtain the signature.
     Returns ``None`` if no signatures are available.  The returned string is
-    guaranteed to be single-line (no embedded newlines) and non-empty — an
+    guaranteed to be single-line (no embedded newlines; a multi-line render is
+    re-rendered whole, #1159) and non-empty — an
     empty/whitespace render normalises to ``None`` so callers never have to
     distinguish ``""`` from "absent" (the stub contract: present-with-real-value
     or omitted, never ``""``; issue #407).
@@ -417,9 +418,15 @@ def _build_signature(jedi_name: Any) -> str | None:
             return typeddict_signature(typeddict, jedi_name.name)
         if sigs:
             sig_str = sigs[0].to_string()
-            # Guard: must be single-line
-            if "\n" in sig_str:
-                sig_str = sig_str.split("\n")[0]
+            # Jedi keeps the source text of a split annotation, default or
+            # return type, newlines and comments included (#1159). It is
+            # re-rendered whole on one line; one that won't parse falls back to
+            # the declared signature, or is omitted, never cut off.
+            if "\n" in sig_str or "\r" in sig_str:
+                single = _single_line_signature(sig_str)
+                if single is None:
+                    return _signature_from_source_ast(jedi_name)
+                sig_str = single
             # Normalise an empty/whitespace render to None — never return "".
             if not (sig_str and sig_str.strip()):
                 return None
@@ -447,6 +454,25 @@ def _build_signature(jedi_name: Any) -> str | None:
     except Exception:
         pass
     return None
+
+
+def _single_line_signature(rendered: str) -> str | None:
+    """Jedi's multi-line *rendered* signature on one line, or ``None`` if it won't parse (#1159).
+
+    Parsed as a ``def`` and re-rendered with ``ast.unparse``, pyeye's own
+    signature style (``a: int=1``). That drops a comment Jedi kept inside a
+    split annotation and keeps a multi-line string default's exact value,
+    which collapsing the whitespace would get wrong.
+    """
+    try:
+        tree = ast.parse(f"def {rendered}: ...")
+    except (SyntaxError, ValueError):
+        return None
+    node = tree.body[0] if len(tree.body) == 1 else None
+    if not isinstance(node, ast.FunctionDef):
+        return None
+    returns = f" -> {ast.unparse(node.returns)}" if node.returns is not None else ""
+    return f"{node.name}({ast.unparse(node.args)}){returns}"
 
 
 def _restricted_signature(signature: Any) -> bool:
