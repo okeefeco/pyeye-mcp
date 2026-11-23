@@ -111,7 +111,7 @@ class TestOptions:
     @pytest.mark.parametrize(
         ("pairs", "match"),
         [
-            ("a.x", "'pairs' must be a list"),
+            ({"a": "a.x"}, "'pairs' must be a list"),  # a string is a data file (#1175)
             ([["a.x"]], r"pairs\[0\] must be two"),
             ([["a.x", ""]], r"pairs\[0\] must be two"),
             ([["a.x", 3]], r"pairs\[0\] must be two"),
@@ -195,7 +195,7 @@ class TestFacts:
     def test_imported_by_is_the_set_of_packages(self, facts: dict[str, Fact]) -> None:
         assert facts["arch.imported_by.pkg.paths"].value == ["pkg"]
         assert facts["arch.imported_by.pkg.settings"].value == []
-        assert facts["arch.imported_by.pkg.settings"].markdown == "No module imports it."
+        assert facts["arch.imported_by.pkg.settings"].markdown == "No module in scope imports it."
 
     def test_coverage_gaps_fact(self, facts: dict[str, Fact]) -> None:
         gaps = facts["arch.coverage.gaps"].value
