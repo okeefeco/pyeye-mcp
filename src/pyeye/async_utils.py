@@ -273,6 +273,20 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
         worktrees, nested independent clones, etc.)
     """
     patterns = (pattern,) if isinstance(pattern, str) else pattern
+    results: list[Path] = []
+    for here, dirnames, filenames in filtered_walk(path):
+        for name in (*dirnames, *filenames):
+            if _tail_matches(here / name, path, patterns):
+                results.append(here / name)
+    return results
+
+
+def filtered_walk(path: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
+    """:func:`pruned_walk` with :func:`filtered_rglob`'s exclusions, lazily (#1143).
+
+    Yields ``(dir, dirnames, filenames)`` for each project directory, already
+    pruned, so a caller that stops early (a bounded scan) never walks the rest.
+    """
     from .project_layout import excluded_name, excluded_scan_dir
 
     # Excluded directories are PRUNED, never descended into (#738): on a repo
@@ -280,7 +294,6 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
     # filtering after, with the same result. Only names BELOW the scan root are
     # tested, so an ancestor named e.g. ``build`` doesn't exclude the project
     # (#515); ``path`` itself is never tested as a worktree.
-    results: list[Path] = []
     # Submodules declared by a superproject above the scan root, or at it (#810).
     declared: set[str] = set()
     for ancestor in (path, *path.parents):
@@ -302,10 +315,7 @@ def filtered_rglob(pattern: Patterns, path: Path) -> list[Path]:
             and not _is_linked_worktree(here / d)
             and not _is_nested_repo(here / d, declared)
         ]
-        for name in (*dirnames, *filenames):
-            if _tail_matches(here / name, path, patterns):
-                results.append(here / name)
-    return results
+        yield here, dirnames, filenames
 
 
 async def rglob_async(pattern: Patterns, path: Path) -> list[Path]:

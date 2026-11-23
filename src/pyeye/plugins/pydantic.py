@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .. import resolver
-from ..async_utils import filtered_rglob
 from ..project_layout import module_name_for_file
 from .base import AnalyzerPlugin, Scope
+from .detection import Detection, declares, scan_for_imports
 
 #: The implicit last base of every class (#870's static C3 ``mro``).
 _OBJECT = "builtins.object"
@@ -164,31 +164,15 @@ class PydanticPlugin(AnalyzerPlugin):
 
     def detect(self) -> bool:
         """Detect if this project uses Pydantic."""
-        # Check for Pydantic imports in any Python file
-        # Note: Using sync I/O here as detect() is called during initialization
-        for py_file in filtered_rglob("*.py", self.project_path):
-            try:
-                if py_file.stat().st_size > 1000000:  # Skip very large files
-                    continue
-            except OSError as e:
-                logger.warning(f"Plugin {self.name()}: error reading {py_file.as_posix()}: {e}")
-                continue
-            content = self._read_text_or_skip(py_file)
-            if content is not None and (
-                "from pydantic import" in content or "import pydantic" in content
-            ):
-                return True
+        return self.detection() == "detected"
 
-        # Check requirements files
-        req_files = ["requirements.txt", "pyproject.toml", "Pipfile"]
-        for req_file in req_files:
-            req_path = self.project_path / req_file
-            if req_path.exists():
-                content = self._read_text_or_skip(req_path)
-                if content is not None and "pydantic" in content.lower():
-                    return True
-
-        return False
+    def detection(self) -> Detection:
+        """Pydantic declared as a dependency, else imported in a bounded scan (#1143)."""
+        if declares(self.project_path, "pydantic"):
+            return "detected"
+        return scan_for_imports(
+            self.project_path, ("from pydantic import", "import pydantic"), self._read_text_or_skip
+        )
 
     def register_tools(self) -> dict[str, Callable]:
         """Register Pydantic-specific tools."""

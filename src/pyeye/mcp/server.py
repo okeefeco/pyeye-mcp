@@ -3,6 +3,7 @@
 import functools
 import json
 import logging
+import threading
 import typing
 from collections.abc import Callable, Collection
 from glob import glob
@@ -69,6 +70,14 @@ _startup_root: Path | None = None
 _startup_resolver: SmartScopeResolver | None = None
 #: Every plugin tool name registered so far; runtime registration is add-only.
 _registered_plugin_tools: set[str] = set()
+#: Each plugin's last detection outcome on the startup project, by plugin name
+#: (#1143): ``pending`` while startup detection runs in the background, then a
+#: :data:`~pyeye.plugins.detection.Detection`. ``not_determined`` means a
+#: bounded scan stopped first: the framework may be used, its tools aren't listed.
+_plugin_detection: dict[str, str] = {}
+#: Serialises committing plugins (startup's background detection and
+#: ``configure_packages``' re-detection), so one framework never activates twice.
+_plugin_lock = threading.Lock()
 
 # Module-level exports for testing
 project_manager = None  # Will be initialized lazily
@@ -99,44 +108,45 @@ def get_analyzer(project_path: str = ".") -> JediAnalyzer:
 
 
 def initialize_plugins(project_path: str = ".") -> None:
-    """Initialize and activate framework-specific plugins for the project.
+    """Detect the project's frameworks and register their plugins' tools, now.
 
-    Scans the project for framework indicators and activates appropriate plugins
-    that provide specialized analysis tools. Currently supports Pydantic, Django,
-    and Flask frameworks.
+    Detection of each plugin (Pydantic, Django, Flask) covers the project root
+    and every configured package and namespace path; see
+    :mod:`pyeye.plugins.detection` for how a framework is detected (#1143).
+    The server's entry point doesn't call this: it runs
+    :func:`prepare_plugins`, then :func:`detect_plugins` on a background thread
+    and :func:`commit_plugins` on the event loop, so a slow detection never
+    delays serving (#1143).
 
     Args:
         project_path: Root directory path of the project to analyze
 
     Note:
-        Plugin activation is automatic based on project detection. Failed plugin
-        initialization does not prevent server startup - plugins are optional.
+        A failed plugin initialization does not prevent server startup:
+        plugins are optional.
+    """
+    prepare_plugins(project_path)
+    commit_plugins(project_path, detect_plugins(project_path))
 
-    Example:
-        The plugin system will automatically detect frameworks:
-        - Pydantic: Looks for BaseModel imports
-        - Django: Checks for Django imports and settings.py
-        - Flask: Scans for Flask app creation patterns
+
+def prepare_plugins(project_path: str = ".") -> None:
+    """Reset the plugin registry for *project_path*, before any detection (#1143).
+
+    Fast: no tree is walked. Every plugin is recorded as ``pending`` until
+    :func:`commit_plugins` records its outcome.
     """
     global _startup_root, _startup_resolver
     # Clear in place: PLUGINS aliases this list, and rebinding it left PLUGINS
     # pointing at the old one (#627).
     _plugins.clear()
     _registered_plugin_tools.clear()
+    _plugin_detection.clear()
+    _plugin_detection.update({cls(project_path).name(): "pending" for cls in _PLUGIN_CLASSES})
     _startup_root = Path(project_path)
-
-    # Load configuration for namespace support
-    config = ProjectConfig(project_path)
-
-    # Try to activate each plugin
-    for plugin_class in _PLUGIN_CLASSES:
-        plugin = _activate_if_detected(plugin_class, project_path, config)
-        if plugin is not None:
-            _plugins.append(plugin)
 
     # Plugin tools called without ``scope`` resolve it through scope_defaults
     # (#559). Report configured keys that can't apply instead of ignoring them.
-    resolver = SmartScopeResolver(config)
+    resolver = SmartScopeResolver(ProjectConfig(project_path))
     _startup_resolver = resolver
     ignored = resolver.ignored_method_keys(all_plugin_tool_names(project_path))
     if ignored:
@@ -146,38 +156,112 @@ def initialize_plugins(project_path: str = ".") -> None:
             ", ".join(ignored),
         )
 
-    # Outside the per-plugin try: a duplicate name is a bug in the declared names,
-    # not an optional plugin failing to load, so it must not be swallowed.
-    _registered_plugin_tools.update(register_plugin_tools(mcp, _plugins, resolver))
+
+class DetectedPlugin(NamedTuple):
+    """One plugin class's detection outcome, and the plugin when it was detected."""
+
+    plugin_class: type[AnalyzerPlugin]
+    detection: str
+    plugin: AnalyzerPlugin | None
 
 
-def _activate_if_detected(
+def detect_plugins(
+    project_path: str,
+    classes: Collection[type[AnalyzerPlugin]] | None = None,
+    config: ProjectConfig | None = None,
+) -> list[DetectedPlugin]:
+    """Detect each plugin class's framework on *project_path* (#1143).
+
+    Touches no registry, so it is safe on a background thread. *classes*
+    defaults to every plugin class; *config* (whose packages and namespaces
+    are searched too) to the project's own.
+    """
+    config = config if config is not None else ProjectConfig(project_path)
+    return [
+        _detect_one(plugin_class, project_path, config)
+        for plugin_class in (_PLUGIN_CLASSES if classes is None else classes)
+    ]
+
+
+def commit_plugins(
+    project_path: str, detected: list[DetectedPlugin], config: ProjectConfig | None = None
+) -> list[str]:
+    """Activate the detected plugins and register their tools; return the new plugins' names.
+
+    Records every outcome in :data:`_plugin_detection`. Add-only and
+    idempotent: a plugin class already active is skipped, so startup's
+    background detection and a ``configure_packages`` re-detection that both
+    find a framework activate it once. Runs where the server's tools may be
+    mutated (the event loop at startup).
+    """
+    with _plugin_lock:
+        active = {type(plugin) for plugin in _plugins}
+        new = []
+        for outcome in detected:
+            plugin_name = outcome.plugin_class(project_path).name()
+            if outcome.plugin_class in active:
+                _plugin_detection[plugin_name] = "detected"
+                continue
+            _plugin_detection[plugin_name] = outcome.detection
+            if outcome.plugin is not None:
+                new.append(outcome.plugin)
+                active.add(outcome.plugin_class)
+            elif outcome.detection == "not_determined":
+                logger.warning(
+                    f"{plugin_name}: not determined whether the project uses it (the scan "
+                    "stopped at its bound), so its tools aren't listed. They still run "
+                    "when called by name; declaring the dependency makes detection exact."
+                )
+        if not new:
+            return []
+        # Paths from the config as it is NOW: configure_packages may have run
+        # while startup's detection did.
+        config = config if config is not None else ProjectConfig(project_path)
+        for plugin in new:
+            _apply_plugin_paths(plugin, config)
+        # Outside the per-plugin try: a duplicate name is a bug in the declared
+        # names, not an optional plugin failing to load, so it must not be swallowed.
+        names = register_plugin_tools(
+            mcp, new, _startup_resolver, already_registered=_registered_plugin_tools
+        )
+        _registered_plugin_tools.update(names)
+        _plugins.extend(new)
+        return [plugin.name() for plugin in new]
+
+
+def plugin_detection() -> dict[str, str]:
+    """Each plugin's detection outcome on the startup project, by plugin name (#1143)."""
+    return dict(_plugin_detection)
+
+
+def _detect_one(
     plugin_class: type[AnalyzerPlugin], project_path: str, config: ProjectConfig
-) -> AnalyzerPlugin | None:
-    """The configured plugin if its framework is used, else ``None`` (#659).
+) -> DetectedPlugin:
+    """*plugin_class*'s outcome on the project root and every configured path (#659, #1143).
 
-    Detection covers the project root AND every configured package and namespace
-    path, so a framework used only in a configured package activates, at startup
-    and after ``configure_packages`` alike.  A detector failure is logged and the
-    plugin skipped: plugins are optional, so it must not stop the server, but it
-    is a bug, not "framework absent" (since #637 ``detect()`` raises on anything
-    but an unreadable file), so it is reported with its traceback.
+    Detected if any root detects the framework; else ``not_determined`` if
+    any root's scan stopped at its bound; else ``not_detected``. A detector
+    failure is logged and counts as ``not_determined``: plugins are optional,
+    so it must not stop the server, but it is a bug, not "framework absent"
+    (since #637 ``detect()`` raises on anything but an unreadable file), so it
+    is reported with its traceback.
     """
     try:
         plugin = plugin_class(project_path)
-        detected = plugin.detect() or any(
-            plugin_class(root).detect()
-            for root in _detection_roots(config)
-            if not paths_equal(root, project_path)
-        )
-        if not detected:
-            return None
-        _apply_plugin_paths(plugin, config)
-        logger.info(f"Activated {plugin.name()} plugin with namespace support")
-        return plugin
+        outcomes = [plugin.detection()]
+        for root in _detection_roots(config):
+            if "detected" in outcomes:
+                break
+            if not paths_equal(root, project_path):
+                outcomes.append(plugin_class(root).detection())
+        if "detected" in outcomes:
+            logger.info(f"Activated {plugin.name()} plugin with namespace support")
+            return DetectedPlugin(plugin_class, "detected", plugin)
+        undecided = "not_determined" in outcomes
+        return DetectedPlugin(plugin_class, "not_determined" if undecided else "not_detected", None)
     except Exception:
         logger.exception(f"Failed to load plugin {plugin_class.__name__}")
-        return None
+        return DetectedPlugin(plugin_class, "not_determined", None)
 
 
 def _detection_roots(config: ProjectConfig) -> list[str]:
@@ -199,21 +283,10 @@ def redetect_plugins(project_path: str, config: ProjectConfig) -> list[str]:
     tools-changed event (#770).
     """
     active = {type(plugin) for plugin in _plugins}
-    new = [
-        plugin
-        for plugin_class in _PLUGIN_CLASSES
-        if plugin_class not in active
-        for plugin in [_activate_if_detected(plugin_class, project_path, config)]
-        if plugin is not None
-    ]
-    if not new:
+    candidates = [cls for cls in _PLUGIN_CLASSES if cls not in active]
+    if not candidates:
         return []
-    names = register_plugin_tools(
-        mcp, new, _startup_resolver, already_registered=_registered_plugin_tools
-    )
-    _registered_plugin_tools.update(names)
-    _plugins.extend(new)
-    return [plugin.name() for plugin in new]
+    return commit_plugins(project_path, detect_plugins(project_path, candidates, config), config)
 
 
 def _apply_plugin_paths(plugin: AnalyzerPlugin, config: ProjectConfig) -> None:

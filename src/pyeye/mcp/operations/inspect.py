@@ -321,6 +321,21 @@ def _signature_from_source_ast(jedi_name: Any) -> str | None:
     return f"{name}({args}){ret}"
 
 
+def _infers_as_classmethod(jedi_name: Any) -> bool:
+    """Whether Jedi infers *jedi_name* as the ``builtins.classmethod`` descriptor (#1128).
+
+    A ``@property`` infers ``builtins.property`` and is deliberately not matched:
+    a property is read, not called, so it stays unsigned.
+    """
+    try:
+        return any(
+            getattr(inferred, "full_name", None) == "builtins.classmethod"
+            for inferred in jedi_name.infer()
+        )
+    except Exception:
+        return False
+
+
 def _declared_parameter_names(jedi_name: Any) -> list[str] | None:
     """The parameter names *jedi_name*'s ``def`` declares, in order, or ``None`` (#1125).
 
@@ -379,11 +394,13 @@ def _build_signature(jedi_name: Any) -> str | None:
         # A signature Jedi infers from a definition in a restricted directory (an
         # inherited __init__, an alias of a function there) isn't shown (#999).
         raw = jedi_name.get_signatures()
-        if not raw and shadowed_by_type_only(jedi_name):
-            # Jedi infers this ``def`` as the TYPE_CHECKING-only declaration of
-            # the same name (``parse: CallbackT`` beside ``def parse``, #1106),
-            # so it has no signature of its own. The def as written is its
-            # signature, as for a decorator's wrapper (#437).
+        if not raw and (shadowed_by_type_only(jedi_name) or _infers_as_classmethod(jedi_name)):
+            # Jedi infers this ``def`` as something with no signature of its own:
+            # the TYPE_CHECKING-only declaration of the same name (``parse:
+            # CallbackT`` beside ``def parse``, #1106), or the
+            # ``builtins.classmethod`` descriptor (#1128). The def as written is
+            # its signature, as for a decorator's wrapper (#437); a
+            # classmethod's ``cls`` is shown as a method's ``self`` is.
             return _signature_from_source_ast(jedi_name)
         # ``None`` isn't callable: Jedi's ``NoneType()`` for it is dropped (#1126).
         sigs = [s for s in raw if not _restricted_signature(s) and not is_none_signature(s)]

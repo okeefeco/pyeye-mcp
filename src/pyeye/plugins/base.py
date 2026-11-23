@@ -12,6 +12,7 @@ from ..scope_utils import ScopeLayout, package_scope_path, resolve_scope_paths
 
 if TYPE_CHECKING:
     from ..analyzers.jedi_analyzer import JediAnalyzer
+    from .detection import Detection
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +111,14 @@ class AnalyzerPlugin(ABC):
             True if the plugin should be activated
         """
         pass
+
+    def detection(self) -> "Detection":
+        """Whether the framework is used: ``detected``, ``not_detected`` or ``not_determined`` (#1143).
+
+        ``not_determined`` means a bounded scan stopped before it could tell.
+        The default derives it from :meth:`detect`, which can't be undecided.
+        """
+        return "detected" if self.detect() else "not_detected"
 
     def register_tools(self) -> dict[str, Callable]:
         """Register additional MCP tools provided by this plugin.
