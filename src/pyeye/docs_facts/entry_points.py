@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any
 from .. import _data_files
 from ..async_utils import filtered_rglob
 from ..path_utils import relative_within
-from .facts import Bindable, ExtractionError, Fact, code, table, view
+from .facts import Bindable, ExtractionError, Fact, KindOptionsError, code, table, view
 
 if TYPE_CHECKING:
     from .registry import Extractor
@@ -47,8 +47,6 @@ _OPTIONS = frozenset({"package", "module", "prefix"})
 
 
 def _option(options: Mapping[str, Any], name: str) -> str | None:
-    from .kinds import KindOptionsError
-
     value = options.get(name)
     if value is None:
         return None
@@ -65,7 +63,6 @@ def factory(options: Mapping[str, Any]) -> Extractor:
             that isn't one ID segment, or a *module* without a *package*.
     """
     # Imported here: the registry builds pyeye's own extractor from this kind.
-    from .kinds import KindOptionsError
     from .registry import Extractor
 
     unknown = sorted(set(options) - _OPTIONS)

@@ -38,7 +38,7 @@ import fnmatch
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from .. import rules
 from ..facts import (
@@ -47,15 +47,14 @@ from ..facts import (
     Bindable,
     ExtractionError,
     Fact,
+    KindOptionsError,
     code,
     code_list,
     table,
     text,
 )
+from ..registry import Extractor
 from ..structure import candidates, coverage, dump, layering, options, relations
-
-if TYPE_CHECKING:
-    from ..registry import Extractor
 
 #: The coverage categories that are gaps (ruling Q4), in report order.
 GAP_CATEGORIES = (
@@ -79,11 +78,6 @@ def structure(table_: Mapping[str, Any]) -> Extractor:
     Raises:
         KindOptionsError: If an option isn't valid (:func:`..structure.options.parse`).
     """
-    # Imported here: the registry imports the kinds' modules (#1156), so a
-    # top-level import would be a cycle whichever module is imported first.
-    from ..kinds import KindOptionsError
-    from ..registry import Extractor
-
     try:
         opts = options.parse(table_)
     except ValueError as error:

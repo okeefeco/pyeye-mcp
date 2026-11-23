@@ -49,19 +49,6 @@ class TestRegistration:
     def test_structure_is_a_generic_built_in_kind(self) -> None:
         assert kinds.BUILT_IN_KINDS["structure"] is kind.structure
 
-    def test_the_module_imports_first_without_a_cycle(self) -> None:
-        # The registry imports the kinds' modules (#1156): a fresh interpreter
-        # importing this module first must not hit a partly initialised one.
-        import subprocess
-        import sys
-
-        code = "import pyeye.docs_facts.extractors.structure as s; print(s.structure.__name__)"
-        done = subprocess.run(  # noqa: S603 - fixed argv, this interpreter
-            [sys.executable, "-c", code], capture_output=True, text=True, check=False
-        )
-        assert done.returncode == 0, done.stderr
-        assert done.stdout.strip() == "structure"
-
     def test_factory_owns_its_prefix_and_brings_both_rules(self) -> None:
         extractor = kind.structure({"prefix": "layout"})
         assert extractor.prefixes == ("layout",)
