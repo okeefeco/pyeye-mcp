@@ -134,6 +134,50 @@ CATEGORY_ANCHOR: dict[str, tuple[str, ...]] = {
     "style": ("style_rule",),
 }
 
+#: The review kinds a finding can belong to (#1132 R6). A finding without a
+#: ``review`` is a ``docs`` finding; ``review: "docs"`` says so explicitly.
+DOCS_REVIEW = "docs"
+ARCHITECTURE_REVIEW = "architecture"
+REVIEW_KINDS = (DOCS_REVIEW, ARCHITECTURE_REVIEW)
+
+#: An architecture finding's category is its outcome (#1132 goal 2).
+OUTCOMES = ("adherence", "deviation", "decision_needed", "ambiguity")
+
+#: What an architecture finding rests on. ``rule`` is a ``CHECK`` line by its
+#: text (``no-import: A -> B``); ``decision`` a decision entry by its file name;
+#: ``convention`` a section of a convention document (``PATH#slug``), the prose
+#: anchor of a repository with no decisions; ``fact`` and ``symbol`` as for docs.
+ARCHITECTURE_ANCHOR_KINDS = ("rule", "decision", "convention", "fact", "symbol")
+
+#: The records an adherence or deviation names: "no deviation without a record".
+RECORD_KINDS = ("rule", "decision", "convention")
+
+#: The anchor kinds each outcome rests on. A decision-needed or ambiguity
+#: finding has no record by definition: it rests on its evidence.
+OUTCOME_ANCHOR: dict[str, tuple[str, ...]] = {
+    "adherence": RECORD_KINDS,
+    "deviation": RECORD_KINDS,
+    "decision_needed": ("fact", "symbol"),
+    "ambiguity": ("fact", "symbol"),
+}
+
+#: Each review kind's categories, anchor kinds, and the anchors each category rests on.
+CATEGORIES_BY_REVIEW: dict[str, tuple[str, ...]] = {
+    DOCS_REVIEW: CATEGORIES,
+    ARCHITECTURE_REVIEW: OUTCOMES,
+}
+ANCHOR_KINDS_BY_REVIEW: dict[str, tuple[str, ...]] = {
+    DOCS_REVIEW: ANCHOR_KINDS,
+    ARCHITECTURE_REVIEW: ARCHITECTURE_ANCHOR_KINDS,
+}
+CATEGORY_ANCHOR_BY_REVIEW: dict[str, dict[str, tuple[str, ...]]] = {
+    DOCS_REVIEW: CATEGORY_ANCHOR,
+    ARCHITECTURE_REVIEW: OUTCOME_ANCHOR,
+}
+
+#: A ``rule`` anchor's ID: the ``CHECK`` line's text after ``CHECK``.
+_RULE_ID = re.compile(r"no-import: [\w.]+ -> [\w.]+")
+
 #: The fields only a needs-decision finding may carry.
 _DECISION_FIELDS = ("options", "question", "assessment", "recommended", "recommendation_anchor")
 
@@ -581,6 +625,149 @@ def _option_problems(options: Any) -> list[str]:
     return problems
 
 
+def _architecture_anchor_problems(
+    anchor: Any, where: str, facts: Facts | None, root: Path | None, symbols: Symbols | None
+) -> list[str]:
+    """An architecture anchor's problems (#1132 R6): its kind, and that it resolves."""
+    if not isinstance(anchor, dict):
+        return [f"{where} must be an object {{kind, id}}"]
+    kind, anchor_id = anchor.get("kind"), anchor.get("id")
+    if kind not in ARCHITECTURE_ANCHOR_KINDS:
+        return [f"{where}.kind must be one of {list(ARCHITECTURE_ANCHOR_KINDS)}"]
+    if not _text(anchor_id):
+        return [f"{where}.id must be a non-empty string"]
+    if kind in ("fact", "symbol"):
+        return _anchor_problems(anchor, where, facts, symbols)
+    if kind == "rule":
+        if not _RULE_ID.fullmatch(str(anchor_id)):
+            return [f"{where}.id must be a CHECK line's text, 'no-import: A -> B'"]
+        return []
+    if kind == "decision":
+        if "/" in str(anchor_id) or not str(anchor_id).endswith(".md"):
+            return [f"{where}.id must be a decision entry's file name (YYYY-MM-DD-...md)"]
+        return []
+    path, _, slug = str(anchor_id).partition("#")
+    if not (path and slug):
+        return [f"{where}.id must name a convention document's section, 'PATH#slug'"]
+    if root is not None and section_text(root, path, slug) is None:
+        return [f"{where} names {anchor_id!r}, which isn't a section on disk"]
+    return []
+
+
+def _evidence_list_problems(finding: Mapping[str, Any], symbols: Symbols | None) -> list[str]:
+    """An architecture finding's ``evidence``: canonical handles that resolve (C15)."""
+    evidence = finding.get("evidence", [])
+    if not isinstance(evidence, list) or not all(_text(e) for e in evidence):
+        return ["evidence must be a list of canonical handles"]
+    if finding.get("category") != "adherence" and not evidence:
+        return [
+            f"a {finding.get('category')} finding must give its evidence: the handles it rests on"
+        ]
+    if symbols is None:
+        return []
+    problems = []
+    for handle in evidence:
+        canonical = symbols.canonical(str(handle))
+        if canonical is None:
+            problems.append(f"evidence {handle!r} doesn't resolve in the project")
+        elif canonical != handle:
+            problems.append(f"evidence must use the canonical handle {canonical!r}, not {handle!r}")
+    return problems
+
+
+def architecture_problems(
+    finding: Mapping[str, Any],
+    facts: Facts | None = None,
+    root: Path | None = None,
+    symbols: Symbols | None = None,
+) -> list[str]:
+    """Why an architecture finding (#1132) can't be shown to a human; ``[]`` when it can.
+
+    The shape: ``review: "architecture"``, an ``area`` and a ``problem``, and a
+    ``category`` that is its outcome (:data:`OUTCOMES`), on an anchor of a kind
+    the outcome rests on (:data:`OUTCOME_ANCHOR`): a record for adherence or
+    deviation, never for decision needed or ambiguity. ``evidence`` lists
+    canonical handles (C15), at least one unless the finding is an adherence.
+
+    - **adherence:** a confirmation. No way forward to give, so no
+      ``recommendation`` and no decision fields.
+    - **deviation:** a ``recommendation``, and no decision fields.
+    - **decision needed:** the ``question`` and the ``proposal``, the decision
+      to record. Never options: one pattern is clearly the norm.
+    - **ambiguity:** a ``question`` and 2 or 3 ``options`` with their costs, and
+      a ``recommended`` option with its ``recommendation_anchor`` or an
+      ``assessment`` starting :data:`UNANCHORED`, as a docs needs-decision.
+
+    What the area's packet holds (the area's modules, the rules and decisions
+    in scope) is checked by :func:`pyeye.docs_facts.architecture.problems`.
+    """
+    problems = [
+        f"{name} must be a non-empty string"
+        for name in ("area", "problem")
+        if not _text(finding.get(name))
+    ]
+    category = finding.get("category")
+    if category not in OUTCOMES:
+        return [*problems, f"category must be one of {list(OUTCOMES)}"]
+    anchor = finding.get("anchor")
+    found = _architecture_anchor_problems(anchor, "anchor", facts, root, symbols)
+    problems.extend(found)
+    if not found and isinstance(anchor, dict) and anchor["kind"] not in OUTCOME_ANCHOR[category]:
+        problems.append(
+            f"a {category} finding rests on a {' or '.join(OUTCOME_ANCHOR[category])} anchor"
+        )
+    problems.extend(_evidence_list_problems(finding, symbols))
+    if "needs_decision" in finding:
+        problems.append(
+            "an architecture finding's category says what it needs: drop needs_decision"
+        )
+    decision = [name for name in (*_DECISION_FIELDS, "proposal") if name in finding]
+    if category in ("adherence", "deviation"):
+        if decision:
+            problems.append(f"a {category} finding carries no decision fields: {decision}")
+        has_recommendation = _text(finding.get("recommendation"))
+        if category == "deviation" and not has_recommendation:
+            problems.append("a deviation must give its recommendation")
+        if category == "adherence" and "recommendation" in finding:
+            problems.append("an adherence is a confirmation: it carries no recommendation")
+        return problems
+    if "recommendation" in finding:
+        problems.append(f"a {category} finding asks for a decision; it carries no recommendation")
+    if not _text(finding.get("question")):
+        problems.append(f"a {category} finding must state its question")
+    if category == "decision_needed":
+        if not _text(finding.get("proposal")):
+            problems.append("a decision_needed finding must propose the decision to record")
+        extra = [name for name in _DECISION_FIELDS if name in finding and name != "question"]
+        if extra:
+            problems.append(f"a decision_needed finding has one norm, not options: drop {extra}")
+        return problems
+    if "proposal" in finding:
+        problems.append("an ambiguity offers options, not one proposal")
+    options = finding.get("options")
+    problems.extend(_option_problems(options))
+    recommended = finding.get("recommended")
+    if recommended is not None:
+        count = len(options) if isinstance(options, list) else 0
+        index = isinstance(recommended, int) and not isinstance(recommended, bool)
+        if not (index and 0 <= recommended < count):
+            problems.append("recommended must be the index of one of the options")
+        problems.extend(
+            _architecture_anchor_problems(
+                finding.get("recommendation_anchor"), "recommendation_anchor", facts, root, symbols
+            )
+        )
+    else:
+        if "recommendation_anchor" in finding:
+            problems.append("a recommendation_anchor needs a recommended option")
+        assessment = finding.get("assessment")
+        if not (_text(assessment) and str(assessment).startswith(UNANCHORED)):
+            problems.append(
+                f"with no recommended option, an assessment starting {UNANCHORED!r} is required"
+            )
+    return problems
+
+
 def finding_problems(
     finding: Mapping[str, Any],
     facts: Facts | None = None,
@@ -588,6 +775,11 @@ def finding_problems(
     symbols: Symbols | None = None,
 ) -> list[str]:
     """Why *finding* can't be shown to a human; ``[]`` when it can.
+
+    A finding of another review kind (``review``, :data:`REVIEW_KINDS`) is
+    checked by its own rules: an architecture finding by
+    :func:`architecture_problems`. The rest of this docstring is a docs
+    finding's shape, which an absent ``review`` and ``review: "docs"`` both mean.
 
     The shape (D8, C13, C14):
 
@@ -621,6 +813,11 @@ def finding_problems(
     The tool never decides: a finding without a way forward is rejected, and so
     is a needs-decision finding presented as settled (a replacement).
     """
+    review_kind = finding.get("review", DOCS_REVIEW)
+    if review_kind not in REVIEW_KINDS:
+        return [f"review must be one of {list(REVIEW_KINDS)} (absent means {DOCS_REVIEW!r})"]
+    if review_kind == ARCHITECTURE_REVIEW:
+        return architecture_problems(finding, facts, root, symbols)
     problems = [
         f"{name} must be a non-empty string"
         for name in ("page", "problem")
@@ -713,6 +910,17 @@ def finding_key(finding: Mapping[str, Any]) -> tuple[str, ...]:
     without its pin), or a dismissal could cover a finding it never saw.
     """
     anchor = finding["anchor"]
+    if finding.get("review", DOCS_REVIEW) == ARCHITECTURE_REVIEW:
+        # Area, outcome, anchor and the evidence it rests on (#1132): two
+        # deviations from one decision at different sites are two findings.
+        return (
+            ARCHITECTURE_REVIEW,
+            finding["area"],
+            finding["category"],
+            anchor["kind"],
+            anchor["id"],
+            *sorted(str(e) for e in finding.get("evidence", [])),
+        )
     key: tuple[str, ...] = (
         finding["page"],
         finding["section"],

@@ -400,7 +400,14 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     """Entry point for ``python -m pyeye.docs_facts`` and ``scripts/docs_facts.py`` (#1162).
 
     *root* defaults to the working directory; ``--root`` overrides either.
+    ``architecture ...`` is the architecture review engine's own command line
+    (:func:`.architecture.main`, #1178).
     """
+    args_in = list(sys.argv[1:] if argv is None else argv)
+    if args_in[:1] == ["architecture"]:
+        from . import architecture
+
+        return architecture.main(args_in[1:], root)
     parser = argparse.ArgumentParser(
         prog="docs_facts", description="Keep the docs' facts equal to the code's."
     )
@@ -412,7 +419,7 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
         help="changed: the git revision to diff against; generate: the branch whose "
         "merge base the ledger and removed names are derived against (#1112)",
     )
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_in)
     try:
         setup = config.load(args.root)
     except config.ConfigError as error:
