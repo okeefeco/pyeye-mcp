@@ -126,8 +126,10 @@ PYEYE_KINDS: dict[str, Callable[[Mapping[str, Any]], Extractor]] = dict(
         _kind(
             review,
             "review",
-            "the axes, facets and grades are records in pyeye's architecture-review "
-            "tables, combined into one family of facts.",
+            "it joins four dicts keyed by ``SEED_AXES`` (descriptions, facets, stakes "
+            "bucket and prior) with the ``_TIER`` grades, and one view is ordered by a "
+            "further table, ``_BUCKET_ORDER``. A generic kind's schema is fixed under a "
+            "prefix (#1119); a join like this would need a template vocabulary.",
         ),
         _kind(
             duplication,
@@ -138,8 +140,11 @@ PYEYE_KINDS: dict[str, Callable[[Mapping[str, Any]], Extractor]] = dict(
         _kind(
             scopes,
             "scopes",
-            "each scope form is the arguments of a ``ScopeForm(...)`` call in a "
-            "table; a literal fact reads a constant, not call arguments.",
+            "one ``ScopeForm(...)`` call table gives two fact shapes (each form "
+            "shows its syntax, not its key, in a list view and a table view), plus a policy "
+            "fact joining a fixed order with a constant. The server also renders these "
+            "facts live (``describe.live_facts``). A generic call-table kind would need "
+            "ID, markdown and view templates, which #1119 ruled out.",
         ),
         _kind(
             security,
@@ -150,8 +155,11 @@ PYEYE_KINDS: dict[str, Callable[[Mapping[str, Any]], Extractor]] = dict(
         _kind(
             resolver,
             "resolver",
-            "the strategy chain and bare-name policy are ``Step(...)`` and "
-            "``NameRule(...)`` call tables, read with their positions.",
+            "three ``Step(...)`` call tables merge into one positioned family, each "
+            "table adding its side (all, project or external), with a numbered view that "
+            "has a heading per table, beside the ``NameRule(...)`` policy. A generic "
+            "call-table kind would need ID, markdown and view templates, which #1119 "
+            "ruled out.",
         ),
         _kind(
             repo_config,
