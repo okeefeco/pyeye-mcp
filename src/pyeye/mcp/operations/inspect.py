@@ -62,11 +62,13 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import functools
 import logging
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final, cast
 
 from pyeye import deprecation, file_artifact_cache
 from pyeye._ast_targets import (
@@ -362,30 +364,170 @@ def _declared_parameter_names(jedi_name: Any) -> list[str] | None:
     return names
 
 
+#: A signature step's "not mine": the next step decides (#1167).
+_NEXT: Final = object()
+
+
+@dataclass
+class _SignatureCase:
+    """What the signature steps read and narrow, for one Jedi ``Name`` (#1167)."""
+
+    jedi_name: Any
+    #: Jedi's ``get_signatures()``, as given.
+    raw: list[Any]
+    #: The signatures that may be shown: set by :func:`_drop_unshowable`.
+    sigs: list[Any] = field(default_factory=list)
+    #: ``sigs[0]``'s rendering, on one line: set by :func:`_render_on_one_line`.
+    rendering: str = ""
+
+    @functools.cached_property
+    def rendered_names(self) -> list[str]:
+        """The parameter names Jedi's rendering shows, in order."""
+        return [str(getattr(param, "name", "")) for param in self.sigs[0].params]
+
+
+def _own_def_when_jedi_has_none(case: _SignatureCase) -> object:
+    """#1106, #1128: a ``def`` Jedi infers as something with no signature shows the ``def``.
+
+    That is the ``TYPE_CHECKING``-only declaration of the same name
+    (``parse: CallbackT`` beside ``def parse``, #1106), or the
+    ``builtins.classmethod`` descriptor (#1128). The ``def`` as written is its
+    signature, as for a decorator's wrapper (#437); a classmethod's ``cls`` is
+    shown as a method's ``self`` is.
+    """
+    if not case.raw and (
+        shadowed_by_type_only(case.jedi_name) or _infers_as_classmethod(case.jedi_name)
+    ):
+        return _signature_from_source_ast(case.jedi_name)
+    return _NEXT
+
+
+def _drop_unshowable(case: _SignatureCase) -> object:
+    """#999, #1126: drop a signature from a restricted directory, and ``None``'s ``NoneType()``.
+
+    A signature Jedi infers from a definition in a restricted directory (an
+    inherited ``__init__``, an alias of a function there) isn't shown (#999).
+    ``None`` isn't callable (#1126).
+    """
+    case.sigs = [s for s in case.raw if not _restricted_signature(s) and not is_none_signature(s)]
+    return _NEXT
+
+
+def _namedtuple_constructor(case: _SignatureCase) -> object:
+    """#1126: a typed NamedTuple shows its generated constructor, or none when it can't be built.
+
+    Never the factory's ``(typename, fields, /)``.
+    """
+    if case.sigs and is_namedtuple_factory(case.sigs[0]):
+        return namedtuple_signature(case.jedi_name)
+    return _NEXT
+
+
+def _typeddict_constructor(case: _SignatureCase) -> object:
+    """#1129: a TypedDict shows the keyword-only constructor its keys imply.
+
+    Never dict's overloads; omitted when its keys can't all be known.
+    """
+    typeddict = typeddict_class(case.jedi_name) if case.sigs else None
+    if typeddict is not None:
+        return typeddict_signature(typeddict, case.jedi_name.name)
+    return _NEXT
+
+
+def _nothing_left(case: _SignatureCase) -> object:
+    """No signature survives: none is shown."""
+    return None if not case.sigs else _NEXT
+
+
+def _render_on_one_line(case: _SignatureCase) -> object:
+    """#1159: Jedi's rendering, re-rendered whole when it spans lines.
+
+    Jedi keeps the source text of a split annotation, default or return type,
+    newlines and comments included. One that won't parse falls back to the
+    declared signature, or is omitted, never cut off.
+    """
+    case.rendering = case.sigs[0].to_string()
+    if "\n" in case.rendering or "\r" in case.rendering:
+        single = _single_line_signature(case.rendering)
+        if single is None:
+            return _signature_from_source_ast(case.jedi_name)
+        case.rendering = single
+    return _NEXT
+
+
+def _empty_rendering(case: _SignatureCase) -> object:
+    """#407: an empty or whitespace rendering is no signature, never ``""``."""
+    return None if not (case.rendering and case.rendering.strip()) else _NEXT
+
+
+def _wrapper_rendering(case: _SignatureCase) -> object:
+    """#437: a rendering named for a decorator's wrapper shows the ``def`` instead.
+
+    A decorated symbol resolves to the wrapper the decorator returns
+    (``@functools.cache`` gives ``_lru_cache_wrapper(*args, **kwargs)``), which
+    is detected by the rendered name not being the symbol's. Without source,
+    Jedi's rendering is kept.
+    """
+    symbol_name = getattr(case.jedi_name, "name", None)
+    if symbol_name and case.rendering.split("(", 1)[0] != symbol_name:
+        ast_sig = _signature_from_source_ast(case.jedi_name)
+        if ast_sig is not None:
+            return ast_sig
+    return _NEXT
+
+
+def _forwarded_rendering(case: _SignatureCase) -> object:
+    """#1125: a rendering is kept only when it names the declared parameters, in order.
+
+    Jedi follows ``*args``/``**kwargs`` into the call they're forwarded to and
+    renders the callee's parameters, sometimes as invalid Python (each name
+    positional-only AND keyword-only). Otherwise the declared signature is
+    shown; without source, Jedi's rendering goes on to :func:`_duplicate_names`.
+    """
+    declared = _declared_parameter_names(case.jedi_name)
+    if declared is not None and case.rendered_names != declared:
+        ast_sig = _signature_from_source_ast(case.jedi_name)
+        if ast_sig is not None:
+            return ast_sig
+    return _NEXT
+
+
+def _duplicate_names(case: _SignatureCase) -> object:
+    """#1125: a rendering with a duplicated parameter name is never shown.
+
+    The declared signature is shown instead, or none without source.
+    """
+    names = case.rendered_names
+    if len(set(names)) != len(names):
+        return _signature_from_source_ast(case.jedi_name)
+    return _NEXT
+
+
+#: The signature steps, in the order the #1125 decision entry and its
+#: amendments record (#1167). Each returns a signature, ``None`` (none is
+#: shown), or :data:`_NEXT`. When every step passes, Jedi's rendering is shown.
+_SIGNATURE_STEPS: tuple[Callable[[_SignatureCase], object], ...] = (
+    _own_def_when_jedi_has_none,  # #1106, #1128
+    _drop_unshowable,  # #999, #1126
+    _namedtuple_constructor,  # #1126
+    _typeddict_constructor,  # #1129
+    _nothing_left,
+    _render_on_one_line,  # #1159
+    _empty_rendering,  # #407
+    _wrapper_rendering,  # #437
+    _forwarded_rendering,  # #1125
+    _duplicate_names,  # #1125
+)
+
+
 def _build_signature(jedi_name: Any) -> str | None:
-    """Extract a single-line signature string from a Jedi Name object.
+    """A non-empty single-line signature for a Jedi ``Name``, or ``None``.
 
-    Uses Jedi's ``get_signatures()[0].to_string()`` to obtain the signature.
-    Returns ``None`` if no signatures are available.  The returned string is
-    guaranteed to be single-line (no embedded newlines; a multi-line render is
-    re-rendered whole, #1159) and non-empty — an
-    empty/whitespace render normalises to ``None`` so callers never have to
-    distinguish ``""`` from "absent" (the stub contract: present-with-real-value
-    or omitted, never ``""``; issue #407).
-
-    Decorator wrapper leak (issue #437): a decorated symbol resolves to the
-    wrapper the decorator returns (e.g. ``@functools.cache`` →
-    ``_lru_cache_wrapper(*args, **kwargs)``), so Jedi renders the wrapper's
-    signature, not the symbol's own.  This is detected by the rendered leading
-    identifier not matching the symbol name; when it happens the real signature
-    is reconstructed from the source AST, falling back to the Jedi render if the
-    source definition cannot be located.
-
-    Forwarding (#1125): for ``def f(self, *args, **kwargs)`` that forwards
-    them, Jedi renders the callee's parameters. Its rendering is kept only
-    when its parameter names are the declared ones, in order; otherwise the
-    declared signature comes from the AST. A rendering with a duplicated parameter name is never
-    returned: without source to fall back to, the signature is omitted.
+    Runs :data:`_SIGNATURE_STEPS` in order; the first step that decides wins,
+    and when none does, Jedi's rendering (``get_signatures()[0].to_string()``,
+    on one line) is shown. The result is never ``""``: present with a real
+    value, or omitted (the stub contract, #407). Any error means no signature.
+    Each step's docstring says which issue it serves.
 
     Args:
         jedi_name: A Jedi ``Name`` object.
@@ -394,66 +536,14 @@ def _build_signature(jedi_name: Any) -> str | None:
         A non-empty single-line signature string, or ``None``.
     """
     try:
-        # A signature Jedi infers from a definition in a restricted directory (an
-        # inherited __init__, an alias of a function there) isn't shown (#999).
-        raw = jedi_name.get_signatures()
-        if not raw and (shadowed_by_type_only(jedi_name) or _infers_as_classmethod(jedi_name)):
-            # Jedi infers this ``def`` as something with no signature of its own:
-            # the TYPE_CHECKING-only declaration of the same name (``parse:
-            # CallbackT`` beside ``def parse``, #1106), or the
-            # ``builtins.classmethod`` descriptor (#1128). The def as written is
-            # its signature, as for a decorator's wrapper (#437); a
-            # classmethod's ``cls`` is shown as a method's ``self`` is.
-            return _signature_from_source_ast(jedi_name)
-        # ``None`` isn't callable: Jedi's ``NoneType()`` for it is dropped (#1126).
-        sigs = [s for s in raw if not _restricted_signature(s) and not is_none_signature(s)]
-        # A typed NamedTuple shows its generated constructor, never the
-        # factory's ``(typename, fields, /)``; omitted when it can't be built (#1126).
-        if sigs and is_namedtuple_factory(sigs[0]):
-            return namedtuple_signature(jedi_name)
-        # A TypedDict shows the keyword-only constructor its keys imply, never
-        # dict's overloads; omitted when its keys can't all be known (#1129).
-        typeddict = typeddict_class(jedi_name) if sigs else None
-        if typeddict is not None:
-            return typeddict_signature(typeddict, jedi_name.name)
-        if sigs:
-            sig_str = sigs[0].to_string()
-            # Jedi keeps the source text of a split annotation, default or
-            # return type, newlines and comments included (#1159). It is
-            # re-rendered whole on one line; one that won't parse falls back to
-            # the declared signature, or is omitted, never cut off.
-            if "\n" in sig_str or "\r" in sig_str:
-                single = _single_line_signature(sig_str)
-                if single is None:
-                    return _signature_from_source_ast(jedi_name)
-                sig_str = single
-            # Normalise an empty/whitespace render to None — never return "".
-            if not (sig_str and sig_str.strip()):
-                return None
-            rendered_name = sig_str.split("(", 1)[0]
-            symbol_name = getattr(jedi_name, "name", None)
-            if symbol_name and rendered_name != symbol_name:
-                ast_sig = _signature_from_source_ast(jedi_name)
-                if ast_sig is not None:
-                    return ast_sig
-            # #1125: Jedi follows ``*args``/``**kwargs`` into the call they're
-            # forwarded to and renders the callee's parameters, sometimes as
-            # invalid Python (each name positional-only AND keyword-only).
-            # Its rendering is kept only when its parameter names are the
-            # declared ones; otherwise the declared signature is rendered from
-            # the AST, and a rendering with a duplicated name is never shown.
-            rendered = [str(getattr(param, "name", "")) for param in sigs[0].params]
-            declared = _declared_parameter_names(jedi_name)
-            if declared is not None and rendered != declared:
-                ast_sig = _signature_from_source_ast(jedi_name)
-                if ast_sig is not None:
-                    return ast_sig
-            if len(set(rendered)) != len(rendered):
-                return _signature_from_source_ast(jedi_name)
-            return str(sig_str)
+        case = _SignatureCase(jedi_name, jedi_name.get_signatures())
+        for step in _SIGNATURE_STEPS:
+            outcome = step(case)
+            if outcome is not _NEXT:
+                return cast(str | None, outcome)
+        return str(case.rendering)
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _single_line_signature(rendered: str) -> str | None:
