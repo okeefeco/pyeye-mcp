@@ -24,7 +24,6 @@ from typing import Any
 from .. import _data_files
 from .extractors import (
     ci,
-    cli,
     duplication,
     edges,
     env,
@@ -43,6 +42,12 @@ PROJECT_NAME = "pyeye-mcp"
 
 #: Every ``pyeye-*`` kind's name starts with this.
 PREFIX = "pyeye-"
+
+#: How many ``pyeye-*`` kinds remain: #1119's measure of how fully pyeye
+#: dogfoods docs-facts. It must equal ``len(PYEYE_KINDS)`` (a test checks), and
+#: the docs-facts dev doc shows it as the ``docs_facts.pyeye_kinds_remaining`` fact.
+#: It started at 11 (#1107); ``pyeye-cli`` became ``entry-points``.
+REMAINING = 10
 
 
 def project_name(root: Path) -> str | None:
@@ -85,7 +90,8 @@ def _kind(module: Any, name: str, why: str) -> tuple[str, Callable[[Mapping[str,
     return kind, factory
 
 
-#: Every ``pyeye-*`` kind, in the order pyeye's registry runs them.
+#: Every ``pyeye-*`` kind, in the order pyeye's registry runs them. ``pyeye-cli``
+#: became the generic ``entry-points`` kind (#1119, :mod:`.entry_points`).
 PYEYE_KINDS: dict[str, Callable[[Mapping[str, Any]], Extractor]] = dict(
     (
         _kind(
@@ -109,12 +115,6 @@ PYEYE_KINDS: dict[str, Callable[[Mapping[str, Any]], Extractor]] = dict(
             "the variables are found by scanning every module for pyeye's settings "
             "calls and ``os.environ`` reads, and a variable's status needs a second "
             "scan for its use (#556).",
-        ),
-        _kind(
-            cli,
-            "cli",
-            "module entry points are the packages with a ``__main__.py``, found by "
-            "walking the package, beside ``[project.scripts]``.",
         ),
         _kind(
             ci,

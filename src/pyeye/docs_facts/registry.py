@@ -12,9 +12,9 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import entry_points
 from .extractors import (
     ci,
-    cli,
     duplication,
     edges,
     env,
@@ -47,7 +47,8 @@ EXTRACTORS: tuple[Extractor, ...] = (
     Extractor("mcp_surface", mcp_surface.PREFIXES, mcp_surface.extract),
     Extractor("edges", edges.PREFIXES, edges.extract),
     Extractor("env", env.PREFIXES, env.extract),
-    Extractor("cli", cli.PREFIXES, cli.extract),
+    # A generic kind since #1119, with the options pyeye's config gives it.
+    entry_points.factory({"package": "src/pyeye"}),
     Extractor("ci", ci.PREFIXES, ci.extract),
     Extractor("review", review.PREFIXES, review.extract),
     Extractor("duplication", duplication.PREFIXES, duplication.extract),
