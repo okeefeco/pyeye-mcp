@@ -277,6 +277,73 @@ kind = "prose"                    # how the checks treat the page
 Anything that names code to import, such as a `package.module:attr` value, is
 refused, as are unknown keys, kinds and rules, and files outside the repository.
 
+### Architecture facts: the `structure` kind
+
+`structure` is a generic built-in kind for architecture docs on any codebase
+(RFC #1083, #1092). It asks pyeye about every module in scope and yields facts under its
+`prefix` (default `arch`):
+
+| Fact | What it holds |
+|---|---|
+| `arch.members.<module or class>` | its functions, classes and methods, with signatures, one-line docstrings and the definitions pyeye couldn't read |
+| `arch.imports.<module>` | what it imports at runtime, only under `TYPE_CHECKING`, and unresolved; `measured` says whether pyeye answered |
+| `arch.imported_by.<module>` | the top-level packages that import it (a set, not a count) |
+| `arch.cross.<area>` | scored and curated pairs touching the area that pyeye's facts label `delegates`, `override` or `sibling`, and the sides deprecated unconditionally |
+| `arch.coverage.gaps` | definitions on disk the facts don't account for, by category |
+| `arch.coverage.unreadable`, `arch.coverage.refused` | what pyeye listed as unreadable, and the compiled modules `strict_source` refused |
+
+```toml
+[[tool.pyeye.docs_facts.extractors]]
+kind = "structure"
+include = ["src/*"]                # fnmatch patterns on file paths; * crosses /
+exclude = ["*/tests/*"]
+min_score = 0.9                    # the lowest score a scored candidate needs
+candidates_page = "docs/facts/arch.candidates.md"
+pairs = [                          # pairs a planner chose, labelled whatever their score
+    ["mypkg.console.init.InitCommand._get_pool", "mypkg.factory.Factory.create_pool"],
+]
+
+[tool.pyeye.docs_facts.extractors.areas]   # area ID = module-name patterns
+console = ["mypkg.console*"]
+storage = ["mypkg.store*", "mypkg.cache"]
+
+[tool.pyeye.docs_facts]
+reference_only = ["arch"]          # reference data: out of the uncovered-fact ledger
+
+[tool.pyeye.docs_facts.paths.snapshots]
+arch = "docs/facts/arch.json"      # its own snapshot file, so it doesn't swamp diffs
+```
+
+- **Areas.** Candidate pairs are formed across areas. A module no area matches is its
+  own area, and with no `areas` every module is. A module that matches two areas stops
+  extraction with an error. `within_areas = true` also pairs callables inside one area.
+- **Candidates are advice, not facts.** A pair is scored from name, docstring and
+  parameter overlap. A score is a judgement, so the pairs and their scores appear only
+  on the `candidates_page`, which says so and states its threshold and filters.
+  `generate` writes that page and `check` never compares it, so tuning the scoring
+  fails nothing. It can't be a registered doc, so it is never bound or on the site. Only the labels pyeye's facts support are facts
+  in `arch.cross.<area>`. A pair no rule labels is a possible duplicate (unverified).
+- **The scorer alone misses real duplicates.** On the RFC #1083 trial's Poetry and
+  Scrapy runs, all four confirmed Poetry duplicates scored below 0.6, and 46 of the
+  pairs the trial's planner kept share no word in their names, so no threshold finds
+  them. `pairs` gives the planner's pairs as data, and each is labelled from pyeye's
+  facts like a scored candidate. A pair naming a handle the dump lacks is a coverage
+  gap (`unknown_pairs`).
+- **Deprecation is a flag.** An unconditionally deprecated side is listed under
+  `deprecated`. It never labels the pair, because a deprecated copy is still a copy.
+- **Coverage gaps fail `check`.** The `structure-coverage` rule reports each gap:
+  definitions pyeye's dump misses, phantom ones, files that don't parse or map to no
+  module, unresolved modules, files pyeye's project scan skipped, handles that can't
+  be a fact ID, and curated pairs naming a handle the dump lacks. `generate` still writes everything. Unreadable definitions are
+  reported in their own fact and are not gaps.
+- **Layering checks.** A page line `CHECK no-import: <A> -> <B>` (dotted module
+  prefixes) fails `check` when a module under A imports something under B at runtime.
+  `TYPE_CHECKING` imports don't count, an unresolved import of B does, and a check
+  whose A names no module can't be verified, so it fails too.
+- Both rules follow the configured `prefix`. They are skipped and reported where the
+  facts are absent. One `structure` kind per repository: a second would bring the same
+  rules twice, so the config refuses it.
+
 ## The docs site
 
 The same Markdown is published to [GitHub Pages](https://okeefeco.github.io/pyeye-mcp/)

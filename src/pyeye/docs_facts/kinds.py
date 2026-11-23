@@ -31,9 +31,15 @@ class KindOptionsError(ValueError):
     """A kind's options aren't valid: unknown, missing or of the wrong type."""
 
 
-#: Every built-in kind, by the name a config's ``kind`` uses. #1092 adds
-#: ``structure``; a kind is registered here, never named by a code reference.
+#: Every built-in kind, by the name a config's ``kind`` uses; a kind is
+#: registered here, never named by a code reference.
 BUILT_IN_KINDS: dict[str, KindFactory] = {}
+
+# Generic kinds: each in its own module, one registration line each. Imported
+# here, after KindOptionsError, which their factories raise.
+from .extractors.structure import structure as _structure  # noqa: E402
+
+BUILT_IN_KINDS["structure"] = _structure
 
 # pyeye's own extractors, restricted to pyeye's repository (#1107). Imported
 # last: its factories raise KindOptionsError, defined above.

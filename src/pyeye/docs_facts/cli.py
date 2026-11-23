@@ -49,9 +49,12 @@ class Plan:
         problems: ``path:line: message`` for each marker or registry problem.
         notes: What was left out, not a failure: each rule skipped because its
             facts are absent (#1091).
+        advisory: Repo-relative path -> the text of each advisory page (#1092).
+            ``generate`` writes them; ``check`` never compares them.
     """
 
     outputs: dict[str, str] = field(default_factory=dict)
+    advisory: dict[str, str] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -87,9 +90,9 @@ def plan(
     pages. Default: *root*'s own, from its config (:func:`.config.load`).
     """
     setup = config.load(root) if setup is None else setup
-    if facts is None:
-        facts = registry.build(root, setup.extractors)
     result = Plan()
+    if facts is None:
+        facts = registry.build(root, setup.extractors, result.advisory)
     generated = set(setup.pages)
     for path in docs.missing_files(root, setup.docs):
         if path not in generated:
@@ -138,6 +141,8 @@ def plan(
     )
     review_state = review.load(root, setup.paths.review_state)
     result.problems.extend(review.orphaned(review_state, facts, root, review.project_symbols(root)))
+    for path in sorted(set(result.advisory) & set(result.outputs)):
+        result.problems.append(f"{path}: an advisory page can't also be a checked output")
     result.outputs[setup.paths.uncovered] = ledger.render(
         ledger.updated(
             ledger.load(root, setup.paths.uncovered),
@@ -242,15 +247,23 @@ def generate(root: Path, setup: Setup | None = None) -> int:
     """Write every stale output. Returns the exit code (1 on a problem)."""
     result = plan(root, setup=setup)
     for path in stale(root, result):
-        target = root / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(result.outputs[path], encoding="utf-8", newline="\n")
+        _write(root, path, result.outputs[path])
         print(f"docs_facts: regenerated {path}")
+    for path, text in sorted(result.advisory.items()):  # never checked (#1092)
+        if path not in result.outputs and _current(root, path) != text:
+            _write(root, path, text)
+            print(f"docs_facts: wrote advisory page {path}")
     for problem in result.problems:
         print(f"docs_facts: {problem}", file=sys.stderr)
     for note in result.notes:
         print(f"docs_facts: {note}", file=sys.stderr)
     return 1 if result.problems else 0
+
+
+def _write(root: Path, path: str, text: str) -> None:
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8", newline="\n")
 
 
 def ledger_note(result: Plan, setup: Setup) -> str | None:

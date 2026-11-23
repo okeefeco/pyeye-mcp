@@ -32,7 +32,7 @@ def test_every_option() -> None:
 @pytest.mark.parametrize(
     ("table", "message"),
     [
-        ({"areas": {}}, "unknown option(s) 'areas'"),
+        ({"area_map": {}}, "unknown option(s) 'area_map'"),
         ({"prefix": "Arch"}, "'prefix' must be"),
         ({"prefix": "arch.x"}, "'prefix' must be"),
         ({"prefix": 3}, "'prefix' must be"),
