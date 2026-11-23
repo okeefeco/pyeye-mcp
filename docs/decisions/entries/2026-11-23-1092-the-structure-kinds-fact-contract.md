@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "The structure kind's fact contract: deprecation is a flag, coverage looks past pyeye's scan, candidates are advice, curated pairs carry the duplicates (#1092)"
 issues: [1092, 1083, 1091, 1108, 1074, 1081, 1082, 1106]
 anchors: ["pyeye.docs_facts.extractors.structure.structure", "pyeye.docs_facts.extractors.structure.build", "pyeye.docs_facts.extractors.structure.cross_by_area", "pyeye.docs_facts.extractors.structure.coverage_rule", "pyeye.docs_facts.extractors.structure.layering_rule", "pyeye.docs_facts.structure.options.parse", "pyeye.docs_facts.rules.Rule", "pyeye.docs_facts.rules.run", "pyeye.docs_facts.registry.Extractor", "pyeye.docs_facts.registry.build", "pyeye.docs_facts.facts.Advisory", "pyeye.docs_facts.cli.plan", "pyeye.docs_facts.config.load", "tests/test_structure_extractor.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-22-1091-docs-facts-runs-on-any-repo-through-a-setup.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1175-structure-curation-is-data-imported-by-is-by-area.md", "2026-11-24-1176-architecture-pages-handles-resolve-through-the-dump-then-pyeye.md"]
 superseded_by: []
 ---
 

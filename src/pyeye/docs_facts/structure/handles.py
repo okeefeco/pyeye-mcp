@@ -9,9 +9,11 @@ checked in two steps, and is stale only if both fail:
    members, readable or not.
 2. **pyeye's resolver** (the maintainer's direction on #1176: dogfood pyeye).
    A handle the dump doesn't list goes through pyeye's ``resolve`` on the
-   page's repository, so a re-exported path (``pkg.Helper`` for
-   ``pkg.helpers.Helper``) resolves to its definition site like any other
-   pyeye lookup. Only a handle ``resolve`` can't find is reported.
+   page's repository (:func:`pyeye.decision_sites.pyeye_resolver`, the
+   resolver ``decisions check`` uses), so a re-exported path (``pkg.Helper``
+   for ``pkg.helpers.Helper``) resolves to its definition site like any other
+   pyeye lookup. Only a handle it can't pin to one project definition is
+   reported, with its reason (``unresolved``, ``ambiguous``, ``external``).
 
 Both are static: the code is never imported or run (C19).
 
@@ -31,9 +33,10 @@ from __future__ import annotations
 
 import fnmatch
 import re
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from typing import Any
 
+from ...decision_sites import Resolver
 from ..facts import Fact
 
 
@@ -79,25 +82,17 @@ def is_architecture_page(name: str, patterns: Iterable[str]) -> bool:
     return any(fnmatch.fnmatchcase(name, p) for p in patterns)
 
 
-#: Whether pyeye's resolver finds a handle: the handle in, found or not out.
-Resolves = Callable[[str], bool]
-
-
-def found(result: Mapping[str, Any]) -> bool:
-    """Whether a pyeye ``resolve`` result names a definition (an ambiguous one does too)."""
-    return result.get("found") is True
-
-
 def unresolved(
-    text: str, defined: frozenset[str], resolves: Resolves | None = None
-) -> list[tuple[int, str]]:
-    """Each handle *text* names that neither *defined* nor *resolves* finds, with its line.
+    text: str, defined: frozenset[str], resolver: Resolver | None = None
+) -> list[tuple[int, str, str | None]]:
+    """Each handle *text* names that neither *defined* nor *resolver* finds.
 
-    *resolves* is asked once per distinct handle the dump doesn't hold, and only
-    then; with none, the dump alone decides.
+    Each is ``(line, handle, reason)``: *reason* is the resolver's, or ``None``
+    when there was no resolver to ask. *resolver* is asked once per distinct
+    handle the dump doesn't hold, and only then; with none, the dump decides.
     """
     misses = [(line, h) for line, h in named(text, roots(defined)) if h not in defined]
-    if resolves is None or not misses:
-        return misses
-    answers = {h: resolves(h) for h in dict.fromkeys(h for _line, h in misses)}
-    return [(line, h) for line, h in misses if not answers[h]]
+    if resolver is None:
+        return [(line, h, None) for line, h in misses]
+    answers = {h: resolver.canonical(h) for h in dict.fromkeys(h for _line, h in misses)}
+    return [(line, h, answers[h][1]) for line, h in misses if answers[h][0] is None]

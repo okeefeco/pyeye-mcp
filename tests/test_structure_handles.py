@@ -117,40 +117,42 @@ class TestFindings:
         assert rule.scan(page, {}) == []
 
 
+class _Fake:
+    """A :class:`pyeye.decision_sites.Resolver` that knows a few handles."""
+
+    def __init__(self, known: dict[str, str]) -> None:
+        self.known = known
+        self.asked: list[str] = []
+
+    def canonical(self, identifier: str) -> tuple[str | None, str | None]:
+        self.asked.append(identifier)
+        if identifier in self.known:
+            return self.known[identifier], None
+        return None, "unresolved"
+
+
 class TestPyeyesResolver:
     """A handle the dump doesn't list goes through pyeye before it's called stale (#1176)."""
 
     def test_a_dump_miss_that_pyeye_resolves_passes(self) -> None:
-        asked: list[str] = []
-
-        def resolves(handle: str) -> bool:
-            asked.append(handle)
-            return handle == "pkg.Helper"  # e.g. a re-export of pkg.paths.helper
-
+        fake = _Fake({"pkg.Helper": "pkg.paths.helper"})  # a re-export
         defined = handles.known("arch", FACTS)
         text = "`pkg.Helper` and `pkg.gone`, `pkg.gone` again, `pkg.paths.helper`"
-        assert handles.unresolved(text, defined, resolves) == [(1, "pkg.gone"), (1, "pkg.gone")]
-        assert asked == ["pkg.Helper", "pkg.gone"]  # once per distinct miss, never a dump hit
+        assert handles.unresolved(text, defined, fake) == [
+            (1, "pkg.gone", "unresolved"),
+            (1, "pkg.gone", "unresolved"),
+        ]
+        assert fake.asked == ["pkg.Helper", "pkg.gone"]  # once per distinct miss, never a hit
 
     def test_no_miss_never_asks(self) -> None:
-        def resolves(handle: str) -> bool:
-            raise AssertionError(f"asked about {handle}")
+        fake = _Fake({})
+        assert handles.unresolved("`pkg.paths.helper`", handles.known("arch", FACTS), fake) == []
+        assert fake.asked == []
 
-        assert (
-            handles.unresolved("`pkg.paths.helper`", handles.known("arch", FACTS), resolves) == []
-        )
-
-    @pytest.mark.parametrize(
-        ("result", "expected"),
-        [
-            ({"found": True, "handle": "pkg.paths.helper"}, True),
-            ({"found": True, "ambiguous": True, "candidates": []}, True),
-            ({"found": False, "reason": "unresolved"}, False),
-            ({}, False),
-        ],
-    )
-    def test_what_counts_as_found(self, result: dict[str, object], expected: bool) -> None:
-        assert handles.found(result) is expected
+    def test_without_a_resolver_the_dump_decides(self) -> None:
+        assert handles.unresolved("`pkg.gone`", handles.known("arch", FACTS)) == [
+            (1, "pkg.gone", None)
+        ]
 
 
 class TestTheRule:
@@ -190,7 +192,7 @@ class TestThroughCheck:
         found = [p for p in result.problems if ": architecture-handles: `" in p]
         assert found == [
             "docs/architecture/paths.md:4: architecture-handles: "
-            "`pkg.paths.renamed_helper` doesn't resolve in the arch dump or with pyeye"
+            "`pkg.paths.renamed_helper` doesn't resolve in the arch dump or with pyeye (unresolved)"
         ]
 
     def test_a_handle_outside_the_dump_resolves_through_pyeye(self, tmp_path: Path) -> None:
@@ -212,7 +214,7 @@ class TestThroughCheck:
         result = cli.plan(project, setup=config.load(project))
         assert [p for p in result.problems if ": architecture-handles: `" in p] == [
             "docs/architecture/cfg.md:4: architecture-handles: "
-            "`pkg.cfg.load_settings` doesn't resolve in the arch dump or with pyeye"
+            "`pkg.cfg.load_settings` doesn't resolve in the arch dump or with pyeye (unresolved)"
         ]
 
     def test_without_the_structure_kind_it_doesnt_run(self, tmp_path: Path) -> None:

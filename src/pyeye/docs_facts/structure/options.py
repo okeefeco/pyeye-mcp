@@ -9,11 +9,22 @@ The config names a built-in kind and its options as data (ruling C19)::
     exclude = ["*/tests/*"]
     min_score = 0.9
     candidates_page = "docs/facts/arch.candidates.md"
-    pairs = [["pkg.a.load", "pkg.b.read"]]      # curated by a planner, as data
+    pairs = "docs/architecture/pairs.toml"     # or inline: [["pkg.a.load", "pkg.b.read"]]
+    areas = "docs/architecture/areas.toml"     # or an inline table: area id = patterns
 
-    [tool.pyeye.docs_facts.extractors.areas]   # area id -> module patterns
-    console = ["poetry.console*"]
-    installation = ["poetry.installation*"]
+``areas`` and ``pairs`` may each be a committed data file (#1175), so the
+planner's curation arrives as a reviewable diff. :func:`load` reads them, as
+TOML, JSON or YAML by suffix (:mod:`pyeye._data_files`, never run)::
+
+    # areas.toml                       # pairs.toml
+    [areas]                            [[pair]]
+    console = ["poetry.console*"]      a = "pkg.a.load"
+    storage = ["poetry.store*"]        b = "pkg.b.read"
+
+                                       [[pair]]          # never labelled or listed again
+                                       a = "pkg.c.x"
+                                       b = "pkg.d.y"
+                                       rejected = "different jobs: one parses, one prints"
 
 :func:`parse` validates the table and raises :class:`ValueError` (the loader's
 ``KindOptionsError`` is one) on any key or value it doesn't accept, naming it.
@@ -21,9 +32,11 @@ The config names a built-in kind and its options as data (ruling C19)::
 
 from __future__ import annotations
 
+import dataclasses
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 #: A fact ID's first segment (:data:`pyeye.docs_facts.facts.FACT_ID`).
@@ -66,6 +79,10 @@ class Options:
             pages whose handles must resolve (``architecture-handles``, #1176).
         pairs: Handle pairs a planner curated (RFC #1083 step 4.2), labelled
             from pyeye's facts like scored candidates, whatever their score.
+        rejected: ``(a, b, reason)`` pairs the user rejected (#1175): never
+            labelled, and never listed as a candidate again.
+        areas_file: The data file :attr:`areas` comes from, or ``None`` if inline.
+        pairs_file: The data file :attr:`pairs` and :attr:`rejected` come from.
     """
 
     prefix: str = "arch"
@@ -77,6 +94,9 @@ class Options:
     min_score: float = MIN_SCORE
     candidates_page: str | None = None
     pairs: tuple[tuple[str, str], ...] = ()
+    rejected: tuple[tuple[str, str, str], ...] = ()
+    areas_file: str | None = None
+    pairs_file: str | None = None
     architecture_pages: tuple[str, ...] = ARCHITECTURE_PAGES
 
 
@@ -127,16 +147,22 @@ def parse(table: Mapping[str, Any]) -> Options:
     include = _patterns("include", table["include"]) if "include" in table else defaults.include
     if not include:
         raise ValueError("structure: 'include' is empty, so nothing would be collected")
+    areas = table.get("areas", {})
+    pairs = table.get("pairs", [])
+    accepted, rejected = ((), ()) if isinstance(pairs, str) else _pairs(pairs, "pairs")
     return Options(
         prefix=prefix,
         include=include,
         exclude=_patterns("exclude", table["exclude"]) if "exclude" in table else (),
         strict_source=_flag("strict_source", table.get("strict_source", False)),
         within_areas=_flag("within_areas", table.get("within_areas", False)),
-        areas=_areas(table.get("areas", {})),
+        areas=() if isinstance(areas, str) else _areas(areas, "areas"),
         min_score=_score(table.get("min_score", MIN_SCORE)),
-        candidates_page=_page(table.get("candidates_page")),
-        pairs=_pairs(table.get("pairs", [])),
+        candidates_page=_path("candidates_page", table.get("candidates_page")),
+        pairs=accepted,
+        rejected=rejected,
+        areas_file=_path("areas", areas) if isinstance(areas, str) else None,
+        pairs_file=_path("pairs", pairs) if isinstance(pairs, str) else None,
         architecture_pages=(
             _patterns("architecture_pages", table["architecture_pages"])
             if "architecture_pages" in table
@@ -145,42 +171,66 @@ def parse(table: Mapping[str, Any]) -> Options:
     )
 
 
-def _pairs(value: Any) -> tuple[tuple[str, str], ...]:
+def _pairs(
+    value: Any, where: str
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str, str], ...]]:
+    """The accepted and the rejected pairs: ``[a, b]`` or ``{a, b, rejected?}`` each."""
     if not isinstance(value, list):
-        raise ValueError("structure: 'pairs' must be a list of [handle, handle] pairs")
-    out: list[tuple[str, str]] = []
+        raise ValueError(f"structure: {where!r} must be a list of pairs")
+    accepted: list[tuple[str, str]] = []
+    rejected: list[tuple[str, str, str]] = []
     seen: set[frozenset[str]] = set()
-    for i, pair in enumerate(value):
-        if (
-            not isinstance(pair, list)
-            or len(pair) != PAIR_SIZE
-            or not all(isinstance(h, str) and h for h in pair)
-        ):
-            raise ValueError(f"structure: pairs[{i}] must be two non-empty handles, not {pair!r}")
-        a, b = pair
-        if a == b:
-            raise ValueError(f"structure: pairs[{i}] pairs {a!r} with itself")
-        key = frozenset(pair)
+    for i, entry in enumerate(value):
+        a, b, reason = _pair(entry, f"{where}[{i}]")
+        key = frozenset((a, b))
         if key in seen:
-            raise ValueError(f"structure: pairs[{i}] repeats the pair {a!r} / {b!r}")
+            raise ValueError(f"structure: {where}[{i}] repeats the pair {a!r} / {b!r}")
         seen.add(key)
-        out.append((a, b))
-    return tuple(out)
+        if reason is None:
+            accepted.append((a, b))
+        else:
+            rejected.append((a, b, reason))
+    return tuple(accepted), tuple(rejected)
 
 
-def _areas(value: Any) -> tuple[tuple[str, tuple[str, ...]], ...]:
+def _pair(entry: Any, where: str) -> tuple[str, str, str | None]:
+    reason: Any = None
+    if isinstance(entry, Mapping):
+        unknown = sorted(set(entry) - {"a", "b", "rejected"})
+        if unknown:
+            raise ValueError(f"structure: {where} has unknown key(s) {unknown}")
+        reason = entry.get("rejected")
+        if reason is not None and (not isinstance(reason, str) or not reason.strip()):
+            raise ValueError(f"structure: {where}: 'rejected' must be a non-empty reason")
+        entry = [entry.get("a"), entry.get("b")]
+    if (
+        not isinstance(entry, list)
+        or len(entry) != PAIR_SIZE
+        or not all(isinstance(h, str) and h for h in entry)
+    ):
+        raise ValueError(f"structure: {where} must be two non-empty handles, not {entry!r}")
+    a, b = entry
+    if a == b:
+        raise ValueError(f"structure: {where} pairs {a!r} with itself")
+    return a, b, reason
+
+
+def _areas(value: Any, where: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     if not isinstance(value, Mapping):
-        raise ValueError("structure: 'areas' must be a table of area ID = module patterns")
+        raise ValueError(
+            f"structure: {where!r} must be a table of area ID = module patterns, "
+            "or a data file's path"
+        )
     out = []
     for area, patterns in value.items():
         if not isinstance(area, str) or not AREA.fullmatch(area):
             raise ValueError(
-                f"structure: area {area!r} must be letters, digits, '_' and '-', "
+                f"structure: {where}: area {area!r} must be letters, digits, '_' and '-', "
                 "not starting with '-'"
             )
-        found = _patterns(f"areas.{area}", patterns)
+        found = _patterns(f"{where}.{area}", patterns)
         if not found:
-            raise ValueError(f"structure: 'areas.{area}' is empty, so it holds no module")
+            raise ValueError(f"structure: '{where}.{area}' is empty, so it holds no module")
         out.append((area, found))
     return tuple(out)
 
@@ -191,12 +241,61 @@ def _score(value: Any) -> float:
     return float(value)
 
 
-def _page(value: Any) -> str | None:
+def _path(key: str, value: Any) -> str | None:
+    """A repo-relative file path option, or ``None`` when absent."""
     if value is None:
         return None
-    if not isinstance(value, str) or not value or value.startswith("/") or ".." in value.split("/"):
+    if (
+        not isinstance(value, str)
+        or not value
+        or value.startswith(("/", "\\"))
+        or ":" in value
+        or ".." in value.replace("\\", "/").split("/")
+    ):
         raise ValueError(
-            "structure: 'candidates_page' must be a path inside the repository, "
-            "relative to its root"
+            f"structure: {key!r} must be a path inside the repository, relative to its root"
         )
     return value
+
+
+#: Data file suffix -> :data:`pyeye._data_files.FORMATS` name.
+SUFFIXES = {".toml": "toml", ".json": "json", ".yaml": "yaml", ".yml": "yaml"}
+
+#: The key that holds a data file's content.
+AREAS_KEY = "areas"
+PAIRS_KEY = "pair"
+
+
+def _read(root: Path, file: str, key: str) -> Any:
+    from ... import _data_files
+    from ...path_utils import relative_within
+
+    path = root / file
+    if relative_within(path, root) is None:
+        raise ValueError(f"structure: {file!r} is outside the repository")
+    fmt = SUFFIXES.get(path.suffix)
+    if fmt is None:
+        raise ValueError(f"structure: {file!r}: unknown format; use one of {sorted(SUFFIXES)}")
+    if not path.is_file():
+        raise ValueError(f"structure: {file!r} doesn't exist")
+    data = _data_files.read(path, fmt)
+    if not isinstance(data, dict) or key not in data:
+        raise ValueError(f"structure: {file!r} must be a table with a {key!r} key")
+    return data[key]
+
+
+def load(opts: Options, root: Path) -> Options:
+    """*opts* with its ``areas`` and ``pairs`` data files read from *root* (#1175).
+
+    Raises:
+        ValueError: If a file is outside the repository, missing, of an unknown
+            format, or doesn't hold valid areas or pairs. The message names it.
+    """
+    changes: dict[str, Any] = {}
+    if opts.areas_file is not None:
+        raw = _read(root, opts.areas_file, AREAS_KEY)
+        changes["areas"] = _areas(raw, f"{opts.areas_file} {AREAS_KEY}")
+    if opts.pairs_file is not None:
+        raw = _read(root, opts.pairs_file, PAIRS_KEY)
+        changes["pairs"], changes["rejected"] = _pairs(raw, f"{opts.pairs_file} {PAIRS_KEY}")
+    return dataclasses.replace(opts, **changes) if changes else opts

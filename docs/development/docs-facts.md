@@ -315,8 +315,9 @@ refused, as are unknown keys, kinds and rules, and files outside the repository.
 |---|---|
 | `arch.members.<module or class>` | its functions, classes and methods, with signatures, one-line docstrings and the definitions pyeye couldn't read |
 | `arch.imports.<module>` | what it imports at runtime, only under `TYPE_CHECKING`, and unresolved; `measured` says whether pyeye answered |
-| `arch.imported_by.<module>` | the top-level packages that import it (a set, not a count) |
+| `arch.imported_by.<module>` | the areas whose modules import it, when `areas` are configured, else the top-level packages (a set, not a count) |
 | `arch.cross.<area>` | scored and curated pairs touching the area that pyeye's facts label `delegates`, `override` or `sibling`, and the sides deprecated unconditionally |
+| `arch.pairs.<area>` | every curated pair touching the area, labelled or "possible duplicate (unverified)": what an area doc's "Similar elsewhere" footer binds |
 | `arch.coverage.gaps` | definitions on disk the facts don't account for, by category |
 | `arch.coverage.unreadable`, `arch.coverage.refused` | what pyeye listed as unreadable, and the compiled modules `strict_source` refused |
 
@@ -328,13 +329,8 @@ exclude = ["*/tests/*"]
 min_score = 0.9                    # the lowest score a scored candidate needs
 candidates_page = "docs/facts/arch.candidates.md"
 architecture_pages = ["docs/architecture/**"]  # the default: pages whose handles must resolve
-pairs = [                          # pairs a planner chose, labelled whatever their score
-    ["mypkg.console.init.InitCommand._get_pool", "mypkg.factory.Factory.create_pool"],
-]
-
-[tool.pyeye.docs_facts.extractors.areas]   # area ID = module-name patterns
-console = ["mypkg.console*"]
-storage = ["mypkg.store*", "mypkg.cache"]
+areas = "docs/architecture/areas.toml"     # a committed data file, or an inline table
+pairs = "docs/architecture/pairs.toml"     # a committed data file, or an inline list
 
 [tool.pyeye.docs_facts]
 reference_only = ["arch"]          # reference data: out of the uncovered-fact ledger
@@ -343,28 +339,60 @@ reference_only = ["arch"]          # reference data: out of the uncovered-fact l
 arch = "docs/facts/arch.json"      # its own snapshot file, so it doesn't swamp diffs
 ```
 
-- **Areas.** Candidate pairs are formed across areas. A module no area matches is its
-  own area, and with no `areas` every module is. A module that matches two areas stops
-  extraction with an error. `within_areas = true` also pairs callables inside one area.
+The areas and pairs files are data the planner writes and the user commits, so a
+change to them arrives as a reviewable diff. They are TOML, JSON or YAML, chosen by
+suffix, and are only read, never run. Each must be inside the repository:
+
+```toml
+# docs/architecture/areas.toml     # docs/architecture/pairs.toml
+[areas]                            [[pair]]
+console = ["mypkg.console*"]       a = "mypkg.console.init.InitCommand._get_pool"
+storage = ["mypkg.store*"]         b = "mypkg.factory.Factory.create_pool"
+
+                                   [[pair]]
+                                   a = "mypkg.store.read"
+                                   b = "mypkg.cache.read"
+                                   rejected = "different jobs: one fills the cache"
+```
+
+Inline, `areas` is a table of area ID to module-name patterns, and `pairs` is a list
+whose entries are `[a, b]` or `{a, b, rejected}`.
+
+- **Areas.** Candidate pairs are formed across areas. With no `areas`, every module is
+  its own area. With `areas`, a module no area matches is a coverage gap
+  (`unassigned`), the signal to run the planner again; it still gets facts, as its own
+  area. A module that matches two areas stops extraction with an error.
+  `within_areas = true` also pairs callables inside one area.
 - **Candidates are advice, not facts.** A pair is scored from name, docstring and
   parameter overlap. A score is a judgement, so the pairs and their scores appear only
   on the `candidates_page`, which says so and states its threshold and filters.
   `generate` writes that page and `check` never compares it, so tuning the scoring
-  fails nothing. It can't be a registered doc, so it is never bound or on the site. Only the labels pyeye's facts support are facts
-  in `arch.cross.<area>`. A pair no rule labels is a possible duplicate (unverified).
+  fails nothing. It can't be a registered doc, so it is never bound or on the site.
+  Only the labels pyeye's facts support are facts in `arch.cross.<area>`.
 - **The scorer alone misses real duplicates.** On the RFC #1083 trial's Poetry and
   Scrapy runs, all four confirmed Poetry duplicates scored below 0.6, and 46 of the
   pairs the trial's planner kept share no word in their names, so no threshold finds
   them. `pairs` gives the planner's pairs as data, and each is labelled from pyeye's
-  facts like a scored candidate. A pair naming a handle the dump lacks is a coverage
-  gap (`unknown_pairs`).
+  facts like a scored candidate. Curated pairs are committed data, not a score, so each
+  one is a fact in `arch.pairs.<area>`: a pair no rule labels is a possible duplicate
+  (unverified). A pair naming a handle the dump lacks is a coverage gap
+  (`unknown_pairs`).
+- **A rejected pair stays rejected.** A pair with `rejected = "<reason>"` is never
+  labelled, never in `arch.pairs`, and never on the candidates page again, so a planner
+  re-run doesn't bring it back. One naming a handle the dump lacks is also a gap, so a
+  stale rejection gets cleaned up.
 - **Deprecation is a flag.** An unconditionally deprecated side is listed under
   `deprecated`. It never labels the pair, because a deprecated copy is still a copy.
 - **Coverage gaps fail `check`.** The `structure-coverage` rule reports each gap:
   definitions pyeye's dump misses, phantom ones, files that don't parse or map to no
   module, unresolved modules, files pyeye's project scan skipped, handles that can't
-  be a fact ID, and curated pairs naming a handle the dump lacks. `generate` still writes everything. Unreadable definitions are
-  reported in their own fact and are not gaps.
+  be a fact ID, curated or rejected pairs naming a handle the dump lacks, and modules
+  in no area. `generate` still writes everything. Unreadable definitions are reported
+  in their own fact and are not gaps.
+- **Importers by area.** With `areas`, `arch.imported_by.<module>` is the set of areas
+  that import it, so a page can say which parts of the system use a module. An
+  importer outside the collected scope, such as an excluded test, is in no area and
+  isn't listed. Raw counts are available from pyeye's `expand(imported_by)`.
 - **Layering checks.** A page line `CHECK no-import: <A> -> <B>` (dotted module
   prefixes) fails `check` when a module under A imports something under B at runtime.
   `TYPE_CHECKING` imports don't count, an unresolved import of B does, and a check
