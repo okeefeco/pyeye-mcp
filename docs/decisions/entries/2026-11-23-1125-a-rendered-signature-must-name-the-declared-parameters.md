@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "A Jedi signature is shown only when its parameter names are the declared ones (#1125)"
 issues: [1125, 437, 999, 1088, 1106, 1128]
 anchors: ["pyeye.mcp.operations.inspect._build_signature", "pyeye.mcp.operations.inspect._declared_parameter_names", "pyeye.mcp.operations.inspect._signature_from_source_ast", "tests/test_forwarding_signatures.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1159-a-multi-line-signature-is-re-rendered-whole.md"]
 superseded_by: []
 ---
 
