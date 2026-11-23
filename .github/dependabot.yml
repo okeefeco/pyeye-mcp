@@ -47,14 +47,6 @@ updates:
         update-types:
           - "minor"
           - "patch"
-    # Stay on watchdog 6.x (#807): watchdog 7's Windows reader starves event
-    # delivery under steady activity and its non-daemon reader thread hangs
-    # interpreter exit. pyproject.toml pins watchdog<7 to match. Revisit when
-    # gorakhargosh/watchdog#1469 and #1470 are fixed. Minor and patch 6.x
-    # updates still come through.
-    ignore:
-      - dependency-name: "watchdog"
-        update-types: ["version-update:semver-major"]
     # Labels to apply to PRs
     labels:
       - "dependencies"

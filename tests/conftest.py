@@ -37,9 +37,10 @@ class _InertObserver:
 def pytest_sessionfinish(session: pytest.Session) -> None:
     """Fail the run if a real observer outlived its test (#807).
 
-    A leak is harmless on Linux, where watchdog's threads are daemons. Under
-    watchdog 7 on Windows the reader thread is non-daemon, so one unstopped
-    observer hung the interpreter at exit. A module- or session-scoped fixture is
+    Before watchdog 7.1.1 the Windows reader thread was non-daemon, so one
+    unstopped observer hung the interpreter at exit (gorakhargosh/watchdog#1470).
+    7.1.1 fixed that (#1146), and the guard stays: a leaked observer still holds
+    an inotify instance or a directory handle. A module- or session-scoped fixture is
     set up before the autouse inert-Observer patch, so a ``ProjectManager`` it
     creates gets a REAL watcher and must call ``cleanup_all()`` on teardown.
     """
