@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "Stdlib private definitions get public handles; os.path is located at its platform branch (#544, #329)"
 issues: [544, 329, 623, 624, 506]
 anchors: ["pyeye._stdlib_static.stdlib_definition", "public_handle", "public_reexporter", "platform_decision_point", "PlatformAnchor", "relocate_platform", "PLATFORM_ALTERNATIVES", "pyeye.resolver._external", "pyeye.resolver.resolve_handle", "pyeye.mcp.operations.edges._handle_for_name", "_stdlib_import_target", "pyeye.mcp.operations.stubs.build_stub", "pyeye.mcp.operations.typeref._stdlib_binding_handle", "pyeye._goto.binding_target", "pyeye.scope.is_stdlib_source"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-623-one-canonical-handle-resolver-every-tool-echoes-the.md", "2026-10-29-506-dotted-handles-are-placed-by-definition-lookup-never-by.md", "2026-11-15-624-one-goto-disambiguation-policy-inspect-s-superclasses-field.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

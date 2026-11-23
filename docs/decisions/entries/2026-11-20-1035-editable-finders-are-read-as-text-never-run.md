@@ -3,10 +3,10 @@ date: "2026-11-20"
 title: "An editable install's import-hook finder is read as text for its targets, never run (#1035)"
 issues: [1035, 993, 998]
 anchors: ["pyeye.environment._finder_paths", "pyeye.environment._finder_module_roots", "pyeye.environment._parse_finder", "pyeye.environment._finder_targets", "pyeye.environment._root_for", "pyeye.environment._pth_paths", "tests/test_editable_finders.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-19-993-the-project-environment-is-discovered-and-read-statically.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

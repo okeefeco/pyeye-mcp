@@ -406,6 +406,23 @@ jobs:
         run: |
           python scripts/decisions.py check
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: '**/pyproject.toml'
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Resolve decision references
+        # Every Anchor / Applies-to reference of an active entry resolves with
+        # pyeye (#1182). CI only: about 25 s on this repo, too slow for every
+        # commit; pre-commit keeps the format check above. Here, in a job that
+        # runs on every event, so a PR adding only an entry is checked too.
+        run: |
+          uv run python scripts/decisions.py check --resolve
+
   security:
     # Always run security checks, even for docs
     runs-on: ubuntu-latest

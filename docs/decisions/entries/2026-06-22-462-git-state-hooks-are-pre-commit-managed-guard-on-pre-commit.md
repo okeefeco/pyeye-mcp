@@ -3,10 +3,10 @@ date: "2026-06-22"
 title: "git-state hooks are pre-commit-managed; guard on PRE_COMMIT_CHECKOUT_TYPE (#462)"
 issues: [462]
 anchors: ["scripts.refresh_version.should_run", "scripts.dogfooding_metrics._extract_issue", "default_install_hook_types"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

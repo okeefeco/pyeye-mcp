@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Docs make only claims the code or a record backs: the honest-claims rule (#844)"
 issues: [844, 825, 818]
 anchors: ["pyeye.docs_facts.claims.claims", "pyeye.docs_facts.claims.PATTERNS", "pyeye.docs_facts.claims.record_problems", "pyeye.docs_facts.rules.honest_claims", "pyeye.docs_facts.claim_seeds.SEEDS", "tests/test_docs_facts_claims.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

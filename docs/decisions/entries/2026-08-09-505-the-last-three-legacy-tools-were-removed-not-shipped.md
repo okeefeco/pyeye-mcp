@@ -3,10 +3,10 @@ date: "2026-08-09"
 title: "the last three legacy tools were REMOVED, not shipped deprecated, because they answered wrongly (#505)"
 issues: [505, 470, 333]
 anchors: ["pyeye.mcp.server.find_references", "pyeye.mcp.lookup", "pyeye.mcp.lookup_builders", "JediAnalyzer.find_importers", "cc3d85d"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

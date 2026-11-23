@@ -3,10 +3,10 @@ date: "2026-11-15"
 title: "v2.x deprecation: documented Python utilities and settings are deprecated, not deleted, and stay in the docs only on lines marked deprecated (#628)"
 issues: [628, 629, 592]
 anchors: ["pyeye.settings.DEPRECATED_ENV_VARS", "pyeye.scope_utils._warn_deprecated_class", "tests/test_documented_env_vars.py", "tests/integration/test_scope_configuration.py::TestDeprecatedScopeUtilities"]
-status: "active"
+status: "amended"
 amends: ["2026-11-15-629-v2-x-release-classification-contract-conforming-corrections.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

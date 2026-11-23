@@ -55,7 +55,9 @@ The Workflow diagram below is the same flow.
 3. **Draft from the diff + conversation.** Fill every field. Pull the *why* from what was actually said/decided, not a guess. **Run a gold `Verify` once**: a command that has never passed is a guess. If it fails, fix the command or lower the tier (`partial` / `unverifiable`).
 4. **Show the drafted entry** for confirmation. On "change it", revise and show it again; on decline, drop it.
 5. **Write on confirm** a new entry file in the log's `entries/` directory (see File Convention). If it amends or supersedes an earlier entry, also update that entry's front matter.
-6. **Run `python -m pyeye.decisions check`.** It must pass.
+6. **Run `python -m pyeye.decisions check`.** It must pass. Where pyeye
+   is installed, `check --resolve` also resolves every `Anchor` and
+   `Applies-to` reference with pyeye (CI runs it, #1182).
 
 ## Entry Schema
 
@@ -78,6 +80,11 @@ Keep each field to a line or two. A 6-line entry that gets written beats a 40-li
 
 - **Every new entry has one** (#636). Name every site the rule governs, such as "every primitive", "all five walkers", "every edge in `EDGE_RESOLVERS`" or "no `project.search` call anywhere in `src/`". When the rule has one site, name that site.
 - **List the sites by stable reference** (symbol names, a registry, a module set), never `file:line`. If they are better found by a query than a list, give the query, e.g. `every function that builds a jedi.Script(code=...)`.
+- **Write each handle in full, from its package** (`pkg.mod.Class.method`,
+  not `Class.method` or `mod.func`), and each file as a repo path with a
+  `/` (`tests/test_x.py`). `check --resolve` resolves those; a short form
+  can't be resolved without a guess, so in a repo that sets a gate date it
+  fails in new entries.
 - **Name the sites the change did NOT touch.** Writing an `Applies-to` broader than `Anchor` is the point. Say plainly which sites still diverge and link their issue, rather than implying full coverage.
 - **Opt out explicitly** when the decision governs no code site (a policy or process decision): write `Applies-to: none (<why>)`, e.g. `none (policy decision: release classification)`. A bare `none`, `n/a`, `TBD` or an empty value is rejected. Better still, name the test or script that enforces the policy, if there is one.
 - **Old entries are grandfathered.** Entries written before the rule may lack `Applies-to`; don't backfill them just to add it. `check` fails any entry without one unless it is grandfathered: pass each old file with `--grandfathered NAME` (repeatable), or keep the names in a repo wrapper that calls the module. The list only shrinks: when you give an old entry `Applies-to`, delete its name.
@@ -162,6 +169,10 @@ superseded_by: []
 - `anchors` lists the governed symbols, the same stable references as the `Anchor` and `Applies-to` lines. It is what `index --symbol` searches.
 - **Amending or superseding** an earlier decision: list the old file in the new entry's `amends` / `supersedes`, add the new file to the old entry's `amended_by` / `superseded_by`, and set the old entry's `status` to `amended` or `superseded`. That front matter is the only edit ever made to an existing entry; its body stays as written.
 - **After writing:** run `python -m pyeye.decisions check`. It must pass. It validates the front matter, the file name, `Applies-to`, and that every amend/supersede link has its reverse.
+  `check --resolve` (needs pyeye; CI) also resolves every `Anchor` and
+  `Applies-to` reference of the active entries: a stale handle or a missing
+  path fails with `entry:line`. A rename means amending the entry that names
+  it, never rewriting its body.
 - **No `DECISIONS.md` is needed.** The tooling reads only `entries/`; don't create one. Where a repo already has one, it is a static header, never edited per decision. If it still holds old entries, `python -m pyeye.decisions migrate` splits them into files.
 
 ## Workflow

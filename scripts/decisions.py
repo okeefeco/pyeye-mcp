@@ -15,6 +15,7 @@ Usage::
 
     decisions.py index [--symbol S] [--issue N] [--active] [--status STATUS]
     decisions.py check
+    decisions.py check --resolve   # also resolve Anchor/Applies-to with pyeye (CI, #1182)
     decisions.py migrate     # split entries still in DECISIONS.md into files
 """
 
@@ -92,6 +93,12 @@ APPLIES_TO_GRANDFATHERED: frozenset[str] = frozenset(
 STATIC_HEADER = "# Decision Log\n\nContract- or invariant-significant, friction-driven decisions. Each one is a small, verifiable fact: **Friction · Decision · Anchor** (stable references) **· Applies-to** (every governed site, or `none (<why>)`; required since #636) **· Verify** (checkable, or honestly labelled).\n\n**One file per decision** lives in [`entries/`](entries/), named `YYYY-MM-DD-<issue>-<slug>.md`. There is no committed index (#679). List and filter the entries from their front matter instead:\n\n```bash\npython scripts/decisions.py index                     # every entry, newest first\npython scripts/decisions.py index --active            # hide superseded entries\npython scripts/decisions.py index --symbol resolve_handle\npython scripts/decisions.py index --issue 626\npython scripts/decisions.py check                     # validate (also runs in CI)\n```\n\nRead the index first, then open the one to three entries that matter. An entry's `status` is `active`, `amended` or `superseded`. Its `amends` / `supersedes` / `amended_by` / `superseded_by` front matter links to the related entry files.\n\nNew entries are written with the `decision-log` skill (`.claude/skills/decision-log/SKILL.md`). This file is a static header and should almost never change.\n"
 
 
+#: A short form (``JediAnalyzer.find_importers``) fails ``check --resolve`` in an
+#: entry dated on or after this day, the day #1182 landed; older ones are
+#: counted on every run (#1182).
+SHORT_FORMS_FAIL_FROM = "2026-11-24"
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run :func:`pyeye.decisions.main` with this repository's settings."""
     return decisions.main(
@@ -100,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         grandfathered=APPLIES_TO_GRANDFATHERED,
         header=STATIC_HEADER,
         command=COMMAND,
+        short_forms_fail_from=SHORT_FORMS_FAIL_FROM,
+        project_root=_ROOT,
     )
 
 

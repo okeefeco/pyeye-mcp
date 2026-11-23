@@ -3,10 +3,10 @@ date: "2026-10-29"
 title: "Shipped prose may not show an unmeasured edge inside `edge_counts`; checked structurally, not as free text (#396)"
 issues: [396, 395]
 anchors: ["tests/test_edge_counts_prose_conformance.py::unmeasured_edge_claims", "SHIPPED_SURFACES", "tests/conformance/response_linter.py::_PHASE4_UNMEASURED_EDGES", "c092261"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

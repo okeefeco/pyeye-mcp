@@ -3,10 +3,10 @@ date: "2026-06-28"
 title: "trace() surfaces interior callee-resolution loss (unresolved_call_sites) (#488)"
 issues: [488]
 anchors: ["pyeye.mcp.operations.trace.trace", "pyeye.mcp.operations.trace._single_hop"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

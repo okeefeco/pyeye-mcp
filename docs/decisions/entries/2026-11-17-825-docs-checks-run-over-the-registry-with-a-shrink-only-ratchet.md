@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Docs checks run over the doc registry, the live tool descriptions and the MCP package's strings, with a per-page shrink-only allow-list (#825)"
 issues: [825, 818]
 anchors: ["pyeye.docs_facts.rules.RULES", "pyeye.docs_facts.rules.run", "pyeye.docs_facts.rules.ratchet", "pyeye.docs_facts.rules.RULE_IDS", "pyeye.docs_facts.docs.DocEntry", "pyeye.docs_facts.rules._removed_names", "tests/test_docs_facts_rules.py", "tests/test_docs_facts_skills.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 
