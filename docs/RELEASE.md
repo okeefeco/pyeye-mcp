@@ -47,7 +47,53 @@ python scripts/changelog.py no-breaking   # prints the count; exits 1 if any
 It counts a `### BREAKING CHANGES` heading under `[Unreleased]` and every
 `*.breaking.md` fragment.
 
-### 2. Open the release PR
+### 2. Verify on real codebases
+
+Before opening the release PR, fresh agents run the release candidate (current
+`main`) on real projects at pinned commits, and file what pyeye gets wrong (#1140).
+This is the dogfooding practice: the unit suite can't see how pyeye behaves on a
+real codebase, and this run is how #1125, #1126 and #1159 were found.
+
+Run it with the `pyeye-verify` skill (`.claude/skills/pyeye-verify/`) on at least the
+two release-pass scenarios from the `pyeye-scenarios` skill:
+
+- `poetry`: Poetry 2.5.2, a `src/`-layout project;
+- `scrapy`: Scrapy 2.20.0, a plain tree.
+
+`multirepo-namespace` (in the repository, no network) covers namespace packages; add
+it when namespace or config code changed.
+
+The skill has the steps. In outline:
+
+1. Provision each scenario at its pin, and **copy it outside the pyeye
+   repository**. Clone pyeye at the commit under test.
+2. Run everything against a **fresh server** on that commit:
+   `claude --plugin-dir <pyeye clone>`, started from the scenario copy. Never use a
+   long-lived session's server, which runs the code it started on.
+3. Run the scenario's probe suite and round-trip probe, and diff them against its
+   latest baseline record (`.claude/skills/pyeye-scenarios/baselines/`).
+4. Run its task trial: the discovery task, answered by a grep-only control and by
+   an agent with the `python-explore` skill and pyeye.
+
+The run passes when:
+
+- no probe has **regressed** from its baseline (a ✅ row now failing);
+- the round-trip probe finds no more misses than the baseline;
+- in each task trial, the skill-and-pyeye arm is **at least as accurate** as the
+  control. It may cost more tokens.
+
+Every confirmed defect is reproduced on current `main`, minimised where possible, and
+filed as an issue before release. A regression blocks the release until it's fixed or
+the maintainer accepts it. A newly found defect that isn't a regression is filed and
+doesn't block. Write the run up as a short dated report,
+`docs/audits/YYYY-MM-DD-structured-verification.md`, and record any changed probe
+result as a new baseline record (never by editing an old one). Commit both with the
+release PR, or in a PR of their own before it.
+
+A scheduled run between releases is optional. Recommended: a monthly run, so a
+regression isn't found only on release day.
+
+### 3. Open the release PR
 
 `X.Y.Z` stands for the new version, which must be newer than the latest tag
 (`git tag -l 'v*' --sort=-v:refname | head -1`).
@@ -95,7 +141,7 @@ keeping the commit subject identical avoids any doubt about which one counts.
 Review the promoted section like any other change; this is the last chance to
 edit the release notes.
 
-### 3. Merge it
+### 4. Merge it
 
 On the merge to `main`, `.github/workflows/tag-release.yml`:
 

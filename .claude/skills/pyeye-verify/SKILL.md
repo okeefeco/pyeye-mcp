@@ -22,7 +22,8 @@ The scenarios, pins, probe suites, and recorded baselines are the *data*, held i
 This **complements** the pytest suite — it doesn't replace it. These scenarios hit *real
 third-party repos at pinned commits* (too heavy for CI; never vendored), and the
 agent-consumption rubric is *qualitative* (altitude, honesty, response shape) — awkward to
-assert in pytest, natural for an agent rubric. Run on demand; not a CI gate. Distinct from
+assert in pytest, natural for an agent rubric. Run it in every release pass (`docs/RELEASE.md`, "Verify on real codebases") and on
+demand; it's not a CI gate. Distinct from
 `python-explore` (user-facing tool mechanics) and the built-in `verify` (run-the-app).
 
 ## Procedure
@@ -38,7 +39,8 @@ digraph pyeye_verify {
     "Divergence?" [shape=diamond];
     "Classify: fixed | regressed | env" [shape=box];
     "Score agent-consumption rubric" [shape=box];
-    "Report both verdicts" [shape=box];
+    "Run the task trial" [shape=box];
+    "Report the verdicts" [shape=box];
 
     "Pick scenario (pyeye-scenarios)" -> "Provision / confirm at pinned commit";
     "Provision / confirm at pinned commit" -> "Run the probe suite";
@@ -48,18 +50,27 @@ digraph pyeye_verify {
     "Divergence?" -> "Classify: fixed | regressed | env" [label="yes"];
     "Divergence?" -> "Score agent-consumption rubric" [label="no"];
     "Classify: fixed | regressed | env" -> "Score agent-consumption rubric";
-    "Score agent-consumption rubric" -> "Report both verdicts";
+    "Score agent-consumption rubric" -> "Run the task trial";
+    "Run the task trial" -> "Report the verdicts";
 }
 ```
 
 1. **Pick a scenario** from [[pyeye-scenarios]] and **provision/confirm** it at its pinned
-   commit (the scenarios skill has the commands). Note the **build under test** — the
-   global server, or a delivery worktree's server — because baselines are build-tagged.
+   commit (the scenarios skill has the commands). Note the **build under test**
+   (`pyeye://about`'s version), because baselines are build-tagged.
+   - **Always a fresh server on the code under test**, never a long-lived session's
+     server, which runs whatever code it started on. Clone pyeye at the commit under
+     test, copy the scenario **outside the pyeye repository** (a session inside it picks
+     up pyeye's own `.mcp.json` and settings from the parent directory), and run
+     Claude Code from the copy with `claude --plugin-dir <pyeye clone>`.
 2. **Run the probe suite** verbatim, with the scenario's `project_path`.
 3. **Run the round-trip probe** (section 1b) on the scenario's round-trip module.
 4. **Diff vs the recorded baseline** (next section). That includes the round-trip counts.
 5. **Score the agent-consumption rubric** (section after).
-6. **Report both verdicts** in the format below.
+6. **Run the task trial** (section 3), where the scenario's record has one.
+7. **Report the verdicts** in the format below. A confirmed pyeye defect is filed as an
+   issue only after it is **reproduced on current `main`** (a minimal fixture where
+   possible); cite it in the record as a ❌ row.
 
 ## 1. Regression check
 
@@ -139,6 +150,29 @@ fixed it (`build_stub` reconciles an edge target's scope to the project definiti
 the canonical handle names a project module); the edges and `resolve` now agree. Kept here as
 the canonical example of the cross-primitive inconsistency this dimension catches.
 
+## 3. Task trial
+
+The probes check pyeye's answers. The task trial checks whether pyeye helps an agent
+do real work. Its format comes from the 2026-11-23 shipped-skills audit.
+
+- **The task** is a discovery question with a known answer, kept in the scenario's
+  record with its ground truth. For example: "is there an existing helper that does X?
+  Name it by its full dotted path, and say what calls it."
+- **Two fresh headless agents** answer it from the scenario copy:
+  - **control:** text search and file reading only. Disallow the pyeye tools and the
+    `Skill` tool (`--disallowedTools mcp__plugin_pyeye_pyeye mcp__pyeye Skill`).
+  - **skill + pyeye:** `--plugin-dir <pyeye clone>`, with the prompt naming the
+    `pyeye:python-explore` skill.
+  - Both use `claude -p --output-format json`, the same task text and the same allowed
+    read-only tools. Run them memory-capped, at most two at a time.
+- **Report, per arm:** correct (against the ground truth, fact by fact), turns, total
+  tokens (input + output + cache), and time (`duration_ms`). All come from the JSON
+  result.
+- **Read the result as a comparison, not a gate.** The skill arm is expected to cost
+  more tokens (the skill is large), and that's fine. What fails is the skill arm being
+  **less accurate** than the control, or missing something the control found. Record
+  it, and file it against the skill.
+
 ## Report format
 
 ```markdown
@@ -147,6 +181,7 @@ the canonical example of the cross-primitive inconsistency this dimension catche
 **Regressions:** none | <list: probe, expected, actual, classification>
 **Round-trip:** <module>: <n>/<stubs> don't round-trip (baseline <m>/<stubs>)
 **Fixed since baseline:** <list, with issue/PR>
+**Task trial:** control <correct?, turns, tokens, time>; skill + pyeye <the same>
 **Rubric:** <n>/8 PASS
   - <dimension>: PASS/FAIL — <one line of probe evidence>
 **Actions:** <baseline updates, issues filed>
