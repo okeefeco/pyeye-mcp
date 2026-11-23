@@ -17,6 +17,7 @@ from pyeye.docs_facts.structure import (
     coverage,
     dump,
     options,
+    relations as relations_mod,
 )
 from tests.utils.docs_facts_config import write_config
 from tests.utils.structure import write_project
@@ -301,6 +302,27 @@ class TestFacts:
         for line in kind.filters(options.parse({"min_score": 0.0, "within_areas": True})):
             assert f"- {line}\n" in pages[0].text
         assert "score at least 0:" in pages[0].text
+
+    def test_page_flags_a_pair_whose_callees_are_unmeasured(self) -> None:
+        found = _empty(modules=("a", "b"))
+        defs = tuple(
+            dump.Definition(h, "function", h.split(".")[0], h.split(".")[0], None, "")
+            for h in ("a.f", "b.g")
+        )
+        found = kind.Collected(
+            dump.Dump(found.dump.modules, defs),
+            found.coverage,
+            found.areas,
+            (),
+            (relations_mod.Relation("a.f", "b.g", relations_mod.UNVERIFIED, (), (), False),),
+            curated=(("a.f", "b.g"),),
+        )
+        opts = options.parse({"candidates_page": "c.md"})
+        (page,) = [i for i in kind.build(opts, found) if isinstance(i, Advisory)]
+        assert (
+            "| curated | `a.f` | `b.g` | possible duplicate (unverified) | callees unmeasured |"
+            in (page.text)
+        )
 
     def test_no_page_without_the_option(self) -> None:
         built = kind.build(options.parse({}), _empty())

@@ -141,8 +141,7 @@ def plan(
     )
     review_state = review.load(root, setup.paths.review_state)
     result.problems.extend(review.orphaned(review_state, facts, root, review.project_symbols(root)))
-    for path in sorted(set(result.advisory) & set(result.outputs)):
-        result.problems.append(f"{path}: an advisory page can't also be a checked output")
+    result.problems.extend(_shadowing_advisory(result))
     result.outputs[setup.paths.uncovered] = ledger.render(
         ledger.updated(
             ledger.load(root, setup.paths.uncovered),
@@ -241,6 +240,14 @@ def _diff(root: Path, path: str, text: str) -> str:
     if len(lines) > _DIFF_LINES:
         lines = [*lines[:_DIFF_LINES], f"... {len(lines) - _DIFF_LINES} more diff lines"]
     return "\n".join(lines)
+
+
+def _shadowing_advisory(result: Plan) -> list[str]:
+    """An advisory page at a checked output's path: never bound or published (#1092)."""
+    return [
+        f"{path}: an advisory page can't also be a checked output"
+        for path in sorted(set(result.advisory) & set(result.outputs))
+    ]
 
 
 def generate(root: Path, setup: Setup | None = None) -> int:

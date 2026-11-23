@@ -67,6 +67,12 @@ EXTRACTORS: tuple[Extractor, ...] = (
 )
 
 
+def _add_page(pages: dict[str, str], page: Advisory) -> None:
+    if page.path in pages:
+        raise ValueError(f"advisory page {page.path!r} is produced twice")
+    pages[page.path] = page.text
+
+
 def build(
     root: Path,
     extractors: Iterable[Extractor] = EXTRACTORS,
@@ -97,9 +103,7 @@ def build(
             owners[prefix] = extractor.name
         for item in extractor.extract(root):
             if isinstance(item, Advisory):
-                if item.path in pages:
-                    raise ValueError(f"advisory page {item.path!r} is produced twice")
-                pages[item.path] = item.text
+                _add_page(pages, item)
                 continue
             if item.id.split(".", 1)[0] not in extractor.prefixes:
                 raise ValueError(

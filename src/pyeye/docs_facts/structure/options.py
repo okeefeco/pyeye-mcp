@@ -39,6 +39,9 @@ AREA = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 #: a planner's curated ``pairs`` are how those are labelled.
 MIN_SCORE = 0.9
 
+#: A curated pair's length: two handles.
+PAIR_SIZE = 2
+
 
 @dataclass(frozen=True)
 class Options:
@@ -138,7 +141,7 @@ def _pairs(value: Any) -> tuple[tuple[str, str], ...]:
     for i, pair in enumerate(value):
         if (
             not isinstance(pair, list)
-            or len(pair) != 2
+            or len(pair) != PAIR_SIZE
             or not all(isinstance(h, str) and h for h in pair)
         ):
             raise ValueError(f"structure: pairs[{i}] must be two non-empty handles, not {pair!r}")
