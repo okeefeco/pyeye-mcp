@@ -34,9 +34,10 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections.abc import Iterable, Iterator, Mapping
+from pathlib import Path
 from typing import Any
 
-from ...decision_sites import Resolver
+from ...decision_sites import Resolver, pyeye_resolver
 from ..facts import Fact
 
 
@@ -80,6 +81,16 @@ def named(text: str, top: Iterable[str]) -> Iterator[tuple[int, str]]:
 def is_architecture_page(name: str, patterns: Iterable[str]) -> bool:
     """Whether the registered page *name* matches one of the ``architecture_pages`` globs."""
     return any(fnmatch.fnmatchcase(name, p) for p in patterns)
+
+
+def resolver(root: Path) -> Resolver:
+    """The resolver for a dump miss (step 2): pyeye's, over the repository at *root*.
+
+    The shared one ``decisions check`` uses (#1178). Built here, not in the
+    extractor, because extractors import nothing of pyeye beyond
+    ``pyeye.docs_facts`` (#1098, ``tests/test_docs_facts_static.py``).
+    """
+    return pyeye_resolver(root)
 
 
 def unresolved(

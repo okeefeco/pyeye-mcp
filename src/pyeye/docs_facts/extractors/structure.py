@@ -47,7 +47,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ...decision_sites import pyeye_resolver
 from .. import rules
 from ..facts import (
     FACT_ID,
@@ -647,7 +646,7 @@ def handles_findings(
     if not page_handles.is_architecture_page(page.name, patterns):
         return []
     defined = page_handles.known(prefix, facts)
-    resolver = None if page.root is None else pyeye_resolver(page.root)
+    resolver = None if page.root is None else page_handles.resolver(page.root)
     return [
         rules.Finding(
             page.line + line - 1,
