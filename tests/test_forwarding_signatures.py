@@ -113,8 +113,9 @@ class TestOtherSignaturesAreUnchanged:
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("handle", "shown"),
-        # A classmethod gets no signature at all today (#1128, separate);
-        # the cls-dropping rule is pinned below on its own.
+        # A classmethod isn't Jedi's rendering: Jedi gives it none, and it's
+        # rendered from the source (#1128, tests/test_classmethod_signature.py).
+        # The cls-dropping rule is pinned below on its own.
         [("pkg.fw.Kinds.helper", "helper(a, b=2)")],
     )
     async def test_a_staticmethod_keeps_jedis_rendering(
