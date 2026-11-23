@@ -14,8 +14,9 @@ the repository and yields, under its ``prefix`` (default ``arch``):
   methods, with signatures, one-line docstrings and what pyeye couldn't read;
 * ``<p>.imports.<module>``: what a module imports at runtime, only under
   ``TYPE_CHECKING``, and unresolved; ``measured`` says whether pyeye answered;
-* ``<p>.imported_by.<module>``: the SET of top-level packages that import it,
-  never a count (ruling Q6); ``None`` when pyeye couldn't measure it;
+* ``<p>.imported_by.<module>``: the SET of areas whose modules import it when
+  ``areas`` are configured (#1175, amending Q6), else of top-level packages;
+  never a count; ``None`` when pyeye couldn't measure it;
 * ``<p>.coverage.gaps``: what the dump doesn't account for, by category
   (ruling Q4); the ``structure-coverage`` rule fails ``check`` on each one;
   ``<p>.coverage.unreadable`` and ``<p>.coverage.refused`` are reported, not gaps;
@@ -23,7 +24,11 @@ the repository and yields, under its ``prefix`` (default ``arch``):
   label (``delegates``, ``override``, ``sibling``), and the sides with an
   unconditional deprecation (a flag, never a label). Ruling Q2: only these are
   facts. The candidates themselves and their scores are a judgement, so they go
-  on an advisory page (``candidates_page``) that ``check`` never compares.
+  on an advisory page (``candidates_page``) that ``check`` never compares;
+* ``<p>.pairs.<area>``: each curated pair touching an area, labelled or
+  "possible duplicate (unverified)" (#1175). Curated pairs are committed planner
+  data, not a score, so all of them are facts; a rejected pair is neither
+  labelled nor listed as a candidate again.
 
 It brings two rules, built for its prefix so a custom one keeps them:
 ``layering`` (``CHECK no-import: A -> B`` lines on the pages, against the
@@ -66,6 +71,7 @@ GAP_CATEGORIES = (
     "skipped",
     "unidentifiable",
     "unknown_pairs",
+    "unassigned",
 )
 
 #: Page kinds the layering rule reads ``CHECK`` lines on.
@@ -108,6 +114,8 @@ class Collected:
         relations: The label of every candidate and curated pair, once each.
         unknown_pairs: The configured pairs naming a handle the dump lacks.
         refused: Compiled modules ``strict_source`` refused.
+        unassigned: With areas configured, the modules no area matches (#1175).
+        by_area: Whether areas are configured, so facts are read by area.
     """
 
     dump: dump.Dump
@@ -118,13 +126,20 @@ class Collected:
     curated: tuple[tuple[str, str], ...] = ()
     unknown_pairs: tuple[str, ...] = ()
     refused: tuple[str, ...] = ()
+    unassigned: tuple[str, ...] = ()
+    by_area: bool = False
 
 
 def extract(root: Path, opts: options.Options) -> list[Bindable | Advisory]:
     """Collect *root*'s structure through pyeye and build its facts."""
+    try:
+        opts = options.load(opts, root)  # the areas and pairs data files (#1175)
+    except ValueError as error:
+        raise ExtractionError(str(error)) from error
     guard: contextlib.AbstractContextManager[list[str]] = (
         dump.source_only() if opts.strict_source else contextlib.nullcontext([])
     )
+    rejected = {frozenset((a, b)) for a, b, _ in opts.rejected}
     with guard as refused, dump.Pyeye(root) as ops:
         found = dump.collect(root, include=opts.include, exclude=opts.exclude, pyeye=ops)
         cov = coverage.compare(found, root, opts.include, opts.exclude)
@@ -132,9 +147,10 @@ def extract(root: Path, opts: options.Options) -> list[Bindable | Advisory]:
         scored = tuple(
             c
             for c in candidates.score(found, area_map, within_areas=opts.within_areas)
-            if c.score >= opts.min_score
+            if c.score >= opts.min_score and frozenset((c.a, c.b)) not in rejected
         )
         curated, unknown = known_pairs(opts.pairs, found)
+        _, unknown_rejected = known_pairs([(a, b) for a, b, _ in opts.rejected], found)
         labelled = tuple(
             relations.relate_all(to_label(scored, curated), relations.PyeyeFacts(ops, found), found)
         )
@@ -147,10 +163,26 @@ def extract(root: Path, opts: options.Options) -> list[Bindable | Advisory]:
             scored,
             labelled,
             curated,
-            unknown,
+            unknown + tuple(f"{u} (rejected)" for u in unknown_rejected),
             tuple(sorted(set(refused))),
+            unassigned(area_map, opts.areas),
+            bool(opts.areas),
         ),
     )
+
+
+def unassigned(
+    area_map: Mapping[str, str], areas: Sequence[tuple[str, Sequence[str]]]
+) -> tuple[str, ...]:
+    """The modules no configured area matches: a gap, so the planner re-runs (#1175).
+
+    With no areas configured every module is its own area, by design, and
+    nothing is unassigned. :func:`area_of` refuses a module named like an area,
+    so a module that is its own area here matched none.
+    """
+    if not areas:
+        return ()
+    return tuple(sorted(m for m, area in area_map.items() if area == m))
 
 
 def known_pairs(
@@ -228,11 +260,15 @@ def build(opts: options.Options, found: Collected) -> list[Bindable | Advisory]:
         add("members", owner, value, members_markdown(value))
     for module in found.dump.modules:
         add("imports", module.handle, imports_value(module), imports_markdown(module))
-        packages = importing_packages(module)
-        add("imported_by", module.handle, packages, imported_by_markdown(packages))
+        importers = (
+            importing_areas(module, found.areas) if found.by_area else importing_packages(module)
+        )
+        add("imported_by", module.handle, importers, imported_by_markdown(importers, found.by_area))
     for area, value in cross_by_area(found).items():
         add("cross", area, value, cross_markdown(value))
-    gaps = gap_lists(found.coverage, sorted(unidentifiable), found.unknown_pairs)
+    for area, curated in pairs_by_area(found).items():
+        add("pairs", area, curated, pairs_markdown(curated))
+    gaps = gap_lists(found.coverage, sorted(unidentifiable), found.unknown_pairs, found.unassigned)
     out.append(Fact(f"{prefix}.coverage.gaps", gaps, gaps_markdown(gaps)))
     unreadable = list(found.coverage.unreadable)
     out.append(
@@ -336,19 +372,35 @@ def importing_packages(module: dump.Module) -> list[str] | None:
     return sorted({h.split(".", 1)[0] for h in module.importers})
 
 
-def imported_by_markdown(packages: list[str] | None) -> str:
-    """How the importing packages read."""
-    if packages is None:
+def importing_areas(module: dump.Module, areas: Mapping[str, str]) -> list[str] | None:
+    """The areas of the modules that import it (#1175, amending Q6), or ``None``.
+
+    An importer outside the collected scope (a file ``include``/``exclude``
+    left out, such as a test) is in no area, so it isn't counted.
+    """
+    if module.imported_by is None:
+        return None
+    return sorted({areas[h] for h in module.importers if h in areas})
+
+
+def imported_by_markdown(importers: list[str] | None, by_area: bool = False) -> str:
+    """How the importing areas (or packages) read."""
+    if importers is None:
         return "pyeye couldn't measure what imports it."
-    return _listed("Imported from", packages, "No module imports it.")
+    head = "Imported from areas" if by_area else "Imported from"
+    return _listed(head, importers, "No module in scope imports it.")
+
+
+def _area(found: Collected, handle: str) -> str:
+    module = found.dump.by_handle[handle].module
+    return found.areas.get(module, module)
 
 
 def cross_by_area(found: Collected) -> dict[str, dict[str, Any]]:
     """Each area's pyeye-backed pair facts (ruling Q2): labels and deprecation flags."""
 
     def area(handle: str) -> str:
-        module = found.dump.by_handle[handle].module
-        return found.areas.get(module, module)
+        return _area(found, handle)
 
     out: dict[str, dict[str, Any]] = {
         a: {"labelled": [], "deprecated": []} for a in sorted(set(found.areas.values()))
@@ -366,6 +418,44 @@ def cross_by_area(found: Collected) -> dict[str, dict[str, Any]]:
     return out
 
 
+def pairs_by_area(found: Collected) -> dict[str, list[dict[str, Any]]]:
+    """Each area's curated pairs, each labelled or unverified (#1175, within Q2(c)).
+
+    Curated pairs are committed planner data, not a score, so every one is a
+    fact, the unlabelled ones as "possible duplicate (unverified)". An area doc's
+    "Similar elsewhere" footer binds this.
+    """
+    by_pair = {frozenset((r.a, r.b)): r for r in found.relations}
+    out: dict[str, list[dict[str, Any]]] = {a: [] for a in sorted(set(found.areas.values()))}
+    for a, b in found.curated:
+        r = by_pair[frozenset((a, b))]
+        first, second = sorted((a, b))
+        entry = {
+            "a": first,
+            "b": second,
+            "label": r.label,
+            "deprecated": sorted(r.deprecated),
+            "measured": r.measured,
+        }
+        for side in sorted({_area(found, a), _area(found, b)}):
+            out[side].append(entry)
+    for entries in out.values():
+        entries.sort(key=lambda e: (e["a"], e["b"]))
+    return out
+
+
+def pairs_markdown(value: Sequence[Mapping[str, Any]]) -> str:
+    """How an area's curated pairs read: the "Similar elsewhere" footer."""
+    lines = []
+    for p in value:
+        notes = [f"{code(h)} is deprecated" for h in p["deprecated"]]
+        if not p["measured"]:
+            notes.append("calls unmeasured")
+        extra = f" ({'; '.join(notes)})" if notes else ""
+        lines.append(f"- {code(p['a'])} and {code(p['b'])}: {p['label']}{extra}")
+    return "\n".join(lines) if lines else "No curated pair touches this area."
+
+
 def cross_markdown(value: Mapping[str, Any]) -> str:
     """How an area's labelled pairs and deprecated sides read."""
     lines = [f"- {code(p['a'])} and {code(p['b'])}: {p['label']}" for p in value["labelled"]]
@@ -375,7 +465,10 @@ def cross_markdown(value: Mapping[str, Any]) -> str:
 
 
 def gap_lists(
-    cov: coverage.Coverage, unidentifiable: Sequence[str], unknown_pairs: Sequence[str] = ()
+    cov: coverage.Coverage,
+    unidentifiable: Sequence[str],
+    unknown_pairs: Sequence[str] = (),
+    unassigned_modules: Sequence[str] = (),
 ) -> dict[str, list[str]]:
     """The coverage gaps by category (ruling Q4), each list sorted."""
     return {
@@ -387,6 +480,7 @@ def gap_lists(
         "skipped": list(cov.skipped),
         "unidentifiable": list(unidentifiable),
         "unknown_pairs": list(unknown_pairs),
+        "unassigned": list(unassigned_modules),
     }
 
 
