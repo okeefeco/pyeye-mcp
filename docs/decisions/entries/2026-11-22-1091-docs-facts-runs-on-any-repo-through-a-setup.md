@@ -6,7 +6,7 @@ anchors: ["pyeye.docs_facts.setup.Setup", "pyeye.docs_facts.setup.pyeye_setup", 
 status: "amended"
 amends: []
 supersedes: []
-amended_by: ["2026-11-23-1091-a-data-only-docs-facts-config-per-repository.md"]
+amended_by: ["2026-11-23-1091-a-data-only-docs-facts-config-per-repository.md", "2026-11-23-1092-the-structure-kinds-fact-contract.md"]
 superseded_by: []
 ---
 

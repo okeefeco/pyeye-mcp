@@ -20,7 +20,8 @@ appears. The keys:
 - ``pages``: the built-in reference pages to generate (:data:`.pages.PAGES`).
   They render pyeye's facts, so like the ``pyeye-*`` kinds they are pyeye's
   repository's only (:mod:`.pyeye_kinds`, #1107);
-- ``rules``: ``"all"`` (the default) or a list of rule IDs (:data:`~.rules.RULES`);
+- ``rules``: ``"all"`` (the default) or a list of rule IDs (:data:`~.rules.RULES`,
+  plus the rules a configured kind brings, :attr:`~.registry.Extractor.rules`);
 - ``changelog``: the changelog's path; absent turns release-dependent behaviour off;
 - ``paths``: ``{snapshot, removed, uncovered, review_state}``, each defaulting to
   today's ``docs/facts/...`` file, and ``snapshots``, a table giving a fact
@@ -98,7 +99,7 @@ def load(root: Path) -> Setup:
     return Setup(
         extractors=((data_facts.extractor(facts),) if facts else ()) + built,
         docs=_docs(raw.get("docs", []), root),
-        rules=_rules(raw.get("rules", "all")),
+        rules=_rules(raw.get("rules", "all"), _extractor_rules(built)),
         pages=_pages(raw.get("pages", []), root),
         changelog=_optional_str(raw, "changelog"),
         paths=_paths(raw.get("paths", {})),
@@ -250,12 +251,29 @@ def _doc(entry: Any, i: int) -> DocEntry:
     )
 
 
-def _rules(value: Any) -> tuple[rules.Rule, ...]:
+def _extractor_rules(built: tuple[Any, ...]) -> tuple[rules.Rule, ...]:
+    """The rules the configured extractors bring (#1092), each rule ID once."""
+    found: dict[str, str] = {r.id: "pyeye's built-in rules" for r in rules.RULES}
+    out: list[rules.Rule] = []
+    for extractor in built:
+        for rule in extractor.rules:
+            if rule.id in found:
+                raise ConfigError(
+                    f"{SECTION}.extractors: rule {rule.id!r} comes from both "
+                    f"{found[rule.id]} and {extractor.name!r}; configure that kind once"
+                )
+            found[rule.id] = repr(extractor.name)
+            out.append(rule)
+    return tuple(out)
+
+
+def _rules(value: Any, extra: tuple[rules.Rule, ...] = ()) -> tuple[rules.Rule, ...]:
+    """The rules to run: pyeye's built-in ones and those the extractors bring."""
     if value == "all":
-        return rules.RULES
+        return rules.RULES + extra
     if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
         raise ConfigError(f'{SECTION}.rules must be "all" or a list of rule IDs')
-    known = {r.id: r for r in rules.RULES}
+    known = {r.id: r for r in (*rules.RULES, *extra)}
     unknown = sorted(set(value) - set(known))
     if unknown:
         raise ConfigError(f"{SECTION}.rules: unknown rule(s) {unknown}; known: {sorted(known)}")

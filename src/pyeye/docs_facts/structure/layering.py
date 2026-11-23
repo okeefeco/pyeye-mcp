@@ -16,11 +16,34 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-
-from .dump import Module
+from typing import Protocol
 
 #: One check line. ``A`` and ``B`` are dotted module prefixes.
 CHECK = re.compile(r"CHECK no-import:\s*([\w.]+)\s*->\s*([\w.]+)")
+
+
+class Imports(Protocol):
+    """What a check reads of a module: a :class:`~.dump.Module`, or its imports fact."""
+
+    @property
+    def handle(self) -> str:
+        """The module's dotted name."""
+
+    @property
+    def imports(self) -> tuple[str, ...]:
+        """What it imports at runtime."""
+
+    @property
+    def type_only_imports(self) -> tuple[str, ...]:
+        """What it imports only under ``TYPE_CHECKING``."""
+
+    @property
+    def unresolved_imports(self) -> tuple[str, ...]:
+        """Imports pyeye couldn't resolve, as written."""
+
+    @property
+    def measured_imports(self) -> bool:
+        """Whether pyeye's ``imports`` edge answered."""
 
 
 @dataclass(frozen=True)
@@ -71,7 +94,7 @@ def under(name: str, prefix: str) -> bool:
     return name == prefix or name.startswith(f"{prefix}.")
 
 
-def run(check: Check, modules: Iterable[Module]) -> Result:
+def run(check: Check, modules: Iterable[Imports]) -> Result:
     """Check one line against the dumped modules."""
     violations: set[tuple[str, str]] = set()
     ignored: set[tuple[str, str]] = set()

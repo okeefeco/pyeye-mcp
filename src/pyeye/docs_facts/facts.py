@@ -85,6 +85,23 @@ class View:
 Bindable = Fact | View
 
 
+@dataclass(frozen=True)
+class Advisory:
+    """A page an extractor writes for people to read, never a fact (#1092).
+
+    ``generate`` writes it and ``check`` never compares it, so what it shows (a
+    similarity score, a candidate list) can change without failing anything.
+    It holds no ID, so no block can bind it and no snapshot records it.
+
+    Attributes:
+        path: Where ``generate`` writes it, relative to the repository root.
+        text: Its content.
+    """
+
+    path: str
+    text: str
+
+
 def code(name: str) -> str:
     """Render *name* as inline code."""
     return f"`{name}`"
