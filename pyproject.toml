@@ -52,7 +52,7 @@ dev = [
     # runs them via `uv run`, so the pin here drives pre-commit, CI, and local
     # dev alike (#413).
     "black==26.10.1",  # Pinned for reproducible formatting
-    "ruff==0.17.5",  # Pinned to avoid unexpected linting rule changes
+    "ruff==0.17.6",  # Pinned to avoid unexpected linting rule changes
     "mypy==2.4.1",  # Pinned to avoid type checking behavior changes
     "types-setuptools",  # mypy stubs for setuptools
     "types-requests",  # mypy stubs for requests
