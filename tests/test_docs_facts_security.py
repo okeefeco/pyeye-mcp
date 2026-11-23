@@ -146,15 +146,16 @@ class TestServerModules:
             security.server_modules(_package(tmp_path, {"__init__.py": ""}))
 
     def test_repo_tooling_is_outside_and_its_subprocess_would_be_found(self) -> None:
-        """docs_facts.changed runs git; it's excluded because the server never imports it."""
+        """docs_facts.changed and .cli run git; they're excluded because the server never imports them."""
         modules = security._modules(Path(pyeye.__file__).parent)
         server = security.server_modules(modules)
 
         assert "pyeye.docs_facts.changed" not in server
+        assert "pyeye.docs_facts.cli" not in server  # its merge base (#1112)
         assert {"pyeye.mcp.server", "pyeye.validation", "pyeye._jedi_project"} <= server
         found = security._Sites("pyeye.docs_facts.changed", modules["pyeye.docs_facts.changed"][1])
         found.visit(modules["pyeye.docs_facts.changed"][1])
-        assert found.process == {"pyeye.docs_facts.changed:base_snapshot"}
+        assert found.process == {"pyeye.docs_facts.changed:show"}
 
 
 class TestFacts:
