@@ -34,7 +34,7 @@ from .extractors import (
     scopes,
     security,
 )
-from .facts import Bindable, ExtractionError
+from .facts import Bindable, ExtractionError, KindOptionsError
 from .registry import Extractor
 
 #: The ``[project] name`` that marks pyeye's own repository.
@@ -78,8 +78,6 @@ def _kind(module: Any, name: str, why: str) -> tuple[str, Callable[[Mapping[str,
     kind = PREFIX + name.replace("_", "-")
 
     def factory(options: Mapping[str, Any]) -> Extractor:
-        from .kinds import KindOptionsError
-
         if options:
             raise KindOptionsError(f"{kind!r} takes no options; got {sorted(options)}")
         return Extractor(name, tuple(module.PREFIXES), _restricted(kind, module.extract))

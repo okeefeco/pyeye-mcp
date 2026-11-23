@@ -52,6 +52,15 @@ class ExtractionError(ValueError):
     """
 
 
+class KindOptionsError(ValueError):
+    """A kind's options aren't valid: unknown, missing or of the wrong type.
+
+    Defined here, in a module that imports nothing of docs-facts, so a kind's
+    factory can import it at the top whatever is imported first (#1163);
+    :mod:`.kinds` re-exports it.
+    """
+
+
 @dataclass(frozen=True)
 class Fact:
     """One documented item, extracted from the code.
