@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Stay on watchdog 6.x until its Windows reader is fixed; real observers never outlive a test (#807)"
 issues: [807, 613, 617]
 anchors: ["pyproject.toml watchdog pin", ".github/dependabot.yml watchdog ignore", "tests.conftest.pytest_sessionfinish", "tests.utils.watchers.live_observers"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1146-require-watchdog-7-1-1-and-count-attrib-events.md"]
 superseded_by: []
 ---
 
