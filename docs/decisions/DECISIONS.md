@@ -14,4 +14,4 @@ python scripts/decisions.py check                     # validate (also runs in C
 
 Read the index first, then open the one to three entries that matter. An entry's `status` is `active`, `amended` or `superseded`. Its `amends` / `supersedes` / `amended_by` / `superseded_by` front matter links to the related entry files.
 
-New entries are written with the `decision-log` skill (`skills/decision-log/SKILL.md`). This file is a static header and should almost never change.
+New entries are written with the `decision-log` skill (`.claude/skills/decision-log/SKILL.md`). This file is a static header and should almost never change.

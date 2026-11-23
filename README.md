@@ -334,7 +334,7 @@ relationship edges with `expand` (one hop) or `trace` (many hops);
 [tool reference](docs/reference/tools.md) gives every tool's parameters and
 defaults, and the [edge reference](docs/reference/edges.md) lists the supported
 edges. For worked examples, see the `python-explore` skill
-(`skills/python-explore/SKILL.md`).
+(`.claude/skills/python-explore/SKILL.md`).
 
 ### Known limitation: no reverse references
 

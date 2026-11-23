@@ -105,7 +105,7 @@ class TestAbsenceRule:
     def test_invariant_stated_as_general_rule(self) -> None:
         """The general rule is stated in the design doc and in the skill."""
         rule = "is unknown, not absent"
-        for surface in ("docs/api-redesign.md", "skills/python-explore/SKILL.md"):
+        for surface in ("docs/api-redesign.md", ".claude/skills/python-explore/SKILL.md"):
             flat = " ".join((ROOT / surface).read_text(encoding="utf-8").split())
             assert rule in flat.replace("*", ""), surface
 
@@ -270,7 +270,9 @@ class TestCeilingRule:
             assert rules.CEILING_MARKER in (obj.__doc__ or ""), obj.__name__
 
     def test_the_skill_carries_the_marker(self) -> None:
-        text = (ROOT / "skills" / "python-explore" / "SKILL.md").read_text(encoding="utf-8")
+        text = (ROOT / ".claude" / "skills" / "python-explore" / "SKILL.md").read_text(
+            encoding="utf-8"
+        )
 
         assert rules.CEILING_MARKER in text
 

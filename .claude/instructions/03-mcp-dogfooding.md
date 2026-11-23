@@ -43,7 +43,7 @@ and why; `docs/api-redesign.md` has the redesign background.
 **Single source of truth.** Which primitive to call, the supported edges, the
 honest-limits rule (callers/references are deferred to the Pyright backend, #333
 — don't fake them), the worked examples — all of that lives in the
-`python-explore` skill (`skills/python-explore/SKILL.md`), which ships to users.
+`python-explore` skill (`.claude/skills/python-explore/SKILL.md`), which ships to users.
 
 Do **not** restate tool usage here. When you need the mechanics, use the skill —
 this is the repo dogfooding its own shipped guide, and keeping one copy is what

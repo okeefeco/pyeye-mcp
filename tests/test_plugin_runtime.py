@@ -3,15 +3,14 @@
 Every ``claude --plugin-dir`` session is plugin ``pyeye@inline``, so all of them
 share one ``${CLAUDE_PLUGIN_DATA}``.  A single ``.venv`` there held an editable
 install of whichever checkout synced first, and parallel worktrees silently ran
-each other's code.  The runtime keys the venv on the plugin root instead, syncs
-it synchronously when it is missing or stale (no first-run race with the async
-setup hook), and warns in the pyeye repo when the plugin isn't this checkout.
+each other's code.  The runtime keys the venv on the plugin root instead, and
+syncs it synchronously when it is missing or stale (no first-run race with the
+async setup hook).
 """
 
 from __future__ import annotations
 
 import io
-import json
 import subprocess  # nosec B404 — only fake CompletedProcess objects here
 from pathlib import Path
 
@@ -147,55 +146,6 @@ class TestPrune:
 
     def test_no_data_dir_is_fine(self, tmp_path: Path) -> None:
         assert rt.prune(tmp_path / "nothing") == []
-
-
-def _pyeye_repo(path: Path, name: str = "pyeye") -> Path:
-    (path / ".claude-plugin").mkdir(parents=True)
-    (path / ".claude-plugin" / "plugin.json").write_text(
-        json.dumps({"name": name}), encoding="utf-8"
-    )
-    return path
-
-
-class TestGuard:
-    def test_warns_when_the_plugin_is_not_this_checkout(self, tmp_path: Path) -> None:
-        project = _pyeye_repo(tmp_path / "worktree")
-        installed = _pyeye_repo(tmp_path / "cache" / "pyeye" / "2.2.0")
-        message = rt.guard_message(installed, project)
-        assert message is not None
-        assert str(installed) in message
-        assert "--plugin-dir" in message
-
-    def test_silent_when_the_plugin_is_this_checkout(self, tmp_path: Path) -> None:
-        project = _pyeye_repo(tmp_path / "worktree")
-        assert rt.guard_message(project, tmp_path / "worktree" / ".") is None
-
-    def test_silent_outside_the_pyeye_repo(self, tmp_path: Path) -> None:
-        (tmp_path / "other").mkdir()
-        assert rt.guard_message(_pyeye_repo(tmp_path / "plugin"), tmp_path / "other") is None
-
-    def test_silent_for_another_plugins_repo(self, tmp_path: Path) -> None:
-        project = _pyeye_repo(tmp_path / "other", name="superpowers")
-        assert rt.guard_message(_pyeye_repo(tmp_path / "plugin"), project) is None
-
-    def test_guard_main_prints_hook_json(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", str(_pyeye_repo(tmp_path / "installed")))
-        monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(_pyeye_repo(tmp_path / "wt")))
-        assert rt.main(["guard"]) == 0
-        out = json.loads(capsys.readouterr().out)
-        assert "--plugin-dir" in out["systemMessage"]
-        assert out["hookSpecificOutput"]["hookEventName"] == "SessionStart"
-        assert out["hookSpecificOutput"]["additionalContext"] == out["systemMessage"]
-
-    def test_guard_main_is_silent_without_env(
-        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        monkeypatch.delenv("CLAUDE_PLUGIN_ROOT", raising=False)
-        monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
-        assert rt.main(["guard"]) == 0
-        assert capsys.readouterr().out == ""
 
 
 class TestMain:

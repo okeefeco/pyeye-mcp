@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "The plugin's venv is keyed on the plugin root, and the server syncs it before it starts (#1136)"
 issues: [1136, 600]
 anchors: ["scripts.plugin_runtime.slot_dir", "scripts.plugin_runtime.ensure", "scripts.plugin_runtime.guard_message", ".claude-plugin/plugin.json", "hooks/hooks.json"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1147-the-repo-runs-its-own-checkout-the-plugin-ships-four-skills.md"]
 superseded_by: []
 ---
 

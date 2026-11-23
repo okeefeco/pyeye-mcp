@@ -63,7 +63,9 @@ def test_architecture_pages_ported(page: str):
 
 def test_python_explore_links_the_markdown_resolution_page():
     """The shipped skill links the ported page, not the deleted ``.rst`` one."""
-    skill = (_ROOT / "skills" / "python-explore" / "SKILL.md").read_text(encoding="utf-8")
+    skill = (_ROOT / ".claude" / "skills" / "python-explore" / "SKILL.md").read_text(
+        encoding="utf-8"
+    )
     assert "docs/source" not in skill
     assert "docs/architecture/resolution.md" in skill
 

@@ -23,10 +23,10 @@ from pyeye.docs_facts import binding, registry
 from pyeye.docs_facts.facts import Bindable, Fact, View
 
 ROOT = Path(__file__).parent.parent
-PYTHON_EXPLORE = "skills/python-explore/SKILL.md"
-ARCH_SKILL = "skills/architecture-review/SKILL.md"
-ARCH_AUDITOR = "skills/architecture-review/auditor.md"
-DUP_SKILL = "skills/duplication-review/SKILL.md"
+PYTHON_EXPLORE = ".claude/skills/python-explore/SKILL.md"
+ARCH_SKILL = ".claude/skills/architecture-review/SKILL.md"
+ARCH_AUDITOR = ".claude/skills/architecture-review/auditor.md"
+DUP_SKILL = ".claude/skills/duplication-review/SKILL.md"
 
 
 @pytest.fixture(scope="module")
