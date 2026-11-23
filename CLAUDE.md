@@ -54,21 +54,6 @@ For personal development settings (worktrees, local paths, etc.):
 
 This file is optional and ignored if it doesn't exist. It won't be committed to the repository.
 
-## Dogfooding Metrics Tracking
-
-To measure our MCP adoption (aliases defined by `scripts/claude_hooks/setup_mcp_monitoring.sh`; load them with `source ~/.claude/mcp_monitoring/aliases.sh`):
-
-```bash
-# View real-time analytics
-mcp-report         # 7-day report
-mcp-report-month   # 30-day report
-mcp-logs          # Watch live activity
-mcp-session       # View active session
-mcp-errors        # Check for hook errors
-```
-
-Metrics tracking is automatic via Claude Code hooks. See `scripts/claude_hooks/README.md` for details.
-
 ---
 
 **For Humans**: This directory contains Claude's behavioral instructions. See `.claude/README.md` for details.
