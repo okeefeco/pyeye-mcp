@@ -1,9 +1,11 @@
-"""The doc registry: :data:`DOCS` is the one list of documentation files.
+"""The doc registry: :class:`DocEntry` and how the checks read a repository's list.
 
-Every documentation check reads this list and nothing else: no check may glob
-for its own files, so a file type or tree can't drift out of sight the way the
-Sphinx ``.rst`` tree did (#818). ``tests/test_docs_facts_registry.py`` fails if a
-Markdown file outside :data:`EXCLUDED_TREES` is missing from it.
+A repository's registry is data, its config's ``docs`` (:mod:`.config`), and
+pyeye's own is ``docs/facts/docs.toml`` (#1107). Every documentation check
+reads that list and nothing else: no check may glob for its own files, so a
+file type or tree can't drift out of sight the way the Sphinx ``.rst`` tree did
+(#818). ``tests/test_docs_facts_registry.py`` fails if a Markdown file of
+pyeye's outside :data:`EXCLUDED_TREES` is missing from it.
 
 Each entry has an audience (``00-documentation-system.md``, D11) and a kind:
 
@@ -20,14 +22,11 @@ Paths are repo-relative and POSIX-spelled. The one pattern entry is
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
-
-from .claim_seeds import SEEDS
-from .pages import PAGES
 
 Audience = Literal["human", "claude", "both"]
 Kind = Literal["prose", "reference", "skill", "history", "record"]
@@ -74,160 +73,16 @@ EXCLUDED_TREES: tuple[str, ...] = (
     "tests/fixtures/",
 )
 
-#: The generated reference pages, registered in :data:`DOCS` as kind ``reference``.
-REFERENCE_PAGES: tuple[str, ...] = tuple(PAGES)
 
+def for_repo(root: Path) -> tuple[DocEntry, ...]:
+    """*root*'s own doc registry, from its docs-facts config (#1107).
 
-def _allow(**messages: tuple[str, ...]) -> Mapping[str, tuple[str, ...]]:
-    """An immutable allow-list: prose-rule ID -> the findings still allowed."""
-    return MappingProxyType(messages)
+    What a caller that names no registry gets: the analysed repository's, not
+    pyeye's. Raises :class:`~.config.ConfigError` if *root* has no valid config.
+    """
+    from .config import load  # the config module imports this one
 
-
-_H: Audience = "human"
-_C: Audience = "claude"
-_B: Audience = "both"
-
-_ENTRIES: tuple[DocEntry, ...] = (
-    # Repository root
-    DocEntry(
-        "README.md",
-        _H,
-        "prose",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                )
-            }
-        ),
-    ),
-    DocEntry("CONTRIBUTING.md", _H, "prose"),
-    DocEntry("DOCUMENTATION.md", _H, "prose"),
-    DocEntry("SECURITY.md", _H, "prose"),
-    DocEntry("CLAUDE.md", _C, "prose"),
-    DocEntry("CHANGELOG.md", _H, "history"),
-    # Contributor plumbing stays off the site (C16).
-    DocEntry("changes/README.md", _H, "prose", site=False),
-    DocEntry("changes/*.md", _H, "history", site=False),
-    DocEntry(".github/pull_request_template.md", _H, "prose", site=False),
-    DocEntry("benchmarks/BASELINE_RESULTS.md", _H, "history"),
-    DocEntry("plugins/worktree-hook/README.md", _H, "prose"),
-    DocEntry("scripts/claude_hooks/README.md", _H, "prose"),
-    # Claude instructions, agents and internal skills
-    DocEntry(".claude/README.md", _H, "prose", site=False),  # about Claude's files
-    DocEntry(".claude/agents/smart-commit.md", _C, "prose"),
-    DocEntry(".claude/agents/smart-commit-examples.md", _C, "prose"),
-    DocEntry(".claude/instructions/00-documentation-system.md", _B, "prose"),
-    DocEntry(".claude/instructions/01-core-rules.md", _C, "prose"),
-    DocEntry(".claude/instructions/02-session-startup.md", _C, "prose"),
-    DocEntry(
-        ".claude/instructions/03-mcp-dogfooding.md",
-        _C,
-        "prose",
-    ),
-    DocEntry(
-        ".claude/instructions/04-agent-triggers.md",
-        _C,
-        "prose",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'get_module_info' beside 'removed'",
-                )
-            }
-        ),
-    ),
-    DocEntry(".claude/instructions/05-workflow-issues.md", _C, "prose"),
-    DocEntry(".claude/instructions/06-workflow-commits.md", _C, "prose"),
-    DocEntry(".claude/instructions/07-validation.md", _C, "prose"),
-    DocEntry(".claude/instructions/08-project-specific.md", _C, "prose"),
-    DocEntry(".claude/instructions/09-task-management.md", _C, "prose"),
-    DocEntry(".claude/instructions/10-cross-platform.md", _C, "prose"),
-    DocEntry(".claude/instructions/11-pr-requirements.md", _C, "prose"),
-    DocEntry(".claude/skills/docs-review/SKILL.md", _C, "skill"),
-    DocEntry(".claude/skills/docs-review/reviewer.md", _C, "skill"),
-    DocEntry(".claude/skills/pyeye-scenarios/SKILL.md", _C, "skill"),
-    DocEntry(".claude/skills/pyeye-scenarios/baselines/*.md", _C, "record"),
-    DocEntry(".claude/skills/pyeye-verify/SKILL.md", _C, "skill"),
-    # Shipped skills
-    DocEntry(
-        "skills/python-explore/SKILL.md",
-        _C,
-        "skill",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'analyze_dependencies' beside 'removed'",
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                )
-            }
-        ),
-    ),
-    # The detail python-explore loads on demand (#1130).
-    DocEntry("skills/python-explore/reference.md", _C, "skill"),
-    DocEntry("skills/architecture-review/SKILL.md", _C, "skill"),
-    DocEntry("skills/architecture-review/auditor.md", _C, "skill"),
-    DocEntry("skills/duplication-review/SKILL.md", _C, "skill"),
-    DocEntry("skills/decision-log/SKILL.md", _C, "skill"),
-    # docs/
-    DocEntry("docs/api-redesign.md", _H, "history"),
-    DocEntry("docs/migration-guide.md", _H, "history"),
-    DocEntry("docs/COVERAGE.md", _H, "prose"),  # a live guide (design C9)
-    DocEntry("docs/METRICS_BASELINE.md", _H, "history"),
-    DocEntry(
-        "docs/CLAUDE_AGENTS.md",
-        _H,
-        "prose",
-        allow=_allow(
-            **{
-                "removed-name": (
-                    "names removed tool 'find_references' beside 'removed'",
-                    "names removed tool 'get_call_hierarchy' beside 'removed'",
-                    "names removed tool 'get_module_info' beside 'removed'",
-                )
-            }
-        ),
-    ),
-    DocEntry("docs/DOGFOODING_INTEGRATION.md", _H, "prose"),
-    DocEntry("docs/UNIFIED_METRICS.md", _H, "prose"),
-    DocEntry("docs/DOGFOODING_SETUP.md", _H, "prose"),
-    DocEntry("docs/LABELS.md", _B, "prose"),
-    DocEntry("docs/RELEASE.md", _H, "prose"),
-    DocEntry("docs/TROUBLESHOOTING.md", _H, "prose"),
-    DocEntry("docs/debugging-connection-drops.md", _H, "prose"),
-    DocEntry("docs/namespace-packages.md", _H, "prose"),
-    DocEntry("docs/architecture/resolution.md", _H, "prose"),
-    DocEntry("docs/architecture/plugin-system.md", _H, "prose"),
-    DocEntry("docs/architecture/caching.md", _H, "prose"),
-    DocEntry("docs/api/README.md", _H, "prose"),
-    DocEntry("docs/api/django-tools.md", _H, "prose"),
-    DocEntry("docs/api/flask-tools.md", _H, "prose"),
-    DocEntry("docs/api/pydantic-tools.md", _H, "prose"),
-    DocEntry("docs/development/docs-facts.md", _B, "prose"),
-    DocEntry("docs/development/duplicate-code-check.md", _B, "prose"),
-    DocEntry("docs/development/test_generation_guidelines.md", _H, "prose"),
-    DocEntry("docs/testing/CONVENTIONS.md", _H, "prose"),
-    DocEntry("docs/testing/FIXTURES.md", _H, "prose"),
-    DocEntry("docs/testing/PERFORMANCE.md", _H, "prose"),
-    DocEntry("docs/testing/STRATEGY.md", _H, "prose"),
-    *(DocEntry(page, _B, "reference") for page in REFERENCE_PAGES),
-)
-
-
-def _seeded(entry: DocEntry) -> DocEntry:
-    """*entry* with its honest-claims seeds (:mod:`.claim_seeds`) in ``allow``."""
-    seeds = SEEDS.get(entry.path)
-    if not seeds:
-        return entry
-    return replace(entry, allow=MappingProxyType({**entry.allow, "honest-claims": seeds}))
-
-
-DOCS: tuple[DocEntry, ...] = tuple(_seeded(e) for e in _ENTRIES)
+    return load(root).docs
 
 
 def is_excluded(path: str) -> bool:
@@ -235,9 +90,8 @@ def is_excluded(path: str) -> bool:
     return any(path.startswith(tree) for tree in EXCLUDED_TREES)
 
 
-def entry_for(path: str, docs: tuple[DocEntry, ...] | None = None) -> DocEntry | None:
-    """The registry entry for *path*: an exact entry wins over a pattern."""
-    docs = DOCS if docs is None else docs
+def entry_for(path: str, docs: tuple[DocEntry, ...]) -> DocEntry | None:
+    """The entry in the registry *docs* for *path*: an exact entry wins over a pattern."""
     for entry in docs:
         if not entry.is_pattern and entry.path == path:
             return entry
@@ -256,9 +110,10 @@ def registered_files(
     """Every registered file that exists under *root*, with its entry, in path order.
 
     A pattern entry expands to its existing matches (with no exact entry of their
-    own). A missing exact entry is skipped here; ``check`` reports it.
+    own). A missing exact entry is skipped here; ``check`` reports it. *docs*
+    defaults to *root*'s own registry (:func:`for_repo`).
     """
-    docs = DOCS if docs is None else docs
+    docs = for_repo(root) if docs is None else docs
     found: dict[str, DocEntry] = {}
     for entry in docs:
         if entry.is_pattern:
@@ -272,6 +127,6 @@ def registered_files(
 
 
 def missing_files(root: Path, docs: tuple[DocEntry, ...] | None = None) -> list[str]:
-    """Exact entries with no file on disk."""
-    docs = DOCS if docs is None else docs
+    """Exact entries with no file on disk; *docs* defaults to *root*'s own registry."""
+    docs = for_repo(root) if docs is None else docs
     return [e.path for e in docs if not e.is_pattern and not (root / e.path).is_file()]

@@ -82,7 +82,7 @@ def bound_pages(
     """Fact or view ID -> the registered pages whose blocks show it.
 
     A view shows its members, so each member maps to the view's pages too.
-    *entries* is the doc registry (default: pyeye's, #1091).
+    *entries* is the doc registry (default: *root*'s own, :func:`~.docs.for_repo`).
     """
     found: dict[str, set[str]] = {}
     for path, _entry in docs.registered_files(root, entries):

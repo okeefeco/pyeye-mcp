@@ -15,7 +15,11 @@ appears. The keys:
 - ``extractors``: a list of ``{kind, <options>}`` tables, ``kind`` a built-in
   kind (:data:`~.kinds.BUILT_IN_KINDS`), the rest its options;
 - ``docs``: a list of ``{path, audience, kind, allow?, covers?, site?}`` tables,
-  the doc registry (:class:`~.docs.DocEntry`);
+  the doc registry (:class:`~.docs.DocEntry`), or the path of a data file that
+  holds them as its ``doc`` list (:mod:`.doc_registry`, #1107);
+- ``pages``: the built-in reference pages to generate (:data:`.pages.PAGES`).
+  They render pyeye's facts, so like the ``pyeye-*`` kinds they are pyeye's
+  repository's only (:mod:`.pyeye_kinds`, #1107);
 - ``rules``: ``"all"`` (the default) or a list of rule IDs (:data:`~.rules.RULES`);
 - ``changelog``: the changelog's path; absent turns release-dependent behaviour off;
 - ``paths``: ``{snapshot, removed, uncovered, review_state}``, each defaulting to
@@ -24,10 +28,9 @@ appears. The keys:
 - ``reference_only``: fact families that are reference data, kept out of the
   uncovered-fact ledger (#1108).
 
-- ``preset``: ``"pyeye"`` selects the engine's built-in pyeye setup (its
-  extractors, doc registry, rules and pages), the bridge until that registry is
-  data too (#1107). It can't be combined with ``facts``, ``extractors`` or
-  ``docs``; ``rules``, ``changelog``, ``paths`` and ``reference_only`` override it.
+pyeye's own repository uses the same keys: its extractors are ``pyeye-*`` kinds
+and its registry is ``docs/facts/docs.toml``. There is no built-in setup (the
+``preset`` bridge was deleted, #1107).
 
 No config is an error: there is nothing to check.
 """
@@ -41,22 +44,15 @@ from typing import Any, get_args
 
 from .. import _data_files
 from ..path_utils import relative_within
-from . import data_facts, kinds, rules
+from . import data_facts, doc_registry, kinds, pages, pyeye_kinds, rules
 from .docs import Audience, DocEntry, Kind
 from .facts import check_families
-from .setup import Paths, Setup, pyeye_setup
-
-#: Setups built into the engine, selected by ``preset`` (the bridge until
-#: pyeye's own registry is data too, #1107). Each is pyeye's code describing
-#: pyeye, never the analysed repository's.
-PRESETS = {"pyeye": pyeye_setup}
+from .setup import PageBuilder, Paths, Setup
 
 SECTION = "docs_facts"
 KEYS = frozenset(
-    {"preset", "facts", "extractors", "docs", "rules", "changelog", "paths", "reference_only"}
+    {"facts", "extractors", "docs", "pages", "rules", "changelog", "paths", "reference_only"}
 )
-#: What a preset provides, so a config naming one can't also give it.
-_PRESET_PROVIDES = frozenset({"facts", "extractors", "docs"})
 _FACT_KEYS = frozenset({"id", "from", "file", "key", "name"})
 _DOC_KEYS = frozenset({"path", "audience", "kind", "allow", "covers", "site"})
 _PATH_KEYS = frozenset(Paths.__dataclass_fields__)
@@ -97,46 +93,43 @@ def load(root: Path) -> Setup:
         )
     _refuse_code_refs(raw, SECTION)
     _only(raw, KEYS, SECTION)
-    if "preset" in raw:
-        return _preset(raw)
     facts = tuple(_fact(entry, i, root) for i, entry in enumerate(_list(raw, "facts")))
     built = tuple(_kind(entry, i) for i, entry in enumerate(_list(raw, "extractors")))
     return Setup(
         extractors=((data_facts.extractor(facts),) if facts else ()) + built,
-        docs=tuple(_doc(entry, i) for i, entry in enumerate(_list(raw, "docs"))),
+        docs=_docs(raw.get("docs", []), root),
         rules=_rules(raw.get("rules", "all")),
-        pages={},
+        pages=_pages(raw.get("pages", []), root),
         changelog=_optional_str(raw, "changelog"),
         paths=_paths(raw.get("paths", {})),
         reference_only=_reference_only(raw.get("reference_only", [])),
     )
 
 
-def _preset(raw: dict[str, Any]) -> Setup:
-    """A built-in setup, overridden by the config's rules, changelog, paths and reference_only."""
-    name = _str(raw, "preset", SECTION)
-    build = PRESETS.get(name)
-    if build is None:
-        raise ConfigError(f"{SECTION}: preset {name!r} isn't built in; known: {sorted(PRESETS)}")
-    mixed = sorted(_PRESET_PROVIDES & set(raw))
-    if mixed:
+def _docs(value: Any, root: Path) -> tuple[DocEntry, ...]:
+    """The doc registry: inline tables, or a data file's path (#1107)."""
+    if isinstance(value, str):
+        return doc_registry.read(root, value)
+    if not isinstance(value, list):
+        raise ConfigError(f"{SECTION}.docs must be a list of tables or a data file's path")
+    return tuple(_doc(entry, i) for i, entry in enumerate(value))
+
+
+def _pages(value: Any, root: Path) -> dict[str, PageBuilder]:
+    """The built-in reference pages named, each pyeye's repository's only (#1107)."""
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ConfigError(f"{SECTION}.pages must be a list of built-in page paths")
+    built_in = pages.PAGES  # read at call time, so a test's replacement is seen
+    unknown = sorted(set(value) - set(built_in))
+    if unknown:
+        raise ConfigError(f"{SECTION}.pages: {unknown} aren't built in; known: {sorted(built_in)}")
+    if value and pyeye_kinds.project_name(root) != pyeye_kinds.PROJECT_NAME:
         raise ConfigError(
-            f"{SECTION}: preset {name!r} can't be combined with {mixed}: it provides them"
+            f"{SECTION}.pages: the built-in pages render pyeye's facts, so they are "
+            "restricted to pyeye's own repository, the one whose pyproject.toml declares "
+            f'[project] name = "{pyeye_kinds.PROJECT_NAME}" (#1107)'
         )
-    base = build()
-    return Setup(
-        extractors=base.extractors,
-        docs=base.docs,
-        rules=_rules(raw["rules"]) if "rules" in raw else base.rules,
-        pages=base.pages,
-        changelog=_optional_str(raw, "changelog") if "changelog" in raw else base.changelog,
-        paths=_paths(raw["paths"]) if "paths" in raw else base.paths,
-        reference_only=(
-            _reference_only(raw["reference_only"])
-            if "reference_only" in raw
-            else base.reference_only
-        ),
-    )
+    return {path: built_in[path] for path in value}
 
 
 def _table(value: Any, where: str) -> dict[str, Any]:

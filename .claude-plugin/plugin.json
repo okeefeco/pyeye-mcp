@@ -18,20 +18,20 @@
     "pyeye": {
       "args": [
         "run",
-        "--project",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "--no-sync",
-        "--frozen",
+        "--no-project",
         "python",
-        "-m",
-        "pyeye.mcp"
+        "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py",
+        "launch"
       ],
-      "command": "uv",
-      "env": {
-        "UV_PROJECT_ENVIRONMENT": "${CLAUDE_PLUGIN_DATA}/.venv"
-      }
+      "command": "uv"
     }
   },
   "name": "pyeye",
-  "repository": "https://github.com/okeefeco/pyeye-mcp"
+  "repository": "https://github.com/okeefeco/pyeye-mcp",
+  "skills": [
+    "./.claude/skills/architecture-review/",
+    "./.claude/skills/decision-log/",
+    "./.claude/skills/duplication-review/",
+    "./.claude/skills/python-explore/"
+  ]
 }

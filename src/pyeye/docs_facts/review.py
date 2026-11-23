@@ -227,7 +227,7 @@ def _location_problems(finding: Mapping[str, Any], root: Path) -> list[str]:
     from . import docs
 
     page, section = finding.get("page"), finding.get("section")
-    if not isinstance(page, str) or docs.entry_for(page) is None:
+    if not isinstance(page, str) or docs.entry_for(page, docs.for_repo(root)) is None:
         return [f"page {page!r} isn't a registered doc"]
     path = root / page
     if not path.is_file():
@@ -1480,7 +1480,7 @@ def scope(
         ledger,
     )
     from .cli import SNAPSHOT, _committed_snapshots, _committed_views, base_snapshots, base_views
-    from .setup import pyeye_setup
+    from .config import load as load_setup
 
     wanted = list(pages)
     if not (wanted or audience or base):
@@ -1492,7 +1492,7 @@ def scope(
     changed_ids: set[str] = set()
     uncovered: list[str] = []
     if base is not None:
-        paths = pyeye_setup().paths
+        paths = load_setup(root).paths
         before = base_snapshots(root, base, paths)
         if before is None:
             raise ValueError(
@@ -1647,7 +1647,7 @@ def _run(args: Any, base: Path) -> tuple[int, Any]:
         elif args.command == "mark-fine":
             from . import docs
 
-            entry = docs.entry_for(args.page)
+            entry = docs.entry_for(args.page, docs.for_repo(base))
             if entry is None:
                 raise ValueError(f"{args.page!r} isn't registered")
             text = (base / args.page).read_text(encoding="utf-8")

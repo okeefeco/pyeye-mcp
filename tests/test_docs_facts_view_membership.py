@@ -17,11 +17,11 @@ from typing import Any
 
 import pytest
 
-from pyeye.docs_facts import changed, cli
+from pyeye.docs_facts import changed, cli, config
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Bindable, Fact, memberships, view
 from pyeye.docs_facts.registry import Extractor
-from pyeye.docs_facts.setup import Setup, pyeye_setup
+from pyeye.docs_facts.setup import Setup
 from tests.test_docs_facts_reference_only import (
     ARCH,
     EXTRACTORS,
@@ -68,7 +68,7 @@ class TestTheSnapshotRecordsViews:
             assert json.loads(result.outputs[setup.paths.snapshot])["views"] == {}
 
     def test_pyeyes_own_snapshot_records_its_views(self) -> None:
-        data = json.loads(Path(pyeye_setup().paths.snapshot).read_text(encoding="utf-8"))
+        data = json.loads(Path(config.load(Path(".")).paths.snapshot).read_text(encoding="utf-8"))
 
         assert "determinism.ast" in data["views"]["determinism.table"]
 
@@ -154,7 +154,7 @@ class TestTheReviewScope:
         from pyeye.docs_facts import registry, review
 
         facts = registry.build(Path("."))
-        paths = pyeye_setup().paths
+        paths = config.load(Path(".")).paths
         head = cli._committed_snapshots(Path("."), paths)
         views = cli._committed_views(Path("."), paths)
         gone = "determinism.retired"

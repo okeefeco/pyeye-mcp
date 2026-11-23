@@ -34,3 +34,9 @@ class KindOptionsError(ValueError):
 #: Every built-in kind, by the name a config's ``kind`` uses. #1092 adds
 #: ``structure``; a kind is registered here, never named by a code reference.
 BUILT_IN_KINDS: dict[str, KindFactory] = {}
+
+# pyeye's own extractors, restricted to pyeye's repository (#1107). Imported
+# last: its factories raise KindOptionsError, defined above.
+from .pyeye_kinds import PYEYE_KINDS  # noqa: E402
+
+BUILT_IN_KINDS.update(PYEYE_KINDS)

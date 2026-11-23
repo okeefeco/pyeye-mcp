@@ -109,16 +109,16 @@ Where pyeye was installed as a Claude Code plugin, run it through the plugin's
 environment:
 
 ```bash
-[ -n "${CLAUDE_PLUGIN_ROOT}" ] && [ -n "${CLAUDE_PLUGIN_DATA}" ] || {
-  echo "Not loaded through the pyeye plugin. With pyeye-mcp installed, run: python -m pyeye.decisions ..." >&2; false; } &&
-UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
-  uv run --project "${CLAUDE_PLUGIN_ROOT}" --no-sync --frozen \
-  python -m pyeye.decisions index --active
+if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then  # the plugin's environment
+  CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}" CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+    uv run --no-project python "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py" \
+    python -m pyeye.decisions index --active
+else  # pyeye's own repository, where this is a project skill: the checkout's environment
+  uv run --project "$(git rev-parse --show-toplevel)" --frozen \
+    python -m pyeye.decisions index --active
+fi
 ```
 
-Claude Code fills in the two `${CLAUDE_PLUGIN_…}` paths when it loads the
-skill from the plugin. The first line stops with a hint when they are empty
-(the command was copied out of the plugin), instead of failing on `/.venv`.
 Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.decisions …`.
 A repo with no log yet gets "no entries", not an error.
 

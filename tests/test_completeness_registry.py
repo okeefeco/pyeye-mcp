@@ -26,7 +26,7 @@ from pyeye.mcp.operations.completeness import (
 from tests.conformance import response_linter
 
 server = importlib.import_module("pyeye.mcp.server")
-_SKILL = Path(__file__).parent.parent / "skills" / "python-explore" / "SKILL.md"
+_SKILL = Path(__file__).parent.parent / ".claude" / "skills" / "python-explore" / "SKILL.md"
 
 
 def test_every_reason_is_well_formed() -> None:

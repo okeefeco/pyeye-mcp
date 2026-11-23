@@ -9,9 +9,11 @@ from typing import Any
 import pytest
 
 from pyeye.docs_facts import site
-from pyeye.docs_facts.docs import DOCS, DocEntry, registered_files
+from pyeye.docs_facts.docs import DocEntry, for_repo, registered_files
 
 ROOT = Path(__file__).parent.parent
+#: pyeye's doc registry, from its config (docs/facts/docs.toml, #1107).
+DOCS = for_repo(ROOT)
 
 
 def _flatten(nav: list[Any]) -> list[str]:
@@ -172,6 +174,6 @@ class TestLinks:
 
 
 def test_every_registry_entry_is_considered() -> None:
-    """The site reads DOCS through registered_files, so it sees the same pages."""
+    """The site reads the registry through registered_files, so it sees the same pages."""
     assert {p for p, _ in registered_files(ROOT)} >= set(site.published(ROOT))
     assert len(DOCS) > 0

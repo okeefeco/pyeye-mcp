@@ -1,7 +1,7 @@
 """The doc registry and ``generate``/``check`` end to end (#824).
 
 The completeness test is what closes the ``.rst`` blind spot (#818): a Markdown
-file that isn't in :data:`pyeye.docs_facts.docs.DOCS`, and isn't in an excluded
+file that isn't in pyeye's doc registry (``docs/facts/docs.toml``), and isn't in an excluded
 history tree, fails here, so no documentation can sit outside every check.
 """
 
@@ -14,11 +14,13 @@ from pathlib import Path
 import pytest
 
 from pyeye.docs_facts import cli, config, docs, pages
-from pyeye.docs_facts.docs import DOCS, DocEntry, entry_for, is_excluded, registered_files
+from pyeye.docs_facts.docs import DocEntry, entry_for, for_repo, is_excluded, registered_files
 from pyeye.docs_facts.extractors import ci
 from pyeye.docs_facts.facts import Fact, View, index
 
 ROOT = Path(__file__).parent.parent
+#: pyeye's doc registry, from its config (docs/facts/docs.toml, #1107).
+DOCS = for_repo(ROOT)
 
 
 #: Every documentation file type, so a non-Markdown doc tree (the old Sphinx
@@ -43,11 +45,11 @@ def _git_docs() -> list[str]:
 
 class TestDocRegistry:
     def test_every_doc_file_is_registered(self) -> None:
-        unregistered = [p for p in _git_docs() if not is_excluded(p) and entry_for(p) is None]
+        unregistered = [p for p in _git_docs() if not is_excluded(p) and entry_for(p, DOCS) is None]
 
         assert not unregistered, (
-            f"Unregistered docs: {unregistered}. Add each to DOCS in "
-            "src/pyeye/docs_facts/docs.py with its audience and kind."
+            f"Unregistered docs: {unregistered}. Add each to docs/facts/docs.toml "
+            "with its audience and kind."
         )
 
     def test_the_listing_found_the_docs(self) -> None:
@@ -55,7 +57,7 @@ class TestDocRegistry:
         found = _git_docs()
 
         assert "README.md" in found
-        assert "skills/python-explore/SKILL.md" in found
+        assert ".claude/skills/python-explore/SKILL.md" in found
 
     def test_every_exact_entry_exists(self) -> None:
         assert docs.missing_files(ROOT) == []
@@ -75,14 +77,14 @@ class TestDocRegistry:
         assert registered == set(pages.PAGES)
 
     def test_an_exact_entry_wins_over_the_pattern(self) -> None:
-        readme = entry_for("changes/README.md")
-        fragment = entry_for("changes/824.fixed.md")
+        readme = entry_for("changes/README.md", DOCS)
+        fragment = entry_for("changes/824.fixed.md", DOCS)
 
         assert readme is not None and readme.kind == "prose"
         assert fragment is not None and fragment.kind == "history"
 
     def test_the_pattern_names_one_directory_level(self) -> None:
-        assert entry_for("changes/sub/824.fixed.md") is None
+        assert entry_for("changes/sub/824.fixed.md", DOCS) is None
 
     def test_pattern_expands_to_matches_without_their_own_entry(self, tmp_path: Path) -> None:
         (tmp_path / "changes").mkdir()
@@ -124,15 +126,17 @@ def tiny_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "README.md").write_text(
         "Value: <!-- fact:begin x.one -->0<!-- fact:end -->\n", encoding="utf-8"
     )
-    monkeypatch.setattr(docs, "DOCS", (DocEntry("README.md", "human", "prose"),))
-    monkeypatch.setattr(docs, "REFERENCE_PAGES", ("ref.md",))
     monkeypatch.setattr(pages, "PAGES", {"ref.md": lambda f: f["x.list"].markdown + "\n"})
     monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
     monkeypatch.setattr(cli.rules, "RULES", ())  # tested in test_docs_facts_rules
-    # The CLI checks only a repository that declares a config (#1091): this one
-    # selects pyeye's setup, whose (patched) constants it reads at call time.
+    # The CLI checks only a repository that declares a config (#1091). A built-in
+    # page is pyeye's repository's only (#1107), so this one names itself pyeye.
     (tmp_path / "pyproject.toml").write_text(
-        '[tool.pyeye.docs_facts]\npreset = "pyeye"\n', encoding="utf-8"
+        '[project]\nname = "pyeye-mcp"\n\n'
+        '[tool.pyeye.docs_facts]\npages = ["ref.md"]\n\n'
+        '[[tool.pyeye.docs_facts.docs]]\npath = "README.md"\naudience = "human"\nkind = "prose"\n\n'
+        '[[tool.pyeye.docs_facts.docs]]\npath = "ref.md"\naudience = "both"\nkind = "reference"\n',
+        encoding="utf-8",
     )
     return tmp_path
 

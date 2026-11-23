@@ -9,9 +9,11 @@ import pytest
 
 from pyeye.docs_facts import claims, rules
 from pyeye.docs_facts.claim_seeds import SEEDS
-from pyeye.docs_facts.docs import DOCS, DocEntry, registered_files
+from pyeye.docs_facts.docs import DocEntry, for_repo, registered_files
 
 ROOT = Path(__file__).parent.parent
+#: pyeye's doc registry, from its config (docs/facts/docs.toml, #1107).
+DOCS = for_repo(ROOT)
 
 
 def _labels(text: str) -> list[str]:

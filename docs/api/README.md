@@ -84,7 +84,7 @@ The core interface is six progressive-disclosure primitives: `resolve`,
 - The README's [Core Tools](../../README.md#core-tools) section lists them, and
   states the known limitation that "who calls / references this" is not answered
   (deferred to [#333](https://github.com/okeefeco/pyeye-mcp/issues/333)).
-- The `python-explore` skill (`skills/python-explore/SKILL.md`) covers the
+- The `python-explore` skill (`.claude/skills/python-explore/SKILL.md`) covers the
   mechanics, the supported-edge list, and worked examples. A test checks it
   against the live edge registry, so it can't drift silently the way a
   hand-maintained page here would.

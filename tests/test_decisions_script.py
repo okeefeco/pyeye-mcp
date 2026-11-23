@@ -92,7 +92,7 @@ def test_the_append_only_decision_is_superseded_by_679() -> None:
 
 
 def test_the_skill_documents_the_entry_files() -> None:
-    skill = (_ROOT / "skills" / "decision-log" / "SKILL.md").read_text(encoding="utf-8")
+    skill = (_ROOT / ".claude" / "skills" / "decision-log" / "SKILL.md").read_text(encoding="utf-8")
     assert "docs/decisions/entries/" in skill
     assert "python -m pyeye.decisions check" in skill  # the shipped module (#1093)
     assert "Append on confirm" not in skill

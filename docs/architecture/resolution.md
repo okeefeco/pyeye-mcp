@@ -187,4 +187,4 @@ A miss is never dressed up as an answer:
   resolver" and "Bare name: an exact top-level module wins" (#623).
 - Edge design specs: `docs/superpowers/specs/` (expand core, imported_by).
 - The agent-facing summary is in the `python-explore` skill
-  (`skills/python-explore/SKILL.md`).
+  (`.claude/skills/python-explore/SKILL.md`).
