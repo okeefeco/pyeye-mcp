@@ -140,38 +140,49 @@ Please follow these steps for your contribution:
 
 #### Running your checkout in Claude Code
 
-The pyeye plugin is also the development setup. From the root of your checkout
-or worktree:
+Every Claude Code session in this repository, in the main checkout or in a
+worktree, runs **that checkout's own** pyeye server and skills. There's nothing to
+pass on the command line:
+
+- **The server** comes from the repository's `.mcp.json`. It runs
+  `uv run --project "$CLAUDE_PROJECT_DIR" --frozen python -m pyeye.mcp`, so it
+  uses the checkout's `.venv` (created on first start if missing) and imports
+  the checkout's `src/`.
+- **The skills** shipped with the plugin (`python-explore`, `architecture-review`,
+  `duplication-review`, `decision-log`) live in `.claude/skills/`, so here they
+  are project skills, without the `pyeye:` prefix. The repository-internal
+  skills (`docs-review`, `pyeye-scenarios`, `pyeye-verify`) sit beside them, but
+  `.claude-plugin/plugin.json` lists only the four, so the others never ship.
+- **The installed plugin is off here.** `.claude/settings.json` sets
+  `"enabledPlugins": {"pyeye@pyeye-marketplace": false}` and enables the
+  `.mcp.json` server, so you don't get a second copy of every tool and skill.
+  The installed plugin stays on in your other projects.
+
+After editing server code, reconnect the server from `/mcp` or start a new
+session. Skill edits apply in the running session: Claude Code watches
+`.claude/skills/`.
+
+**Testing the plugin as shipped.** Clone the branch somewhere outside the
+repository and run Claude Code from a *different* directory, pointing
+`--plugin-dir` at the clone:
 
 ```bash
-claude --plugin-dir "$PWD"
+git clone -b <branch> https://github.com/okeefeco/pyeye-mcp.git /tmp/pyeye-plugin
+cd /path/to/another/python/project
+claude --plugin-dir /tmp/pyeye-plugin
 ```
 
-The session then loads the whole plugin from that checkout: its skills, its
-hooks and its MCP server. It replaces the installed pyeye plugin for that
-session, though `claude plugin list` still shows the installed one as enabled.
-Each checkout runs its own code, so two worktrees in dev mode at once don't
-interfere.
+That loads the plugin exactly as users get it: `plugin.json`'s server, its
+four skills (as `pyeye:…`) and its setup hook, with its environment in the
+plugin's data directory, one per plugin directory. `claude plugin validate
+/tmp/pyeye-plugin` and `claude --plugin-dir /tmp/pyeye-plugin plugin details
+pyeye` check its manifest and inventory. Don't use `--plugin-dir` *inside* this
+repository: its `.mcp.json` server and project skills load as well, so every
+tool and skill appears twice.
 
-- **Skill or hook edits:** run `/reload-plugins`.
-- **Server code edits:** the server imports pyeye when it starts, so reconnect
-  it from `/mcp` or start a new session.
-- **Headless checks of a skill:** pass `--plugin-dir` too
-  (`claude -p --plugin-dir "$PWD" …`). Without it the session tests the
-  installed copy, not your edits.
-- **The environment:** the server doesn't use your checkout's `.venv`. Each
-  plugin directory gets its own environment in the plugin's data directory,
-  synced from its `uv.lock` when the server or the session-start hook first
-  needs it, and again whenever `uv.lock` changes. Environments of checkouts
-  you've deleted are removed at the next session start.
-
-In this repository, a session-start message says so when the pyeye plugin that's
-running isn't the checkout you're in.
-
-The repository has no `.mcp.json`: Claude Code took it as the top of the
-plugin, so `--plugin-dir` launched the wrong server and never connected (#1136).
-If you added a `pyeye-dev` server from an older version of this guide, remove it
-(`claude mcp remove pyeye-dev -s user`), or you'll see both servers' tools.
+**Remote sessions** (Remote Control, claude.ai/code) on this repository pick up
+the same settings, but only when they start: after pulling a change to
+`.mcp.json`, `.claude/settings.json` or the skills, restart the session.
 
 #### Dependency lockfile policy
 
