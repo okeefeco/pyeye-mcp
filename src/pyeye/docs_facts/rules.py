@@ -62,6 +62,7 @@ SERVER_COMMAND = "server-command"
 #: its fact prefix (:mod:`.extractors.structure`).
 LAYERING = "layering"
 STRUCTURE_COVERAGE = "structure-coverage"
+ARCHITECTURE_HANDLES = "architecture-handles"
 
 #: Every rule ID a :attr:`~.docs.DocEntry.allow` key may name. A key outside this
 #: set is a typo that would silently allow nothing, so it fails.
@@ -77,6 +78,7 @@ RULE_IDS: frozenset[str] = frozenset(
         SERVER_COMMAND,
         LAYERING,
         STRUCTURE_COVERAGE,
+        ARCHITECTURE_HANDLES,
     }
 )
 

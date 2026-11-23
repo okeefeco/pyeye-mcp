@@ -6,7 +6,7 @@ anchors: ["pyeye.docs_facts.extractors.structure.structure", "pyeye.docs_facts.e
 status: "amended"
 amends: ["2026-11-22-1091-docs-facts-runs-on-any-repo-through-a-setup.md"]
 supersedes: []
-amended_by: ["2026-11-23-1175-structure-curation-is-data-imported-by-is-by-area.md"]
+amended_by: ["2026-11-23-1175-structure-curation-is-data-imported-by-is-by-area.md", "2026-11-24-1176-architecture-pages-handles-resolve-through-the-dump-then-pyeye.md"]
 superseded_by: []
 ---
 
