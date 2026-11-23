@@ -24,6 +24,8 @@ path. The catalog is the **axis of variation**:
 | `django` | single tree | depth, scale, canonical-handle collapse, `imported_by`/`superclasses`, static-surface ceiling, honest-limit refusal | clone (heavy — use `--reference`) |
 | `namespace-jaraco` | 3 repos, PEP 420 namespace | namespace stitching via `.pyeye.json`, cross-repo `resolve`/`trace`, #444 cold-start | clone 3 small repos |
 | `multirepo-namespace` | 3 repos + main project, PEP 420 namespace, **in-repo** | namespaces outside the project root (src/ layout, flat, via `packages`), root-is-package project, cross-repo subclass/calls/re-export/alias/`TYPE_CHECKING`/lazy import, name collision | **local copy, no clone** (#667) |
+| `poetry` | single tree, **`src/` layout** | `src/` discovery with no config, re-export collapse, stdlib `imported_by`, class signatures (#1126), honest limits; a task trial | clone (moderate) |
+| `scrapy` | single tree, **flat** | re-export collapse, forwarder signatures (#1125), `imports` with `type_only`, `callees` proof; a task trial | clone (moderate) |
 | `zope` *(planned)* | 2 repos, PEP 420 namespace | deep inheritance + dense cross-import graphs | — |
 | `google-cloud` *(planned)* | monorepo, many dists | scale + 3-segment namespaces | — |
 
@@ -149,6 +151,51 @@ it exercises: `tests/fixtures/scenarios/multirepo_namespace/README.md`.
 ### Probe suite + recorded baseline
 
 The probe suite and its expected results are in the dated record [`baselines/multirepo-namespace.md`](baselines/multirepo-namespace.md). Run it with **[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
+
+---
+
+## Scenario: `poetry`
+
+A `src/`-layout project (`src/poetry/`), found with no `.pyeye.json`. With
+`scrapy`, the release-pass pair (`docs/RELEASE.md`): one `src/` layout and one
+plain tree, both with a task trial.
+
+### Manifest
+
+| Field | Value |
+|-------|-------|
+| repo | `https://github.com/python-poetry/poetry` |
+| commit | `4934abbde26f5e7f88683d08546d45cfff2d939d` (tag `2.5.2`) |
+| `project_path` | `<TARGET>/poetry` |
+| root / `.pyeye.json` | none (the `src/` layout is auto-discovered) |
+| round-trip module | `poetry.installation.executor` |
+
+### Probe suite, task trial + recorded baseline
+
+In the dated record [`baselines/poetry.md`](baselines/poetry.md): the probes, the round-trip
+count, and the task trial (its task, ground truth and both arms' results). Run it with
+**[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
+
+---
+
+## Scenario: `scrapy`
+
+A plain single-tree project (`scrapy/` at the root), no config.
+
+### Manifest
+
+| Field | Value |
+|-------|-------|
+| repo | `https://github.com/scrapy/scrapy` |
+| commit | `4a421e451845ac0b3047402e43dc285a37ca7664` (tag `2.20.0`) |
+| `project_path` | `<TARGET>/scrapy` |
+| root / `.pyeye.json` | none |
+| round-trip module | `scrapy.spidermiddlewares.referer` |
+
+### Probe suite, task trial + recorded baseline
+
+In the dated record [`baselines/scrapy.md`](baselines/scrapy.md). Run it with
+**[[pyeye-verify]]**; record a new baseline as a new record, never by editing an old one.
 
 ---
 
