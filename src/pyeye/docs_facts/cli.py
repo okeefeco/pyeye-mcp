@@ -377,7 +377,10 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
 
 
 def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
-    """Entry point for ``scripts/docs_facts.py``."""
+    """Entry point for ``python -m pyeye.docs_facts`` and ``scripts/docs_facts.py`` (#1162).
+
+    *root* defaults to the working directory; ``--root`` overrides either.
+    """
     parser = argparse.ArgumentParser(
         prog="docs_facts", description="Keep the docs' facts equal to the code's."
     )

@@ -9,4 +9,5 @@ The supported ways to start the pyeye server.
 | Command | Kind | Runs |
 |---|---|---|
 | `pyeye-mcp` | console script | `pyeye.mcp.__main__:main` |
+| `python -m pyeye.docs_facts` | module | `pyeye.docs_facts` |
 | `python -m pyeye.mcp` | module | `pyeye.mcp` |

@@ -31,6 +31,9 @@
     "ci.uv_sync_flags": [
       "--locked"
     ],
+    "cli.module.pyeye.docs_facts": {
+      "command": "python -m pyeye.docs_facts"
+    },
     "cli.module.pyeye.mcp": {
       "command": "python -m pyeye.mcp"
     },
@@ -1534,6 +1537,7 @@
     ],
     "cli.all": [
       "cli.script.pyeye-mcp",
+      "cli.module.pyeye.docs_facts",
       "cli.module.pyeye.mcp"
     ],
     "config.ignored_keys": [
