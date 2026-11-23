@@ -1,5 +1,5 @@
 <!--
-Audience: Both (Claude's placement rules; its DocEntry in src/pyeye/docs_facts/docs.py says both)
+Audience: Both (Claude's placement rules; its entry in docs/facts/docs.toml says both)
 Purpose: Teach Claude about documentation types and where to place content
 When to update: When documentation structure changes or new patterns emerge
 -->
@@ -121,9 +121,9 @@ not by number: a new file MUST be added to `CLAUDE.md`'s imports or it never loa
 
 ### Register Every New Page
 
-- A new `.md` file MUST get a `DocEntry` (audience and kind) in
-  `src/pyeye/docs_facts/docs.py` in the same PR; `tests/test_docs_facts_registry.py`
-  fails otherwise. The `DocEntry` is the audience of record, not a comment in the page.
+- A new `.md` file MUST get a `[[doc]]` entry (audience and kind) in
+  `docs/facts/docs.toml` in the same PR; `tests/test_docs_facts_registry.py`
+  fails otherwise. That entry is the audience of record, not a comment in the page.
 
 ### Examples of Correct Placement
 

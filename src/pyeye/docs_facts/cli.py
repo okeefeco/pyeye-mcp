@@ -15,7 +15,8 @@
   allow-list (:mod:`.rules`), and on a live page naming a removed name
   (:mod:`.removed`). CI runs it.
 
-All three read only :data:`~.docs.DOCS`; none globs on its own.
+All three read only the repository's doc registry (its config's ``docs``); none
+globs on its own.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from pathlib import Path
 
 from . import binding, changed, config, docs, examples, ledger, registry, removed, review, rules
 from .facts import Bindable, memberships, snapshot
-from .setup import Paths, Setup, pyeye_setup
+from .setup import Paths, Setup
 
 SNAPSHOT = "docs/facts/facts.json"
 CHANGELOG = "CHANGELOG.md"
@@ -83,9 +84,9 @@ def plan(
     """Compute the generated text of every registered doc, page and the snapshot.
 
     *setup* is the repository's (#1091): its extractors, doc registry, rules and
-    pages. Default: pyeye's own (:func:`~.setup.pyeye_setup`).
+    pages. Default: *root*'s own, from its config (:func:`.config.load`).
     """
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     if facts is None:
         facts = registry.build(root, setup.extractors)
     result = Plan()
@@ -263,7 +264,7 @@ def ledger_note(result: Plan, setup: Setup) -> str | None:
 
 def check(root: Path, setup: Setup | None = None) -> int:
     """Fail if any output is stale or any marker is malformed or unknown."""
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     result = plan(root, setup=setup)
     paths = stale(root, result)
     for path in paths:
@@ -289,7 +290,7 @@ def check(root: Path, setup: Setup | None = None) -> int:
 
 def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     snapshot = setup.paths.snapshot
     head = _committed_snapshots(root, setup.paths)
     before = base_snapshots(root, base, setup.paths)

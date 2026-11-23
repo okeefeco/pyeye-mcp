@@ -21,7 +21,8 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, config, rules
+from pyeye.docs_facts import cli, config, pyeye_kinds, rules
+from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import ExtractionError, Fact
 
 PAGE = "docs/arch.md"
@@ -316,47 +317,55 @@ class TestLiteralKind:
             config.load(root)
 
 
-class TestPreset:
-    """``preset = "pyeye"`` selects the engine's built-in pyeye setup, as data (the bridge to #1107)."""
+class TestRegistryFileAndPages:
+    """pyeye's own setup is data like any repository's: a registry file and pages (#1107)."""
 
-    def _preset(self, tmp_path: Path, body: str) -> Path:
+    def _repo(self, tmp_path: Path, body: str, name: str = "x") -> Path:
         (tmp_path / "pyproject.toml").write_text(
-            '[project]\nname = "x"\n\n[tool.pyeye.docs_facts]\n' + body, encoding="utf-8"
+            f'[project]\nname = "{name}"\n\n[tool.pyeye.docs_facts]\n' + body, encoding="utf-8"
         )
         return tmp_path
 
-    def test_selects_pyeyes_setup(self, tmp_path: Path) -> None:
-        from pyeye.docs_facts.setup import pyeye_setup
-
-        setup = config.load(self._preset(tmp_path, 'preset = "pyeye"\n'))
-        own = pyeye_setup()
-        assert (setup.extractors, setup.docs, setup.rules, setup.pages) == (
-            own.extractors,
-            own.docs,
-            own.rules,
-            own.pages,
+    def test_docs_may_name_a_registry_file(self, tmp_path: Path) -> None:
+        (tmp_path / "reg.json").write_text(
+            '{"doc": [{"path": "a.md", "audience": "human", "kind": "prose"}]}', encoding="utf-8"
         )
+        setup = config.load(self._repo(tmp_path, 'docs = "reg.json"\n'))
+        assert setup.docs == (DocEntry("a.md", "human", "prose"),)
 
-    def test_rules_changelog_and_paths_override(self, tmp_path: Path) -> None:
-        setup = config.load(
-            self._preset(
-                tmp_path,
-                'preset = "pyeye"\nrules = ["honest-claims"]\nchangelog = "NEWS.md"\n'
-                '[tool.pyeye.docs_facts.paths]\nsnapshot = "build/facts.json"\n',
-            )
-        )
-        assert [r.id for r in setup.rules] == ["honest-claims"]
-        assert (setup.changelog, setup.paths.snapshot) == ("NEWS.md", "build/facts.json")
-
-    @pytest.mark.parametrize("key", ["docs", "facts", "extractors"])
-    def test_cant_be_mixed_with_what_it_provides(self, tmp_path: Path, key: str) -> None:
-        root = self._preset(tmp_path, f'preset = "pyeye"\n{key} = []\n')
-        with pytest.raises(config.ConfigError, match=f"can't be combined with.*{key}"):
+    def test_a_registry_file_error_is_a_config_error(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, 'docs = "missing.toml"\n')
+        with pytest.raises(config.ConfigError, match="'missing.toml' doesn't exist"):
             config.load(root)
 
-    def test_only_engine_built_ins(self, tmp_path: Path) -> None:
-        root = self._preset(tmp_path, 'preset = "mine"\n')
-        with pytest.raises(config.ConfigError, match="preset 'mine' isn't built in"):
+    def test_docs_is_a_list_or_a_path(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, "docs = 3\n")
+        with pytest.raises(config.ConfigError, match="list of tables or a data file's path"):
+            config.load(root)
+
+    def test_pages_name_built_in_pages_on_pyeyes_repo(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, 'pages = ["docs/reference/cli.md"]\n', name="pyeye-mcp")
+        assert list(config.load(root).pages) == ["docs/reference/cli.md"]
+
+    def test_an_unknown_page(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, 'pages = ["docs/mine.md"]\n', name="pyeye-mcp")
+        with pytest.raises(config.ConfigError, match=r"\['docs/mine.md'\] aren't built in"):
+            config.load(root)
+
+    def test_pages_are_pyeyes_repository_only(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, 'pages = ["docs/reference/cli.md"]\n')
+        with pytest.raises(config.ConfigError, match="restricted to pyeye's own repository"):
+            config.load(root)
+
+    def test_pages_is_a_list_of_paths(self, tmp_path: Path) -> None:
+        root = self._repo(tmp_path, 'pages = "docs/reference/cli.md"\n', name="pyeye-mcp")
+        with pytest.raises(config.ConfigError, match="list of built-in page paths"):
+            config.load(root)
+
+    def test_there_is_no_preset(self, tmp_path: Path) -> None:
+        """The bridge is gone (#1107): ``preset`` is an unknown key like any other."""
+        root = self._repo(tmp_path, 'preset = "pyeye"\n')
+        with pytest.raises(config.ConfigError, match=r"unknown key\(s\) \['preset'\]"):
             config.load(root)
 
 
@@ -369,10 +378,12 @@ def test_the_cli_refuses_a_repo_with_no_config(
     assert "nothing to check" in capsys.readouterr().err
 
 
-def test_this_repository_declares_the_preset() -> None:
+def test_this_repository_configures_itself_as_data() -> None:
+    """pyeye names its kinds, registry file and pages like any repository (#1107)."""
     root = Path(__file__).resolve().parents[1]
-    assert config.find(root) == {
-        "preset": "pyeye",
-        "changelog": "CHANGELOG.md",
-        "reference_only": ["precommit"],
-    }
+    raw = config.find(root)
+    assert raw is not None
+    assert "preset" not in raw
+    assert raw["docs"] == "docs/facts/docs.toml"
+    assert raw["reference_only"] == ["precommit"]
+    assert [e["kind"] for e in raw["extractors"]] == list(pyeye_kinds.PYEYE_KINDS)

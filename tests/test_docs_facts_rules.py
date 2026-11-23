@@ -19,7 +19,7 @@ from types import MappingProxyType
 import pytest
 
 from pyeye.docs_facts import registry, rules
-from pyeye.docs_facts.docs import DOCS, DocEntry
+from pyeye.docs_facts.docs import DocEntry, for_repo
 from pyeye.docs_facts.facts import Fact
 from pyeye.mcp.operations import edges as edge_registry
 from pyeye.mcp.operations.edges import resolve_members, resolve_subclasses
@@ -28,6 +28,8 @@ from tests.conformance import response_linter
 from tests.conformance.response_linter import _PHASE4_UNMEASURED_EDGES
 
 ROOT = Path(__file__).parent.parent
+#: pyeye's doc registry, from its config (docs/facts/docs.toml, #1107).
+DOCS = for_repo(ROOT)
 
 
 @pytest.fixture(scope="module")

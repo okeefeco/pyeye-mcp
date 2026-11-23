@@ -3,12 +3,8 @@
 The engine (binding, ``generate``/``check``, the snapshot, the ledger, stale
 detection) is generic; what it runs is per repository. A :class:`Setup` names
 it: the extractors that produce the facts, the doc registry, the prose rules
-and the generated reference pages. pyeye's own is built from the in-code
-constants (:func:`pyeye_setup`), and is what the CLI uses unless it is given
-another.
-
-RFC #1083 step 1. The per-repo config file that builds a :class:`Setup` for
-another codebase is decided separately; this module is the seam it plugs into.
+and the generated reference pages. Every repository's, pyeye's included, is
+built from its config (:func:`.config.load`); there is no built-in one (#1107).
 """
 
 from __future__ import annotations
@@ -17,7 +13,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-from . import docs, ledger, pages, registry, removed, review, rules
+from . import docs, ledger, registry, removed, review, rules
 from .facts import Bindable, check_families
 
 #: A reference page builder: the facts in, the page's Markdown out.
@@ -108,18 +104,3 @@ class Setup:
     def __post_init__(self) -> None:
         """Validate :attr:`reference_only`."""
         check_families(self.reference_only, "reference_only")
-
-
-def pyeye_setup() -> Setup:
-    """pyeye's own setup: its extractors, its doc registry, every rule and its pages.
-
-    Read from the module constants at call time, so a caller that replaces one
-    (a test, a spike) is seen.
-    """
-    return Setup(
-        extractors=registry.EXTRACTORS,
-        docs=docs.DOCS,
-        rules=rules.RULES,
-        pages=pages.PAGES,
-        changelog="CHANGELOG.md",
-    )

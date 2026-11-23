@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs, pages
+from pyeye.docs_facts import cli
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.examples import (
     WHERE_EXAMPLES_LIVE,
@@ -17,6 +17,7 @@ from pyeye.docs_facts.examples import (
     match_shown,
     parse_examples,
 )
+from tests.utils.docs_facts_config import write_config
 
 F = "```"
 
@@ -153,9 +154,8 @@ class TestWhereExamplesLive:
             (tmp_path / name).write_text(good, encoding="utf-8")
         (tmp_path / ".claude").mkdir()
         (tmp_path / ".claude" / "README.md").write_text(good, encoding="utf-8")
-        monkeypatch.setattr(
-            docs,
-            "DOCS",
+        write_config(
+            tmp_path,
             (
                 DocEntry("README.md", "human", "prose"),
                 DocEntry("CHANGELOG.md", "human", "history"),
@@ -163,8 +163,6 @@ class TestWhereExamplesLive:
                 DocEntry("docs/api/a.md", "human", "prose"),
             ),
         )
-        monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
-        monkeypatch.setattr(pages, "PAGES", {})
         # #825's prose rules need the real facts; they aren't under test here.
         monkeypatch.setattr(cli.rules, "run", lambda _root, _facts, *_setup: [])
 
