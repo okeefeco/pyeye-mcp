@@ -31,6 +31,9 @@ Every ``claude --plugin-dir`` session is plugin ``pyeye@inline`` and shares one
 whichever checkout synced first.  One venv per root keeps each checkout on its
 own code.  A slot is stale when its ``uv.lock`` copy differs from the root's or
 its python is missing.
+
+An installed plugin runs from Claude Code's cache, a copy with no ``.git``, where
+setuptools-scm can't find pyeye's version; ``pretend_version`` supplies one (#1148).
 """
 
 from __future__ import annotations
@@ -39,6 +42,7 @@ import filecmp
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess  # nosec B404 — runs uv and the venv's python with fixed arguments
 import sys
@@ -47,6 +51,9 @@ from pathlib import Path
 from typing import Any, TextIO
 
 UV_INSTALL_URL = "https://docs.astral.sh/uv/getting-started/installation/"
+PRETEND_VERSION_ENV = "SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYEYE_MCP"
+_RELEASE_HEADING = re.compile(r"^## \[(\d+(?:\.\d+)*)\]", re.MULTILINE)
+_SHORT_SHA = re.compile(r"[0-9a-f]{7,40}")
 
 
 class SetupError(Exception):
@@ -70,6 +77,27 @@ def venv_python(venv: Path) -> Path:
     if os.name == "nt":
         return venv / "Scripts" / "python.exe"
     return venv / "bin" / "python"
+
+
+def pretend_version(root: Path) -> str | None:
+    """The version to build *root* as when setuptools-scm can't find one (#1148).
+
+    Claude Code runs an installed plugin from a per-version cache copy with no
+    ``.git``, and ``_version.py`` is git-ignored, so setuptools-scm has nothing
+    to read and the build fails.  A checkout or worktree (any ``.git``) returns
+    ``None``: setuptools-scm reads its real version.  Otherwise the version is
+    the last release in ``CHANGELOG.md`` plus the cache directory's short sha,
+    when its name is one: ``2.2.0+g11473fb4fd21``.
+    """
+    if (root / ".git").exists():
+        return None
+    try:
+        match = _RELEASE_HEADING.search((root / "CHANGELOG.md").read_text(encoding="utf-8"))
+    except OSError:
+        match = None
+    release = match.group(1) if match else "0"
+    local = f"g{root.name}" if _SHORT_SHA.fullmatch(root.name) else "plugin"
+    return f"{release}+{local}"
 
 
 def _is_current(root_lock: Path, slot: Path) -> bool:
@@ -107,6 +135,9 @@ def ensure(
     env = os.environ.copy()
     env.pop("VIRTUAL_ENV", None)
     env["UV_PROJECT_ENVIRONMENT"] = str(venv)
+    version = pretend_version(root)
+    if version and PRETEND_VERSION_ENV not in env:
+        env[PRETEND_VERSION_ENV] = version
     cmd = ["uv", "sync", "--no-dev", "--frozen", "--project", str(root)]
     try:
         result = (run or subprocess.run)(

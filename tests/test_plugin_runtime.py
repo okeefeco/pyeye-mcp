@@ -290,3 +290,64 @@ class TestMain:
 
     def test_unknown_mode(self) -> None:
         assert rt.main(["bogus"]) == 2
+
+
+def _changelog(root: Path, *releases: str) -> None:
+    lines = ["# Changelog", "", "## [Unreleased]", ""]
+    lines += [f"## [{r}] - 2026-11-19\n" for r in releases]
+    (root / "CHANGELOG.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+class TestVersionWithoutGit:
+    """#1148: the installed plugin's cache root has no .git, so setuptools-scm
+    can't find a version and ``uv sync`` fails to build pyeye-mcp."""
+
+    def test_a_cache_root_gets_the_last_release_and_its_sha(self, tmp_path: Path) -> None:
+        root = _plugin_root(tmp_path / "pyeye" / "11473fb4fd21")
+        _changelog(root, "2.2.0", "2.1.0")
+        assert rt.pretend_version(root) == "2.2.0+g11473fb4fd21"
+
+    def test_a_non_sha_directory_name_is_not_used(self, tmp_path: Path) -> None:
+        root = _plugin_root(tmp_path / "pyeye-copy")
+        _changelog(root, "2.2.0")
+        assert rt.pretend_version(root) == "2.2.0+plugin"
+
+    def test_no_changelog_still_gives_a_valid_version(self, tmp_path: Path) -> None:
+        assert rt.pretend_version(_plugin_root(tmp_path / "r")) == "0+plugin"
+
+    @pytest.mark.parametrize("kind", ["dir", "file"])
+    def test_a_git_checkout_or_worktree_lets_setuptools_scm_decide(
+        self, kind: str, tmp_path: Path
+    ) -> None:
+        root = _plugin_root(tmp_path / "r")
+        if kind == "dir":
+            (root / ".git").mkdir()
+        else:  # a worktree's .git is a file
+            (root / ".git").write_text("gitdir: elsewhere\n", encoding="utf-8")
+        assert rt.pretend_version(root) is None
+
+    def test_ensure_passes_the_version_to_the_build(self, tmp_path: Path) -> None:
+        root = _plugin_root(tmp_path / "pyeye" / "5e535764ace5")
+        _changelog(root, "2.2.0")
+        uv = FakeUv()
+        rt.ensure(root, tmp_path / "data", run=uv, out=io.StringIO())
+        [(_, env)] = uv.calls
+        assert env[rt.PRETEND_VERSION_ENV] == "2.2.0+g5e535764ace5"
+
+    def test_ensure_keeps_a_version_the_user_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv(rt.PRETEND_VERSION_ENV, "9.9.9")
+        uv = FakeUv()
+        rt.ensure(_plugin_root(tmp_path / "r"), tmp_path / "data", run=uv, out=io.StringIO())
+        assert uv.calls[0][1][rt.PRETEND_VERSION_ENV] == "9.9.9"
+
+    def test_ensure_sets_nothing_in_a_git_checkout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv(rt.PRETEND_VERSION_ENV, raising=False)
+        root = _plugin_root(tmp_path / "r")
+        (root / ".git").mkdir()
+        uv = FakeUv()
+        rt.ensure(root, tmp_path / "data", run=uv, out=io.StringIO())
+        assert rt.PRETEND_VERSION_ENV not in uv.calls[0][1]
