@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "A decision's sites resolve through pyeye to canonical handles; an unresolved site keeps its reason (#1178)"
 issues: [1178, 1182, 1132]
 anchors: ["pyeye.decision_sites.refs", "pyeye.decision_sites.resolve_sites", "pyeye.decision_sites.pyeye_resolver", "tests/test_decision_sites.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-a-reference-is-classified-from-the-layout-short-forms-are-never-resolved.md"]
 superseded_by: []
 ---
 
