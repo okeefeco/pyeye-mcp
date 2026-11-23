@@ -51,6 +51,9 @@ AREA = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*")
 #: misses real duplicates (they can share no name word, or score under 0.6), so
 #: a planner's curated ``pairs`` are how those are labelled.
 MIN_SCORE = 0.9
+#: The registered pages the ``architecture-handles`` rule scans, by default (#1176):
+#: the area docs and top map live under ``docs/architecture/`` (ruling 1 on #1173).
+ARCHITECTURE_PAGES: tuple[str, ...] = ("docs/architecture/**",)
 
 #: A curated pair's length: two handles.
 PAIR_SIZE = 2
@@ -72,6 +75,8 @@ class Options:
         min_score: The lowest candidate score whose pair is labelled.
         candidates_page: Where ``generate`` writes the advisory candidate page,
             or ``None`` for nowhere (the candidates are never facts).
+        architecture_pages: :mod:`fnmatch` globs over registered page paths: the
+            pages whose handles must resolve (``architecture-handles``, #1176).
         pairs: Handle pairs a planner curated (RFC #1083 step 4.2), labelled
             from pyeye's facts like scored candidates, whatever their score.
         rejected: ``(a, b, reason)`` pairs the user rejected (#1175): never
@@ -92,6 +97,7 @@ class Options:
     rejected: tuple[tuple[str, str, str], ...] = ()
     areas_file: str | None = None
     pairs_file: str | None = None
+    architecture_pages: tuple[str, ...] = ARCHITECTURE_PAGES
 
 
 def _patterns(key: str, value: Any) -> tuple[str, ...]:
@@ -123,6 +129,7 @@ def parse(table: Mapping[str, Any]) -> Options:
         "min_score",
         "candidates_page",
         "pairs",
+        "architecture_pages",
     }
     unknown = sorted(set(table) - known)
     if unknown:
@@ -156,6 +163,11 @@ def parse(table: Mapping[str, Any]) -> Options:
         rejected=rejected,
         areas_file=_path("areas", areas) if isinstance(areas, str) else None,
         pairs_file=_path("pairs", pairs) if isinstance(pairs, str) else None,
+        architecture_pages=(
+            _patterns("architecture_pages", table["architecture_pages"])
+            if "architecture_pages" in table
+            else ARCHITECTURE_PAGES
+        ),
     )
 
 

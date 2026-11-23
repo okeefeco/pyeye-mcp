@@ -328,6 +328,7 @@ include = ["src/*"]                # fnmatch patterns on file paths; * crosses /
 exclude = ["*/tests/*"]
 min_score = 0.9                    # the lowest score a scored candidate needs
 candidates_page = "docs/facts/arch.candidates.md"
+architecture_pages = ["docs/architecture/**"]  # the default: pages whose handles must resolve
 areas = "docs/architecture/areas.toml"     # a committed data file, or an inline table
 pairs = "docs/architecture/pairs.toml"     # a committed data file, or an inline list
 
@@ -396,9 +397,21 @@ whose entries are `[a, b]` or `{a, b, rejected}`.
   prefixes) fails `check` when a module under A imports something under B at runtime.
   `TYPE_CHECKING` imports don't count, an unresolved import of B does, and a check
   whose A names no module can't be verified, so it fails too.
-- Both rules follow the configured `prefix`. They are skipped and reported where the
-  facts are absent. One `structure` kind per repository: a second would bring the same
-  rules twice, so the config refuses it.
+- **Handles on architecture pages resolve** (`architecture-handles`, #1176). On each
+  registered page matching `architecture_pages` (by default `docs/architecture/**`),
+  every handle in the prose must name something. A handle is a dotted name starting
+  with a top-level name the dump knows, such as `mypkg.factory.Factory` or
+  `mypkg.factory.Factory.create_pool`. Write it in a code span; plain prose is checked
+  the same way. A name glued to `/`, `.`, `-` or a letter is part of something else (a
+  path, a URL, `my-pkg.x`) and isn't checked, and fact-block content is never checked.
+  Each handle is looked up in the dump's members facts first. One the dump doesn't
+  list then goes through pyeye's `resolve`, so a re-exported path resolves to its
+  definition. Only a handle neither finds fails `check`, with its file and line. A
+  dotted name that only looks like a handle, such as a file named `mypkg.lock`, is
+  allowed in that page's `allow` entry. Only architecture pages are checked, for now.
+- The three rules follow the configured `prefix`. They are skipped and reported where
+  the facts are absent. One `structure` kind per repository: a second would bring the
+  same rules twice, so the config refuses it.
 
 ## The docs site
 
