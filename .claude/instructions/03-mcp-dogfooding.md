@@ -55,11 +55,9 @@ its edge table explains every edge.
 
 ## Measuring Success
 
-We track how searches turn into facts, to make sure we actually drive the car we
-build. The signal is **follow-through**: a grep over Python source is followed by
-pyeye in the same session, because the hits it finds still need proving.
-`mcp-report` shows it (code searches, the followed-up share, other searches apart);
-see the `mcp-report` / `mcp-logs` commands in the root `CLAUDE.md` ("Dogfooding
-Metrics Tracking").
+We don't count adoption any more (#1139). Dogfooding is checked by
+verifying pyeye on real codebases: the `pyeye-verify` skill runs a
+`pyeye-scenarios` scenario's probes, diffs them against its baseline and
+scores how well pyeye serves an agent.
 
 Remember: **We build this tool — we must be its best users!**
