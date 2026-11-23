@@ -17,13 +17,13 @@ These go in a future major release (#749).
 
 Files the server wrote before can be deleted: `active_sessions.json`,
 `completed_sessions.jsonl`, `aggregated_stats.json` and their `.lock` files,
-under `~/.pyeye/metrics/`. Other files in that directory (`history.jsonl`,
-`current_session.json`) belong to the dogfooding scripts; see
-[DOGFOODING_INTEGRATION.md](DOGFOODING_INTEGRATION.md).
+under `~/.pyeye/metrics/`. The other files there (`history.jsonl`,
+`current_session.json`) were written by the dogfooding metrics scripts, which
+were removed in #1139, so they can be deleted too.
 
 ## Where MCP usage is measured now
 
-The Claude Code hooks in [`scripts/claude_hooks/`](../scripts/claude_hooks/README.md)
-record MCP calls: `mcp-report` for usage reports, `mcp-logs` to watch calls live.
-The server's in-process performance metrics are available through the
+pyeye no longer measures how often it is used. The Claude Code hooks that
+recorded MCP calls (`mcp-report`, `mcp-logs`) were retired in #1139. The
+server's in-process performance metrics are available through the
 `get_performance_metrics` admin tool.
