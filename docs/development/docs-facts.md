@@ -221,7 +221,16 @@ read its source fails loudly instead of yielding nothing.
 
 ## Running it on another repository
 
-`scripts/docs_facts.py --root <repo>` runs on any Python repository that declares
+The package ships the same commands as
+<!-- fact:begin cli.module.pyeye.docs_facts -->`python -m pyeye.docs_facts`<!-- fact:end -->
+`generate|check|changed` (#1162). It runs on the working directory, or on `--root <repo>`. A skill runs it on a
+user's repository from the pyeye plugin's environment:
+
+```bash
+uv run --no-project python "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py" python -m pyeye.docs_facts check
+```
+
+`python -m pyeye.docs_facts` (or `scripts/docs_facts.py --root <repo>`) runs on any Python repository that declares
 what to check in `[tool.pyeye.docs_facts]` in its `pyproject.toml`, or under
 `"docs_facts"` in its `.pyeye.json` (which wins). Only the repository's own files are
 read for this config, never the user's global pyeye config. A repository with neither
