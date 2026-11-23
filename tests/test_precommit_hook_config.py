@@ -1,12 +1,13 @@
 """Contract tests for the git-state hooks wired into .pre-commit-config.yaml (#462).
 
-These guard the two hooks that must stay pre-commit-managed (so every
-contributor gets them, not just one developer's local .git/hooks):
+These guard the hook that must stay pre-commit-managed (so every contributor
+gets it, not just one developer's local .git/hooks):
 
 * ``refresh-version-file`` — regen setuptools_scm version on pull/merge/checkout
-* ``start-metrics-session`` — start a dogfooding session on issue-branch checkout
 
-The contract that matters is *which stages they run on* and that pre-commit is
+(``start-metrics-session`` was retired with the dogfooding metrics in #1139.)
+
+The contract that matters is *which stages it runs on* and that pre-commit is
 configured to install those stage hook types.
 """
 
@@ -66,12 +67,6 @@ def test_refresh_version_runs_on_merge_and_checkout():
     assert hook["pass_filenames"] is False
 
 
-def test_metrics_session_runs_on_checkout_only():
-    hook = _hook(_load(), "start-metrics-session")
-    assert hook["stages"] == ["post-checkout"]
-    assert hook["pass_filenames"] is False
-
-
 def test_only_intended_hooks_run_on_checkout_and_merge():
     """Unscoped lint/format/conformance hooks must NOT fire on checkout/merge (#477).
 
@@ -79,14 +74,12 @@ def test_only_intended_hooks_run_on_checkout_and_merge():
     every hook lacking explicit ``stages`` also run on those git events — notably
     the ``always_run`` ``conformance-linter`` (a multi-second pytest run) on every
     ``git checkout``/``git pull``. A top-level ``default_stages: [pre-commit]``
-    scopes the unscoped hooks back to commit time; only the two hooks that
-    explicitly opt into the git-state stages should fire there.
+    scopes the unscoped hooks back to commit time; only the hook that
+    explicitly opts into the git-state stages should fire there (the
+    dogfooding ``start-metrics-session`` hook was retired in #1139).
     """
     config = _load()
-    assert _hooks_at(config, "post-checkout") == {
-        "refresh-version-file",
-        "start-metrics-session",
-    }
+    assert _hooks_at(config, "post-checkout") == {"refresh-version-file"}
     assert _hooks_at(config, "post-merge") == {"refresh-version-file"}
 
 

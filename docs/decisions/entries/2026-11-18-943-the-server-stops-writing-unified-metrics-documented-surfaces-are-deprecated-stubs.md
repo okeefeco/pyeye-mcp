@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "The server stops writing unified metrics; its documented surfaces become deprecated stubs (#943)"
 issues: [943, 917, 914, 628, 749]
 anchors: ["pyeye.unified_metrics.get_unified_collector", "pyeye.metrics_hook.track_mcp_operation", "pyeye.settings.DEPRECATED_ENV_VARS", "pyeye.settings.PerformanceSettings._get_str_env", "scripts/unified_metrics.py", "docs/UNIFIED_METRICS.md", "tests/unit/utils/test_unified_metrics_deprecated.py", "tests/test_mcp_shutdown_cleanup.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1139-retire-the-dogfooding-adoption-metrics.md"]
 superseded_by: []
 ---
 

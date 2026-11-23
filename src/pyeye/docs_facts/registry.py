@@ -9,8 +9,9 @@ list; nothing else reads code to produce documentation facts.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from . import entry_points
 from .extractors import (
@@ -25,7 +26,10 @@ from .extractors import (
     scopes,
     security,
 )
-from .facts import Bindable, index
+from .facts import Advisory, Bindable, index
+
+if TYPE_CHECKING:
+    from .rules import Rule
 
 
 @dataclass(frozen=True)
@@ -35,12 +39,17 @@ class Extractor:
     Attributes:
         name: Short name, for error messages.
         prefixes: The first ID segments this extractor owns.
-        extract: Yields the family's facts and views; takes the repo root.
+        extract: Yields the family's facts and views, and any
+            :class:`~.facts.Advisory` pages; takes the repo root.
+        rules: The rules that read this extractor's facts (#1092). They join
+            the repository's rules, so a rule follows the extractor's options
+            (its fact prefix) instead of assuming a default.
     """
 
     name: str
     prefixes: tuple[str, ...]
-    extract: Callable[[Path], Iterable[Bindable]]
+    extract: Callable[[Path], Iterable[Bindable | Advisory]]
+    rules: tuple[Rule, ...] = field(default=())
 
 
 EXTRACTORS: tuple[Extractor, ...] = (
@@ -59,16 +68,33 @@ EXTRACTORS: tuple[Extractor, ...] = (
 )
 
 
-def build(root: Path, extractors: Iterable[Extractor] = EXTRACTORS) -> dict[str, Bindable]:
-    """Run every extractor and index the result by ID.
+def _add_page(pages: dict[str, str], page: Advisory) -> None:
+    if page.path in pages:
+        raise ValueError(f"advisory page {page.path!r} is produced twice")
+    pages[page.path] = page.text
+
+
+def build(
+    root: Path,
+    extractors: Iterable[Extractor] = EXTRACTORS,
+    advisory: dict[str, str] | None = None,
+) -> dict[str, Bindable]:
+    """Run every extractor and index its facts by ID.
+
+    Args:
+        root: The repository root.
+        extractors: The extractors to run.
+        advisory: Filled with each :class:`~.facts.Advisory` page, path -> text
+            (#1092); without it they are dropped.
 
     Raises:
         ValueError: If two extractors claim a prefix, an extractor yields an ID
-            outside its prefixes, an ID is malformed or produced twice, or a view
-            names a fact that doesn't exist.
+            outside its prefixes, an ID is malformed or produced twice, a view
+            names a fact that doesn't exist, or two advisory pages share a path.
     """
     owners: dict[str, str] = {}
     items: list[Bindable] = []
+    pages: dict[str, str] = {}
     for extractor in extractors:
         for prefix in extractor.prefixes:
             if prefix in owners:
@@ -77,6 +103,9 @@ def build(root: Path, extractors: Iterable[Extractor] = EXTRACTORS) -> dict[str,
                 )
             owners[prefix] = extractor.name
         for item in extractor.extract(root):
+            if isinstance(item, Advisory):
+                _add_page(pages, item)
+                continue
             if item.id.split(".", 1)[0] not in extractor.prefixes:
                 raise ValueError(
                     f"{extractor.name} yielded {item.id!r}, outside its prefixes "
@@ -88,4 +117,6 @@ def build(root: Path, extractors: Iterable[Extractor] = EXTRACTORS) -> dict[str,
         missing = [m for m in getattr(item, "members", ()) if m not in by_id]
         if missing:
             raise ValueError(f"view {item.id!r} names unknown facts {missing}")
+    if advisory is not None:
+        advisory.update(pages)
     return by_id

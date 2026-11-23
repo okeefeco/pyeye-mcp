@@ -535,9 +535,6 @@
     "precommit.hook.ruff": {
       "repo": "local"
     },
-    "precommit.hook.start-metrics-session": {
-      "repo": "local"
-    },
     "precommit.hook.trailing-whitespace": {
       "repo": "local"
     },
@@ -1745,8 +1742,7 @@
       "precommit.hook.decisions-check",
       "precommit.hook.decision-log-nudge",
       "precommit.hook.duplicate-code-report",
-      "precommit.hook.refresh-version-file",
-      "precommit.hook.start-metrics-session"
+      "precommit.hook.refresh-version-file"
     ],
     "resolver.bare_name": [
       "resolver.bare_name.shadow",

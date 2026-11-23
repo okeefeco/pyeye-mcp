@@ -99,6 +99,19 @@ class CodebaseWatcher(FileSystemEventHandler):
             logger.debug(f"Python file modified: {Path(event.src_path).as_posix()}")
             self._schedule()
 
+    def on_attrib(self, event: Any) -> None:
+        """A file's metadata changed: touch, ``os.utime`` or chmod (#1146, from #613).
+
+        watchdog 7 reports these as "attrib" instead of "modified". They still
+        count, because a touch is how a user forces a re-index and the artifact
+        caches key on mtime. A directory's metadata change adds or removes no module.
+        """
+        if event.is_directory:
+            return
+        if self._record(event.src_path, False):
+            logger.debug(f"Python file metadata changed: {Path(event.src_path).as_posix()}")
+            self._schedule()
+
     def on_created(self, event: Any) -> None:
         """A file or directory appeared (#617: previously ignored)."""
         if self._record(event.src_path, event.is_directory):

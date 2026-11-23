@@ -310,18 +310,3 @@ repos:
         stages: [post-merge, post-checkout]
         pass_filenames: false
         always_run: true
-
-  # Start a dogfooding metrics session when checking out an issue branch (#462).
-  # Pre-commit-managed (was a local-only .git/hooks/post-checkout) so every
-  # contributor gets it. `uv run` because dogfooding_metrics.py imports click +
-  # pyeye. The command self-guards file checkouts and is failure-tolerant.
-  - repo: local
-    hooks:
-      - id: start-metrics-session
-        name: Start dogfooding metrics session
-        entry: uv run --frozen python scripts/dogfooding_metrics.py start-on-checkout
-        language: system
-        stages: [post-checkout]
-        pass_filenames: false
-        always_run: true
-        verbose: true

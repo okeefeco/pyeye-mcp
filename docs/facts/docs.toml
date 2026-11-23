@@ -75,11 +75,6 @@ path = "plugins/worktree-hook/README.md"
 audience = "human"
 kind = "prose"
 
-[[doc]]
-path = "scripts/claude_hooks/README.md"
-audience = "human"
-kind = "prose"
-
 # Claude instructions, agents and internal skills
 
 [[doc]]
@@ -248,11 +243,6 @@ audience = "human"
 kind = "prose"
 
 [[doc]]
-path = "docs/METRICS_BASELINE.md"
-audience = "human"
-kind = "history"
-
-[[doc]]
 path = "docs/CLAUDE_AGENTS.md"
 audience = "human"
 kind = "prose"
@@ -265,17 +255,7 @@ kind = "prose"
 ]
 
 [[doc]]
-path = "docs/DOGFOODING_INTEGRATION.md"
-audience = "human"
-kind = "prose"
-
-[[doc]]
 path = "docs/UNIFIED_METRICS.md"
-audience = "human"
-kind = "prose"
-
-[[doc]]
-path = "docs/DOGFOODING_SETUP.md"
 audience = "human"
 kind = "prose"
 

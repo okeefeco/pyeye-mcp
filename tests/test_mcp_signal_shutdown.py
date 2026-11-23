@@ -150,13 +150,12 @@ def test_stdin_eof_exits_the_server(server: _Server) -> None:
 
 
 @pytest.mark.real_watcher
-@pytest.mark.skipif(
-    os.name == "nt",
-    reason="watchdog 7's Windows reader thread is non-daemon; there the server stops its "
-    "watchers before exiting (test_serving_ends_with_cleanup, test_stdin_eof_exits_the_server)",
-)
 def test_the_watcher_threads_are_daemons(tmp_path: Path) -> None:
-    """A watcher left running can't keep the interpreter alive at exit."""
+    """A watcher left running can't keep the interpreter alive at exit.
+
+    On every OS, Windows included: watchdog 7.1.1 made its Windows reader thread
+    a daemon (gorakhargosh/watchdog#1470), which 7.0-7.1.0 didn't (#1146).
+    """
     before = set(threading.enumerate())
     watcher = CodebaseWatcher(tmp_path.as_posix())
     watcher.start()

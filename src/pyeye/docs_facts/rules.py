@@ -29,6 +29,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from ..async_utils import filtered_rglob
@@ -57,6 +58,10 @@ HONEST_CLAIMS = "honest-claims"
 REMOVED_NAME = "removed-name"
 ENV_NAME = "env-name"
 SERVER_COMMAND = "server-command"
+#: The ``structure`` kind's rules (#1092), built per extractor so they follow
+#: its fact prefix (:mod:`.extractors.structure`).
+LAYERING = "layering"
+STRUCTURE_COVERAGE = "structure-coverage"
 
 #: Every rule ID a :attr:`~.docs.DocEntry.allow` key may name. A key outside this
 #: set is a typo that would silently allow nothing, so it fails.
@@ -70,6 +75,8 @@ RULE_IDS: frozenset[str] = frozenset(
         REMOVED_NAME,
         ENV_NAME,
         SERVER_COMMAND,
+        LAYERING,
+        STRUCTURE_COVERAGE,
     }
 )
 
@@ -191,6 +198,11 @@ class Rule:
             ``.`` that some fact must start with. A rule whose facts are absent
             (another repository has none of pyeye's) is skipped and reported,
             never run on half a fact set (:func:`missing_facts`).
+        audit: A repository-wide check, run once per ``check``/``generate``
+            rather than per page (#1092): the facts in, one message per problem
+            out. It is given a read-only view of the facts and nothing else (no
+            root, so no file reads; C19), and its problems belong to no page, so
+            no allow-list can hold them.
     """
 
     id: str
@@ -199,6 +211,7 @@ class Rule:
     scan: Callable[[Page, Facts], list[Finding]]
     strings: bool = False
     requires: frozenset[str] = frozenset()
+    audit: Callable[[Facts], list[str]] | None = None
 
 
 def missing_facts(rule: Rule, facts: Facts) -> list[str]:
@@ -809,6 +822,10 @@ def run(
     rules = tuple(r for r in (RULES if rules is None else rules) if not missing_facts(r, facts))
     entries = doc_registry.for_repo(root) if docs is None else docs
     problems = allow_problems(entries)
+    # An audit reads the facts and nothing else (C19): no root, no files, no
+    # imports, and a read-only view, so it can't change what other rules see.
+    view = MappingProxyType(dict(facts))
+    problems.extend(f"{rule.id}: {m}" for rule in rules if rule.audit for m in rule.audit(view))
     for page, entry in pages(root, entries):
         problems.extend(_page_problems(page, entry, rules, facts))
     if descriptions is None and any(r.descriptions for r in rules):
