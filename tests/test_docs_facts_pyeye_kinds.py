@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import kinds, pyeye_kinds, registry
+from pyeye.docs_facts import config, kinds, pyeye_kinds, registry
 from pyeye.docs_facts.cli import main
 from pyeye.docs_facts.facts import ExtractionError
 
@@ -26,7 +26,11 @@ WHY = "No generic kind can express it: "
 
 
 def _extractors() -> list[registry.Extractor]:
-    return [factory({}) for factory in pyeye_kinds.PYEYE_KINDS.values()]
+    """pyeye's extractors as its config builds them: ``pyeye-*`` and generic kinds.
+
+    The ``data`` extractor (the config's ``facts`` entries) isn't one of the registry's.
+    """
+    return [e for e in config.load(ROOT).extractors if e.name != "data"]
 
 
 class TestTheKinds:
@@ -36,7 +40,13 @@ class TestTheKinds:
 
     def test_the_count_only_shrinks(self) -> None:
         """#1119 converts them to generic kinds: a new pyeye-only kind needs a ruling."""
-        assert len(pyeye_kinds.PYEYE_KINDS) <= BASELINE
+        assert len(pyeye_kinds.PYEYE_KINDS) == pyeye_kinds.REMAINING <= BASELINE
+
+    def test_pyeyes_config_names_every_pyeye_kind(self) -> None:
+        raw = config.find(ROOT)
+        assert raw is not None
+        named = [e["kind"] for e in raw["extractors"] if e["kind"].startswith(pyeye_kinds.PREFIX)]
+        assert named == list(pyeye_kinds.PYEYE_KINDS)
 
     def test_they_are_pyeyes_extractors_in_order(self) -> None:
         assert [(e.name, e.prefixes) for e in _extractors()] == [
@@ -89,9 +99,9 @@ class TestTheRestriction:
         root = _repo(
             tmp_path,
             '[project]\nname = "other"\n\n'
-            '[[tool.pyeye.docs_facts.extractors]]\nkind = "pyeye-cli"\n',
+            '[[tool.pyeye.docs_facts.extractors]]\nkind = "pyeye-ci"\n',
         )
         assert main(["check"], root=root) == 1
         err = capsys.readouterr().err
         assert "cannot extract the facts" in err
-        assert "'pyeye-cli' is restricted to pyeye's own repository" in err
+        assert "'pyeye-ci' is restricted to pyeye's own repository" in err

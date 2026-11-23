@@ -90,7 +90,10 @@ class TestTheSetupReachesThePlan:
     def test_pyeyes_own_setup_is_its_config(self) -> None:
         """No built-in setup (#1107): pyeye's comes from its config, like any repo's."""
         own = config.load(ROOT)
-        assert [(e.name, e.prefixes) for e in own.extractors] == [
+        # Its ``facts`` entries are one more extractor, ``data``: #1119's count (a literal).
+        data, *kinds_ = own.extractors
+        assert (data.name, data.prefixes) == ("data", ("docs_facts",))
+        assert [(e.name, e.prefixes) for e in kinds_] == [
             (e.name, e.prefixes) for e in registry.EXTRACTORS
         ]
         assert own.rules == rules.RULES

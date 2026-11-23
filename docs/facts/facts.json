@@ -93,6 +93,7 @@
       ],
       "meaning": "read by Jedi from the source's own file, with no cross-file inference; the same result in every process for the same source"
     },
+    "docs_facts.pyeye_kinds_remaining": 10,
     "duplication.command.dismiss": {},
     "duplication.command.review": {},
     "duplication.default.max_occurrences": 50,

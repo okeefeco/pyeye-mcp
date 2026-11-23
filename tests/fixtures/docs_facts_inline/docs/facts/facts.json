@@ -1,5 +1,11 @@
 {
   "facts": {
+    "cli.module.app": {
+      "command": "python -m app"
+    },
+    "cli.script.demo": {
+      "target": "app.cli:main"
+    },
     "demo.backends": [
       "memory",
       "disk"
@@ -9,5 +15,10 @@
     "demo.timeout": 30,
     "demo.workers": 4
   },
-  "views": {}
+  "views": {
+    "cli.all": [
+      "cli.script.demo",
+      "cli.module.app"
+    ]
+  }
 }

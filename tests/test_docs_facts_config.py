@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, config, pyeye_kinds, rules
+from pyeye.docs_facts import cli, config, kinds, pyeye_kinds, rules
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import ExtractionError, Fact
 
@@ -386,4 +386,6 @@ def test_this_repository_configures_itself_as_data() -> None:
     assert "preset" not in raw
     assert raw["docs"] == "docs/facts/docs.toml"
     assert raw["reference_only"] == ["precommit"]
-    assert [e["kind"] for e in raw["extractors"]] == list(pyeye_kinds.PYEYE_KINDS)
+    named = [e["kind"] for e in raw["extractors"]]
+    assert [k for k in named if k.startswith(pyeye_kinds.PREFIX)] == list(pyeye_kinds.PYEYE_KINDS)
+    assert set(named) <= set(kinds.BUILT_IN_KINDS)

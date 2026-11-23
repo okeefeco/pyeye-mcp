@@ -1,9 +1,12 @@
-# A small repository configured inline for docs-facts (#1091): the inline path,
+# A small repository configured inline for docs-facts (#1091, #1119): the inline path,
 # dogfooded in CI by tests/test_docs_facts_inline_fixture.py. Data only.
 [project]
 name = "inline-demo"
 version = "0.4.0"
 requires-python = ">=3.11"
+
+[project.scripts]
+demo = "app.cli:main"
 
 [tool.pyeye.docs_facts]
 rules = ["honest-claims"]
@@ -37,6 +40,10 @@ id = "demo.workers"
 from = "yaml"
 file = "app/workers.yaml"
 key = "pool.size"
+
+[[tool.pyeye.docs_facts.extractors]]
+kind = "entry-points"   # a generic kind (#1119): console scripts and `python -m` modules
+package = "app"
 
 [[tool.pyeye.docs_facts.docs]]
 path = "docs/overview.md"

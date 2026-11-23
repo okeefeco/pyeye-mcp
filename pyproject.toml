@@ -107,8 +107,16 @@ changelog = "CHANGELOG.md"
 # Reference data, not claims prose should make: kept out of the uncovered-fact ledger (#1108).
 reference_only = ["precommit"]
 
-# pyeye's extractors: built-in pyeye-* kinds, restricted to this repository.
-# Each says why no generic kind can express it yet; #1119 converts them.
+# #1119's measure: how many pyeye-* kinds remain, shown in the docs-facts dev doc.
+[[tool.pyeye.docs_facts.facts]]
+id = "docs_facts.pyeye_kinds_remaining"
+from = "literal"
+file = "src/pyeye/docs_facts/pyeye_kinds.py"
+name = "REMAINING"
+
+# pyeye's extractors: built-in kinds. The pyeye-* ones are restricted to this
+# repository and each says why no generic kind can express it yet; #1119
+# converts them (pyeye_kinds.REMAINING counts what's left).
 [[tool.pyeye.docs_facts.extractors]]
 kind = "pyeye-mcp-surface"
 
@@ -119,7 +127,9 @@ kind = "pyeye-edges"
 kind = "pyeye-env"
 
 [[tool.pyeye.docs_facts.extractors]]
-kind = "pyeye-cli"
+# A generic kind (#1119): console scripts and `python -m` modules.
+kind = "entry-points"
+package = "src/pyeye"
 
 [[tool.pyeye.docs_facts.extractors]]
 kind = "pyeye-ci"
