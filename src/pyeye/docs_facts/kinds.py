@@ -22,6 +22,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from . import entry_points
+from .extractors.structure import structure as _structure
 from .facts import KindOptionsError
 from .pyeye_kinds import PYEYE_KINDS
 from .registry import Extractor
@@ -32,12 +33,13 @@ __all__ = ["BUILT_IN_KINDS", "KindFactory", "KindOptionsError"]
 KindFactory = Callable[[Mapping[str, Any]], Extractor]
 
 
-#: Every built-in kind, by the name a config's ``kind`` uses. #1092 adds
-#: ``structure``; a kind is registered here, never named by a code reference.
+#: Every built-in kind, by the name a config's ``kind`` uses; a kind is
+#: registered here, never named by a code reference.
 BUILT_IN_KINDS: dict[str, KindFactory] = {}
 
 # Generic kinds: each in its own module, one registration line each (#1119).
 BUILT_IN_KINDS[entry_points.KIND] = entry_points.factory
+BUILT_IN_KINDS["structure"] = _structure
 
 # pyeye's own extractors, restricted to pyeye's repository (#1107).
 BUILT_IN_KINDS.update(PYEYE_KINDS)

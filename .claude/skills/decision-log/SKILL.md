@@ -1,6 +1,6 @@
 ---
 name: decision-log
-description: Use at the commit checkpoint — or on demand ("log this decision", "record why we did this") — when a change is BOTH contract/invariant-significant AND driven by friction. Captures a short, honest, verifiable decision note as one file in the repo's docs/decisions/entries/. Triggers on diffs touching a public signature, a documented invariant, a predicate/schema, or an edge/API contract. Does NOT trigger for pure bugfixes, renames, formatting, dependency bumps, or any change without a non-obvious "why". Tool-agnostic — synergises with pyeye but does not require it.
+description: Use at the commit checkpoint — or on demand ("log this decision", "record why we did this") — when a change is BOTH contract/invariant-significant AND driven by friction. Captures a short, honest, verifiable decision note as one file in the repo's decision log (docs/decisions/entries/ by default). Triggers on diffs touching a public signature, a documented invariant, a predicate/schema, or an edge/API contract. Does NOT trigger for pure bugfixes, renames, formatting, dependency bumps, or any change without a non-obvious "why". Tool-agnostic — synergises with pyeye but does not require it.
 ---
 
 # Decision Log
@@ -16,6 +16,8 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 - Propose in ONE line; never write the entry before the user confirms.
 - Never nag — if the user declines, drop it silently and continue.
 - `Verify` MUST be honestly tiered (gold / partial / unverifiable) — never a vague "looks right".
+- Run a gold `Verify` once before writing it down. If it fails, or can't run, fix it or lower its tier.
+- Never pick the log's location yourself in a repo that has none: ask (see Where the Log Lives).
 - `Anchor` MUST use stable references (symbol names, #issue/PR, commit-pinned permalinks) — NEVER a bare `file:line`.
 - Never fabricate the date.
 
@@ -44,12 +46,16 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 - The change is mechanical and self-explanatory from the diff.
 - You are unsure it clears the contract-significant bar — default to silence.
 
-## The Flow (propose → draft → confirm → write)
+## The Flow (propose → read → draft → confirm → write → check)
 
-1. **Propose in ONE line.** e.g. *"That `stop_when` change alters a predicate contract — log a decision note?"* Do not draft yet.
-2. **Draft from the diff + conversation.** Fill every field. Pull the *why* from what was actually said/decided, not a guess.
-3. **Show the drafted entry** for confirmation.
-4. **Write on confirm** a new entry file in `docs/decisions/entries/` (see File Convention). If it amends or supersedes an earlier entry, also update that entry's front matter. On decline, drop it.
+The Workflow diagram below is the same flow.
+
+1. **Propose in ONE line.** e.g. *"That `stop_when` change alters a predicate contract — log a decision note?"* Do not draft yet. On decline, drop it.
+2. **Find the log and read what exists.** Locate it (Where the Log Lives), run `python -m pyeye.decisions index --active`, and open the one to three entries that matter. The new decision may amend or supersede one.
+3. **Draft from the diff + conversation.** Fill every field. Pull the *why* from what was actually said/decided, not a guess. **Run a gold `Verify` once**: a command that has never passed is a guess. If it fails, fix the command or lower the tier (`partial` / `unverifiable`).
+4. **Show the drafted entry** for confirmation. On "change it", revise and show it again; on decline, drop it.
+5. **Write on confirm** a new entry file in the log's `entries/` directory (see File Convention). If it amends or supersedes an earlier entry, also update that entry's front matter.
+6. **Run `python -m pyeye.decisions check`.** It must pass.
 
 ## Entry Schema
 
@@ -63,6 +69,8 @@ This habit must survive deadlines. It optimises for low friction and honest, che
 ```
 
 Keep each field to a line or two. A 6-line entry that gets written beats a 40-line ADR that doesn't.
+
+**Anchor with no issue or PR.** Anchor on what will still exist: the canonical symbol name(s) the decision governs, and the test (by name) that pins it. Once the change is committed, add the commit SHA or a commit-pinned permalink. Never invent an issue number. The file name drops the issue part and `issues` is `[]` (File Convention).
 
 ## Applies-to (required)
 
@@ -95,7 +103,8 @@ The `Verify` line is the bridge to the trust layer. It MUST be one of three hone
 **One file per decision**, with no committed index, so two PRs never edit the same lines.
 
 **The tooling ships with pyeye** (#1093): `python -m pyeye.decisions index`, `check`
-and `migrate`. Run it from the project root; it reads `docs/decisions/` there.
+and `migrate`. Run it from the project root. It reads `docs/decisions/` there
+unless `--decisions-dir DIR` (before the subcommand) names another log.
 Where pyeye was installed as a Claude Code plugin, run it through the plugin's
 environment:
 
@@ -111,10 +120,19 @@ fi
 ```
 
 Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.decisions …`.
-A repo with no `docs/decisions/` yet gets "no entries", not an error.
+A repo with no log yet gets "no entries", not an error.
+
+### Where the Log Lives
+
+The log is a directory holding `entries/` (`<log>` below).
+
+- **An existing log wins.** Look for one before anything else: `docs/decisions/entries/`, or an `entries/` directory of `YYYY-MM-DD-*.md` files elsewhere (a repo may say where in its contributor docs). Pass a non-default one with `--decisions-dir`.
+- **No log yet: ask before creating one.** Don't assume `docs/decisions/`. A repo's `docs/` is often a published site (mkdocs, Sphinx), where a new directory becomes pages. Ask once, offering `docs/decisions/` as the default, and create only the `entries/` directory under the answer.
+
+### Entry Files
 
 - **Before drafting, read what already exists.** Run `python -m pyeye.decisions index --active` (optionally `--symbol <name>` or `--issue <N>`) and open the one to three entries that matter. The new decision may amend or supersede one of them.
-- **Location:** `docs/decisions/entries/YYYY-MM-DD-<issue>-<slug>.md`, or `YYYY-MM-DD-<slug>.md` when there's no issue. Use the date the decision was made, the issue it belongs to, and a short lowercase hyphenated slug of the title. Create the directory if absent.
+- **Name:** `<log>/entries/YYYY-MM-DD-<issue>-<slug>.md`, or `YYYY-MM-DD-<slug>.md` when there's no issue. Use the date the decision was made, the issue it belongs to, and a short lowercase hyphenated slug of the title.
 - One file per *distinct* decision (not per commit; one commit may yield zero or one).
 - **Front matter**, then the entry. Each front-matter value is a JSON literal on one line:
 
@@ -144,7 +162,7 @@ superseded_by: []
 - `anchors` lists the governed symbols, the same stable references as the `Anchor` and `Applies-to` lines. It is what `index --symbol` searches.
 - **Amending or superseding** an earlier decision: list the old file in the new entry's `amends` / `supersedes`, add the new file to the old entry's `amended_by` / `superseded_by`, and set the old entry's `status` to `amended` or `superseded`. That front matter is the only edit ever made to an existing entry; its body stays as written.
 - **After writing:** run `python -m pyeye.decisions check`. It must pass. It validates the front matter, the file name, `Applies-to`, and that every amend/supersede link has its reverse.
-- If `docs/decisions/DECISIONS.md` doesn't exist, create it as a short static header that explains the format and how to list entries. It is never edited per decision.
+- **No `DECISIONS.md` is needed.** The tooling reads only `entries/`; don't create one. Where a repo already has one, it is a static header, never edited per decision. If it still holds old entries, `python -m pyeye.decisions migrate` splits them into files.
 
 ## Workflow
 
@@ -155,13 +173,19 @@ digraph decision_log {
     "Change being committed / user says 'log this'" [shape=diamond];
     "Touches a contract surface?" [shape=diamond];
     "Friction-driven (non-obvious why)?" [shape=diamond];
-    "User confirms?" [shape=diamond];
+    "User wants a note?" [shape=diamond];
+    "Gold Verify passes?" [shape=diamond];
+    "User approves the draft?" [shape=diamond];
 
     "Stay silent" [shape=box];
     "Propose in ONE line" [shape=box];
+    "Find the log; read related entries (index --active)" [shape=box];
     "Draft entry from diff + conversation" [shape=box];
+    "Run the gold Verify once" [shape=box];
+    "Fix the command or lower the tier" [shape=box];
     "Show entry for confirmation" [shape=box];
-    "Write docs/decisions/entries/<file>.md" [shape=box];
+    "Write <log>/entries/<file>.md" [shape=box];
+    "Run decisions check" [shape=box];
     "Drop silently" [shape=box];
 
     "Change being committed / user says 'log this'" -> "Touches a contract surface?";
@@ -169,11 +193,20 @@ digraph decision_log {
     "Touches a contract surface?" -> "Friction-driven (non-obvious why)?" [label="yes"];
     "Friction-driven (non-obvious why)?" -> "Stay silent" [label="no"];
     "Friction-driven (non-obvious why)?" -> "Propose in ONE line" [label="yes"];
-    "Propose in ONE line" -> "User confirms?";
-    "User confirms?" -> "Drop silently" [label="no"];
-    "User confirms?" -> "Draft entry from diff + conversation" [label="yes"];
-    "Draft entry from diff + conversation" -> "Show entry for confirmation";
-    "Show entry for confirmation" -> "Write docs/decisions/entries/<file>.md";
+    "Propose in ONE line" -> "User wants a note?";
+    "User wants a note?" -> "Drop silently" [label="no"];
+    "User wants a note?" -> "Find the log; read related entries (index --active)" [label="yes"];
+    "Find the log; read related entries (index --active)" -> "Draft entry from diff + conversation";
+    "Draft entry from diff + conversation" -> "Run the gold Verify once";
+    "Run the gold Verify once" -> "Gold Verify passes?";
+    "Gold Verify passes?" -> "Fix the command or lower the tier" [label="no"];
+    "Fix the command or lower the tier" -> "Show entry for confirmation";
+    "Gold Verify passes?" -> "Show entry for confirmation" [label="yes, or not gold"];
+    "Show entry for confirmation" -> "User approves the draft?";
+    "User approves the draft?" -> "Draft entry from diff + conversation" [label="change it"];
+    "User approves the draft?" -> "Drop silently" [label="no"];
+    "User approves the draft?" -> "Write <log>/entries/<file>.md" [label="yes"];
+    "Write <log>/entries/<file>.md" -> "Run decisions check";
 }
 ```
 
@@ -195,6 +228,8 @@ Never invent a passing check. An honest `unverifiable` is correct; a fabricated 
 - Drafting the entry before the user confirmed.
 - Proposing on a pure bugfix / rename / format / dep-bump.
 - Writing `Verify: looks correct` or any assertion nothing can run.
+- Writing a gold `Verify` you never ran.
+- Creating `docs/decisions/` (or a `DECISIONS.md`) in a repo that has no log, without asking.
 - Using a bare `file:line` as the `Anchor` or in `Applies-to`.
 - Writing a single-case gold `Verify` for a rule that governs several sites, without labelling the unswept sites as residue.
 - Proposing a second time after the user already declined.
