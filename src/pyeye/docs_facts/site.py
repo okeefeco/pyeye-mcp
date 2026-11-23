@@ -2,7 +2,7 @@
 
 The site is built by MkDocs from the same Markdown files, with no second copy.
 What it publishes, and in what order, comes from the doc registry
-(:data:`~.docs.DOCS`), never from a page list of its own, so a page can't be on
+(``docs/facts/docs.toml``), never from a page list of its own, so a page can't be on
 the site without being registered and checked.
 
 - **Paths are repo paths.** Each page is served at its repo-relative path

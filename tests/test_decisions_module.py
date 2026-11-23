@@ -24,7 +24,7 @@ from pyeye import decisions
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts" / "decisions.py"
 MODULE = ROOT / "src" / "pyeye" / "decisions.py"
-SKILL = ROOT / "skills" / "decision-log" / "SKILL.md"
+SKILL = ROOT / ".claude" / "skills" / "decision-log" / "SKILL.md"
 
 
 def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -186,7 +186,7 @@ class TestTheRepoWrapper:
 class TestTheSkill:
     def test_it_runs_the_shipped_module_through_the_plugin(self) -> None:
         text = SKILL.read_text(encoding="utf-8")
-        assert 'uv run --project "${CLAUDE_PLUGIN_ROOT}"' in text
+        assert '"${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py"' in text  # #1136
         assert "python -m pyeye.decisions index --active" in text
         assert "python -m pyeye.decisions check" in text
         assert "scripts/decisions.py" not in text  # other repos don't have it

@@ -123,7 +123,7 @@ progressive-disclosure primitives, plus `configure_packages` for registering
 extra package locations. The [tool reference](docs/reference/tools.md) gives
 every tool's parameters and defaults, and the
 [edge reference](docs/reference/edges.md) lists the supported edges. Worked
-examples live in the `python-explore` skill (`skills/python-explore/SKILL.md`).
+examples live in the `python-explore` skill (`.claude/skills/python-explore/SKILL.md`).
 
 The v1 navigation tools were removed in 2.0. The CHANGELOG's migration map lists
 the replacement for each.

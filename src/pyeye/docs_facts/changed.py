@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from . import binding, docs
-from .facts import Bindable, View
+from .facts import Bindable, View, memberships
 from .ledger import expand
 
 
@@ -28,21 +28,31 @@ class Changes:
         added: Facts in the head snapshot only.
         changed: Facts whose value differs.
         removed: Facts in the base snapshot only.
-        grown: Views that gained a member (an added fact). A new member of a
-            bound view counts as covered at once, so this is what sends the
-            view's pages to a change-triggered review (D6, #1108).
-        pages: Fact or view ID -> registered pages with a block showing it.
+        grown: Views that gained a member. A new member of a bound view counts
+            as covered at once, so this is what sends the view's pages to a
+            change-triggered review (D6, #1108).
+        shrunk: Views that lost a member, from the base snapshot's view
+            memberships (#1114).
+        pages: Fact or view ID -> registered pages with a block showing it. A
+            removed fact maps to the pages of the views that held it.
     """
 
     added: list[str] = field(default_factory=list)
     changed: list[str] = field(default_factory=list)
     removed: list[str] = field(default_factory=list)
     grown: list[str] = field(default_factory=list)
+    shrunk: list[str] = field(default_factory=list)
     pages: dict[str, list[str]] = field(default_factory=dict)
 
 
-def base_snapshot(root: Path, base: str, snapshot_path: str) -> dict[str, Any] | None:
-    """The snapshot at git revision *base*, or None if it has none."""
+def base_snapshot(
+    root: Path, base: str, snapshot_path: str, section: str = "facts"
+) -> dict[str, Any] | None:
+    """A section of the snapshot at git revision *base*, or None if it has no such file.
+
+    *section* is ``facts`` (each fact's value) or ``views`` (each view's members,
+    #1114); a snapshot from before the views were kept has none, so it reads empty.
+    """
     result = subprocess.run(  # nosec B603 B607 - fixed git command, no shell
         ["git", "show", f"{base}:{snapshot_path}"],
         cwd=root,
@@ -52,8 +62,18 @@ def base_snapshot(root: Path, base: str, snapshot_path: str) -> dict[str, Any] |
     )
     if result.returncode != 0:
         return None
-    facts: dict[str, Any] = json.loads(result.stdout)["facts"]
-    return facts
+    data = json.loads(result.stdout)
+    found: dict[str, Any] = data["facts"] if section == "facts" else data.get(section, {})
+    return found
+
+
+def base_views(root: Path, base: str, snapshot_path: str) -> dict[str, list[str]]:
+    """The snapshot's view memberships at git revision *base* (#1114).
+
+    Empty when *base* has no such file, or predates the memberships being kept:
+    a loss can't be seen then, only a gain.
+    """
+    return base_snapshot(root, base, snapshot_path, "views") or {}
 
 
 def bound_pages(
@@ -62,7 +82,7 @@ def bound_pages(
     """Fact or view ID -> the registered pages whose blocks show it.
 
     A view shows its members, so each member maps to the view's pages too.
-    *entries* is the doc registry (default: pyeye's, #1091).
+    *entries* is the doc registry (default: *root*'s own, :func:`~.docs.for_repo`).
     """
     found: dict[str, set[str]] = {}
     for path, _entry in docs.registered_files(root, entries):
@@ -80,38 +100,53 @@ def diff(
     head: Mapping[str, Any],
     pages: Mapping[str, list[str]],
     facts: Mapping[str, Bindable] | None = None,
+    *,
+    base_views: Mapping[str, list[str]] | None = None,
+    head_views: Mapping[str, list[str]] | None = None,
 ) -> Changes:
     """Compare two snapshots; *pages* is :func:`bound_pages` for the head.
 
-    *facts* (the head's facts) gives the views, for :attr:`Changes.grown`.
+    The views come from each side's snapshot (#1114): *head_views* (default:
+    from *facts*, the head's facts) and *base_views* (default: none). A view
+    the base doesn't record gained the members that were added.
     """
     added = set(head) - set(base)
+    heads = dict(head_views) if head_views is not None else memberships(facts or {})
+    bases = dict(base_views or {})
+    grown = {
+        v
+        for v, members in heads.items()
+        if (set(members) - set(bases[v]) if v in bases else added & set(members))
+    }
+    shrunk = {v for v, members in bases.items() if set(members) - set(heads.get(v, ()))}
     changes = Changes(
         added=sorted(added),
         changed=sorted(i for i in set(head) & set(base) if head[i] != base[i]),
         removed=sorted(set(base) - set(head)),
-        grown=sorted(
-            i
-            for i, item in (facts or {}).items()
-            if isinstance(item, View) and added & set(item.members)
-        ),
+        grown=sorted(grown),
+        shrunk=sorted(shrunk),
     )
-    for fact_id in (*changes.added, *changes.changed, *changes.removed, *changes.grown):
+    for fact_id in (*changes.added, *changes.changed, *changes.removed, *grown, *shrunk):
         if fact_id in pages:
             changes.pages[fact_id] = list(pages[fact_id])
+    for fact_id in changes.removed:  # a gone member: the pages of the views that held it
+        held = {p for v in shrunk if fact_id in bases[v] for p in pages.get(v, ())}
+        if held:
+            changes.pages[fact_id] = sorted(held | set(changes.pages.get(fact_id, ())))
     return changes
 
 
 def summary(changes: Changes, base: str) -> str:
     """Markdown for the CI job summary."""
     lines = [f"### Docs facts changed against `{base}`", ""]
-    if not (changes.added or changes.changed or changes.removed):
+    if not (changes.added or changes.changed or changes.removed or changes.grown or changes.shrunk):
         return "\n".join([*lines, "No fact changed.", ""])
     for title, ids in (
         ("Added", changes.added),
         ("Changed", changes.changed),
         ("Removed", changes.removed),
         ("Views with a new member", changes.grown),
+        ("Views that lost a member", changes.shrunk),
     ):
         if not ids:
             continue

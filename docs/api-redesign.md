@@ -3,7 +3,7 @@
 > This page records the **design** of the resolve / inspect redesign. For the
 > response shapes as they are now, see [tools.md](reference/tools.md),
 > [edges.md](reference/edges.md) and the
-> [python-explore skill](../skills/python-explore/SKILL.md).
+> [python-explore skill](../.claude/skills/python-explore/SKILL.md).
 
 ## Overview
 
@@ -13,7 +13,7 @@ progressive-disclosure operations — `resolve`, `resolve_at`, `inspect`,
 `outline`, `expand`, and `trace` — optimised for cheap, pointer-first code
 navigation. All six are shipped, live MCP tools. The canonical,
 conformance-tested reference for the full set (and the supported edges) lives in
-`skills/python-explore/SKILL.md`; this document covers the design background and
+`.claude/skills/python-explore/SKILL.md`; this document covers the design background and
 documents the `resolve` / `resolve_at` / `inspect` intake operations in detail.
 
 ### Why a redesign?
@@ -48,7 +48,7 @@ live class (`JediAnalyzer`) against it.
 `expand()` and `trace()` are also shipped, live MCP tools. The full primitive
 set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) is
 implemented. For the edges they traverse, see the live edge list in
-`skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page
+`.claude/skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page
 doesn't repeat it.
 
 ---
@@ -57,7 +57,7 @@ doesn't repeat it.
 
 These three intake operations are documented in full below. The remaining
 primitives — `outline`, `expand`, and `trace` — are shipped and documented in
-`skills/python-explore/SKILL.md` (the single source of truth, per #374).
+`.claude/skills/python-explore/SKILL.md` (the single source of truth, per #374).
 
 ### `resolve(identifier, project_path?)`
 
@@ -185,7 +185,7 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 
 The rows below are the design record, not the full list. For the fields
 `inspect` returns today, see the executed `inspect` example under Worked
-Examples in [the python-explore skill](../skills/python-explore/SKILL.md#worked-examples).
+Examples in [the python-explore skill](../.claude/skills/python-explore/SKILL.md#worked-examples).
 
 | Field | Kinds | Description |
 |-------|-------|-------------|

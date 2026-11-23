@@ -30,7 +30,7 @@ from tests.conformance.response_linter import lint_response
 
 server = importlib.import_module("pyeye.mcp.server")
 _FIXTURES = Path(__file__).parent / "fixtures"
-_SKILL = Path(__file__).parent.parent / "skills" / "python-explore" / "SKILL.md"
+_SKILL = Path(__file__).parent.parent / ".claude" / "skills" / "python-explore" / "SKILL.md"
 
 
 class TestTable:

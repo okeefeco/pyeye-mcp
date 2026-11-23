@@ -15,7 +15,8 @@
   allow-list (:mod:`.rules`), and on a live page naming a removed name
   (:mod:`.removed`). CI runs it.
 
-All three read only :data:`~.docs.DOCS`; none globs on its own.
+All three read only the repository's doc registry (its config's ``docs``); none
+globs on its own.
 """
 
 from __future__ import annotations
@@ -29,8 +30,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import binding, changed, config, docs, examples, ledger, registry, removed, review, rules
-from .facts import Bindable, snapshot
-from .setup import Paths, Setup, pyeye_setup
+from .facts import Bindable, memberships, snapshot
+from .setup import Paths, Setup
 
 SNAPSHOT = "docs/facts/facts.json"
 CHANGELOG = "CHANGELOG.md"
@@ -56,8 +57,9 @@ class Plan:
 
 
 def snapshot_text(facts: Mapping[str, Bindable]) -> str:
-    """The snapshot file: every item fact's value, sorted by ID."""
-    return json.dumps({"facts": snapshot(facts)}, indent=2, sort_keys=True) + "\n"
+    """The snapshot file: every item fact's value, and every view's members (#1114)."""
+    data = {"facts": snapshot(facts), "views": memberships(facts)}
+    return json.dumps(data, indent=2, sort_keys=True) + "\n"
 
 
 def snapshot_texts(facts: Mapping[str, Bindable], paths: Paths) -> dict[str, str]:
@@ -82,9 +84,9 @@ def plan(
     """Compute the generated text of every registered doc, page and the snapshot.
 
     *setup* is the repository's (#1091): its extractors, doc registry, rules and
-    pages. Default: pyeye's own (:func:`~.setup.pyeye_setup`).
+    pages. Default: *root*'s own, from its config (:func:`.config.load`).
     """
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     if facts is None:
         facts = registry.build(root, setup.extractors)
     result = Plan()
@@ -170,6 +172,24 @@ def base_snapshots(root: Path, base: str, paths: Paths) -> dict[str, object] | N
     return before
 
 
+def _committed_views(root: Path, paths: Paths) -> dict[str, list[str]]:
+    """Every snapshot file's view memberships together (#1114); none before they were kept."""
+    views: dict[str, list[str]] = {}
+    for path in paths.snapshot_files():
+        current = _current(root, path)
+        if current is not None:
+            views.update(json.loads(current).get("views", {}))
+    return views
+
+
+def base_views(root: Path, base: str, paths: Paths) -> dict[str, list[str]]:
+    """Every snapshot file's view memberships at git revision *base* (#1114)."""
+    views: dict[str, list[str]] = {}
+    for path in paths.snapshot_files():
+        views.update(changed.base_views(root, base, path))
+    return views
+
+
 def _committed_snapshots(root: Path, paths: Paths) -> dict[str, object]:
     """Every snapshot file's facts together, so moving a family between files loses none."""
     facts: dict[str, object] = {}
@@ -244,7 +264,7 @@ def ledger_note(result: Plan, setup: Setup) -> str | None:
 
 def check(root: Path, setup: Setup | None = None) -> int:
     """Fail if any output is stale or any marker is malformed or unknown."""
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     result = plan(root, setup=setup)
     paths = stale(root, result)
     for path in paths:
@@ -270,7 +290,7 @@ def check(root: Path, setup: Setup | None = None) -> int:
 
 def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
     """Print the changed-fact list against *base* as Markdown. Never fails on a change."""
-    setup = pyeye_setup() if setup is None else setup
+    setup = config.load(root) if setup is None else setup
     snapshot = setup.paths.snapshot
     head = _committed_snapshots(root, setup.paths)
     before = base_snapshots(root, base, setup.paths)
@@ -279,7 +299,15 @@ def report_changed(root: Path, base: str, setup: Setup | None = None) -> int:
         return 0
     facts = registry.build(root, setup.extractors)
     bound = changed.bound_pages(root, facts, setup.docs)
-    print(changed.summary(changed.diff(before, head, bound, facts), base))
+    found = changed.diff(
+        before,
+        head,
+        bound,
+        facts,
+        base_views=base_views(root, base, setup.paths),
+        head_views=_committed_views(root, setup.paths),
+    )
+    print(changed.summary(found, base))
     return 0
 
 

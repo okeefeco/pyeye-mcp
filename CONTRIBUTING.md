@@ -135,21 +135,54 @@ Please follow these steps for your contribution:
    any `.git/hooks/post-checkout.legacy` pre-commit leaves behind) so the
    metrics session does not start twice.
 
-4. To run your checkout as the server in Claude Code, register it under its own
-   name, so it doesn't clash with an installed pyeye plugin. The command is the
-   plugin's own, pointed at your checkout; it uses the `.venv` that step 2's
-   `uv sync --frozen` created:
+4. To run your checkout in Claude Code, see
+   [Running your checkout in Claude Code](#running-your-checkout-in-claude-code).
 
-   ```bash
-   claude mcp add pyeye-dev -s user -- uv run --project /path/to/your/checkout --no-sync --frozen python -m pyeye.mcp
-   ```
+#### Running your checkout in Claude Code
 
-   [`--project`](https://docs.astral.sh/uv/reference/cli/#uv-run) uses
-   the checkout's environment without changing directory, so pyeye analyses the
-   project Claude Code is open in. `--no-sync` starts the server without
-   touching that environment, so after a dependency change run
-   `uv sync --frozen` in the checkout again. Disable the pyeye plugin while you
-   test, or you'll see both servers' tools.
+Every Claude Code session in this repository, in the main checkout or in a
+worktree, runs **that checkout's own** pyeye server and skills. There's nothing to
+pass on the command line:
+
+- **The server** comes from the repository's `.mcp.json`. It runs
+  `uv run --project "$CLAUDE_PROJECT_DIR" --frozen python -m pyeye.mcp`, so it
+  uses the checkout's `.venv` (created on first start if missing) and imports
+  the checkout's `src/`.
+- **The skills** shipped with the plugin (`python-explore`, `architecture-review`,
+  `duplication-review`, `decision-log`) live in `.claude/skills/`, so here they
+  are project skills, without the `pyeye:` prefix. The repository-internal
+  skills (`docs-review`, `pyeye-scenarios`, `pyeye-verify`) sit beside them, but
+  `.claude-plugin/plugin.json` lists only the four, so the others never ship.
+- **The installed plugin is off here.** `.claude/settings.json` sets
+  `"enabledPlugins": {"pyeye@pyeye-marketplace": false}` and enables the
+  `.mcp.json` server, so you don't get a second copy of every tool and skill.
+  The installed plugin stays on in your other projects.
+
+After editing server code, reconnect the server from `/mcp` or start a new
+session. Skill edits apply in the running session: Claude Code watches
+`.claude/skills/`.
+
+**Testing the plugin as shipped.** Clone the branch somewhere outside the
+repository and run Claude Code from a *different* directory, pointing
+`--plugin-dir` at the clone:
+
+```bash
+git clone -b <branch> https://github.com/okeefeco/pyeye-mcp.git /tmp/pyeye-plugin
+cd /path/to/another/python/project
+claude --plugin-dir /tmp/pyeye-plugin
+```
+
+That loads the plugin exactly as users get it: `plugin.json`'s server, its
+four skills (as `pyeye:…`) and its setup hook, with its environment in the
+plugin's data directory, one per plugin directory. `claude plugin validate
+/tmp/pyeye-plugin` and `claude --plugin-dir /tmp/pyeye-plugin plugin details
+pyeye` check its manifest and inventory. Don't use `--plugin-dir` *inside* this
+repository: its `.mcp.json` server and project skills load as well, so every
+tool and skill appears twice.
+
+**Remote sessions** (Remote Control, claude.ai/code) on this repository pick up
+the same settings, but only when they start: after pulling a change to
+`.mcp.json`, `.claude/settings.json` or the skills, restart the session.
 
 #### Dependency lockfile policy
 

@@ -81,6 +81,7 @@ The plugin brings:
   `decision-log`;
 - a session-start hook that installs pyeye's dependencies with `uv` into a
   per-user environment, the first time and again whenever its lockfile changes.
+  The server does the same before it starts, so the first session connects.
 
 Install pyeye **either** as the plugin **or** with `claude mcp add`, not both:
 with both, every tool appears twice (`mcp__plugin_pyeye_pyeye__…` and
@@ -333,7 +334,7 @@ relationship edges with `expand` (one hop) or `trace` (many hops);
 [tool reference](docs/reference/tools.md) gives every tool's parameters and
 defaults, and the [edge reference](docs/reference/edges.md) lists the supported
 edges. For worked examples, see the `python-explore` skill
-(`skills/python-explore/SKILL.md`).
+(`.claude/skills/python-explore/SKILL.md`).
 
 ### Known limitation: no reverse references
 

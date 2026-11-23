@@ -8,10 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from pyeye.docs_facts import cli, docs, ledger, pages, removed, rules
+from pyeye.docs_facts import cli, ledger, removed, rules
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Fact, View, index
 from pyeye.docs_facts.removed import Removed
+from tests.utils.docs_facts_config import write_config
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -228,13 +229,10 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / removed.REMOVED).write_text(
         removed.render([Removed("tool.old_tool", "word", "2.0.0")]), encoding="utf-8"
     )
-    monkeypatch.setattr(
-        docs,
-        "DOCS",
+    write_config(
+        tmp_path,
         (DocEntry("live.md", "human", "prose"), DocEntry("history.md", "human", "history")),
     )
-    monkeypatch.setattr(docs, "REFERENCE_PAGES", ())
-    monkeypatch.setattr(pages, "PAGES", {})
     monkeypatch.setattr(cli.registry, "build", lambda _root, *_extractors: FACTS)
     monkeypatch.setattr(
         cli.rules, "RULES", ()
@@ -257,10 +255,10 @@ class TestCheck:
         assert cli.check(repo) == 0
 
     def test_the_sunset_fails_even_a_marked_line(
-        self, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         allowed = {removed.RULE_ID: ("names removed tool 'old_tool' beside 'removed'",)}
-        monkeypatch.setattr(docs, "DOCS", (DocEntry("live.md", "human", "prose", allow=allowed),))
+        write_config(repo, (DocEntry("live.md", "human", "prose", allow=allowed),))
         (repo / "live.md").write_text("old_tool was removed.\n", encoding="utf-8")
         assert cli.check(repo) == 0
 
@@ -270,12 +268,12 @@ class TestCheck:
         assert "only history pages may name it now" in capsys.readouterr().out
 
     def test_a_marked_mention_must_be_allowed_by_its_exact_message(
-        self, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
         """A fix can't be traded for a new mention: allowances are exact messages (#837)."""
         message = "names removed tool 'old_tool' beside 'removed'"
         allowed = {removed.RULE_ID: (message,)}
-        monkeypatch.setattr(docs, "DOCS", (DocEntry("live.md", "human", "prose", allow=allowed),))
+        write_config(repo, (DocEntry("live.md", "human", "prose", allow=allowed),))
 
         (repo / "live.md").write_text("old_tool was removed.\nAlso removed: old_tool.\n", "utf-8")
         capsys.readouterr()
@@ -309,11 +307,9 @@ class TestCheck:
         assert cli.check(repo) == 0
 
     def test_covers_naming_an_unknown_fact_fails(
-        self, repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+        self, repo: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(
-            docs, "DOCS", (DocEntry("live.md", "human", "prose", covers=("tool.nope",)),)
-        )
+        write_config(repo, (DocEntry("live.md", "human", "prose", covers=("tool.nope",)),))
         capsys.readouterr()
 
         assert cli.check(repo) == 1
@@ -324,18 +320,14 @@ class TestLedgerInCheck:
     def test_day_one_puts_every_uncovered_fact_in_the_baseline(self, repo: Path) -> None:
         assert ledger.load(repo) == ledger.Ledger(("tool.live", "tool.other"), {})
 
-    def test_a_block_or_covers_on_a_live_page_covers_a_fact(
-        self, repo: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_a_block_or_covers_on_a_live_page_covers_a_fact(self, repo: Path) -> None:
         (repo / "live.md").write_text(
             "<!-- fact:begin tool.live -->\n<!-- fact:end -->\n", encoding="utf-8"
         )
         assert cli.generate(repo) == 0
         assert ledger.load(repo) == ledger.Ledger(("tool.other",), {})
 
-        monkeypatch.setattr(
-            docs, "DOCS", (DocEntry("live.md", "human", "prose", covers=("tools.core",)),)
-        )
+        write_config(repo, (DocEntry("live.md", "human", "prose", covers=("tools.core",)),))
         assert cli.generate(repo) == 0
         assert ledger.load(repo) == ledger.Ledger((), {})
 

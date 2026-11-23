@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "Reference-only fact families stay out of the uncovered-fact ledger; a family may keep its own snapshot file (#1108)"
 issues: [1108, 826, 1092, 1083, 818]
 anchors: ["pyeye.docs_facts.setup.Setup", "pyeye.docs_facts.setup.Paths", "pyeye.docs_facts.ledger.updated", "pyeye.docs_facts.cli.snapshot_texts", "pyeye.docs_facts.cli.base_snapshots", "pyeye.docs_facts.changed.diff", "pyeye.docs_facts.config.load", "pyproject.toml", "tests/test_docs_facts_reference_only.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-17-826-removed-names-fail-new-facts-go-to-the-ledger.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1114-snapshots-record-view-membership.md"]
 superseded_by: []
 ---
 

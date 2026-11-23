@@ -67,6 +67,15 @@ def _without(finding: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {k: v for k, v in finding.items() if k not in keys}
 
 
+def _register(root: Path, *pages: str) -> None:
+    """Give *root* a docs-facts config registering *pages* as human prose (#1107)."""
+    tables = "".join(
+        f'[[tool.pyeye.docs_facts.docs]]\npath = "{p}"\naudience = "human"\nkind = "prose"\n\n'
+        for p in pages
+    )
+    (root / "pyproject.toml").write_text(tables, encoding="utf-8")
+
+
 class TestFindingProblems:
     def test_a_clear_fix_passes(self) -> None:
         assert review.finding_problems(_clear(), _FACTS) == []
@@ -549,9 +558,11 @@ class TestScope:
     ) -> None:
         from pyeye.docs_facts import changed
 
-        def older(root: Path, _base: str, _path: str) -> dict[str, Any]:
+        def older(root: Path, _base: str, _path: str, section: str = "facts") -> dict[str, Any]:
             from pyeye.docs_facts.cli import _committed_snapshot
 
+            if section != "facts":  # no view memberships on this base (#1114)
+                return {}
             snap = dict(_committed_snapshot(root))
             snap[fact_id] = "a different value"
             return snap
@@ -1205,6 +1216,7 @@ class TestReviewFixes864:
         assert _ProjectSymbols(tmp_path).canonical("pkg.Maybe") == canonical
 
     def test_a_subject_must_occur_exactly_once(self, tmp_path: Path) -> None:
+        _register(tmp_path, "README.md")
         (tmp_path / "README.md").write_text(
             "# Features\nSee [docs](a.md) and [docs](b.md). Also [guide](c.md).\n",
             encoding="utf-8",
@@ -1227,6 +1239,7 @@ class TestReviewFixes864:
         assert "'new: <what it reads>'" in problem
 
     def test_an_example_route_needs_an_example(self, tmp_path: Path) -> None:
+        _register(tmp_path, "README.md")
         bare = _contradiction(route="example")
         assert any(
             p.startswith("an example route points at a runnable example")
@@ -1335,6 +1348,7 @@ class TestFeedback829_3:
         }
 
     def test_a_finding_against_a_changed_page_is_rejected(self, tmp_path: Path) -> None:
+        _register(tmp_path, "README.md")
         page = tmp_path / "README.md"
         page.write_text("# Features\nOld text.\n", encoding="utf-8")
         finding = _hashed(_clear(section="features"), tmp_path)
@@ -1476,6 +1490,7 @@ class TestC17:
     """#829-4: the maintainer's C17 rulings and the run feedback."""
 
     def test_a_page_level_finding_uses_star(self, tmp_path: Path) -> None:
+        _register(tmp_path, "README.md")
         (tmp_path / "README.md").write_text("# A\nx\n# B\ny\n", encoding="utf-8")
         finding = _clear(
             section=review.PAGE,

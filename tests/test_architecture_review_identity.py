@@ -24,7 +24,13 @@ from pyeye.architecture_review.state import (
 )
 from pyeye.architecture_review.taxonomy import AXIS_FACETS, FACET_OTHER, SEED_AXES
 
-_AUDITOR = Path(__file__).resolve().parent.parent / "skills" / "architecture-review" / "auditor.md"
+_AUDITOR = (
+    Path(__file__).resolve().parent.parent
+    / ".claude"
+    / "skills"
+    / "architecture-review"
+    / "auditor.md"
+)
 
 
 def _f(

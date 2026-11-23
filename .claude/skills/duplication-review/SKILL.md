@@ -47,9 +47,14 @@ the list. To exclude a directory, list its siblings instead of its parent.
 Claude Code plugin, run it through the plugin's environment:
 
 ```bash
-UV_PROJECT_ENVIRONMENT="${CLAUDE_PLUGIN_DATA}/.venv" \
-  uv run --project "${CLAUDE_PLUGIN_ROOT}" --no-sync --frozen \
-  python -m pyeye.duplication review src/mypkg --state .pyeye/duplication-review.json
+if [ -n "${CLAUDE_PLUGIN_ROOT}" ]; then  # the plugin's environment
+  CLAUDE_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT}" CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}" \
+    uv run --no-project python "${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py" \
+    python -m pyeye.duplication review src/mypkg --state .pyeye/duplication-review.json
+else  # pyeye's own repository, where this is a project skill: the checkout's environment
+  uv run --project "$(git rev-parse --show-toplevel)" --frozen \
+    python -m pyeye.duplication review src/mypkg --state .pyeye/duplication-review.json
+fi
 ```
 
 Otherwise, any environment with `pyeye-mcp` installed: `python -m pyeye.duplication review …`.

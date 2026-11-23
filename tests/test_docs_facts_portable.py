@@ -10,7 +10,7 @@ And one more, found while reading (F4): the removed-name rules read
 ``removed.json`` from pyeye's own checkout, not from the repo being checked.
 
 A :class:`~pyeye.docs_facts.setup.Setup` now carries a repo's extractors, doc
-registry, rules and pages; :func:`~pyeye.docs_facts.setup.pyeye_setup` is pyeye's.
+registry, rules and pages; pyeye's comes from its own config (#1107).
 Each rule declares the facts it needs, and one whose facts are absent is
 skipped and reported, never run on half a fact set.
 """
@@ -23,12 +23,14 @@ from types import MappingProxyType
 
 import pytest
 
-from pyeye.docs_facts import cli, registry, removed, rules
+from pyeye.docs_facts import cli, config, registry, removed, rules
 from pyeye.docs_facts.docs import DocEntry
 from pyeye.docs_facts.facts import Fact, code
 from pyeye.docs_facts.registry import Extractor
 from pyeye.docs_facts.removed import Removed
-from pyeye.docs_facts.setup import Setup, pyeye_setup
+from pyeye.docs_facts.setup import Setup
+
+ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------
 # A small foreign repo: one extractor, one page, no pyeye facts
@@ -85,9 +87,12 @@ class TestTheSetupReachesThePlan:
         page.write_text(page.read_text(encoding="utf-8").replace("`1`", "`7`"), encoding="utf-8")
         assert cli.check(root, setup=setup) == 1
 
-    def test_the_default_is_pyeyes_own_setup(self) -> None:
-        own = pyeye_setup()
-        assert own.extractors == registry.EXTRACTORS
+    def test_pyeyes_own_setup_is_its_config(self) -> None:
+        """No built-in setup (#1107): pyeye's comes from its config, like any repo's."""
+        own = config.load(ROOT)
+        assert [(e.name, e.prefixes) for e in own.extractors] == [
+            (e.name, e.prefixes) for e in registry.EXTRACTORS
+        ]
         assert own.rules == rules.RULES
 
 

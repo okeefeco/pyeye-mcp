@@ -99,8 +99,8 @@ assert_performance_threshold(elapsed_ms, threshold, "Operation name")
 
 - NEVER edit inside a `<!-- fact:begin ID -->`…`<!-- fact:end -->` block, a `docs/reference/` page or `docs/facts/facts.json`. Change the code, then run `uv run python scripts/docs_facts.py generate`.
 - When prose states a fact the code owns (a tool, parameter, edge, env var, command or CI value), use a fact block. NEVER copy the value by hand. IDs are listed in `docs/facts/facts.json`.
-- A new `.md` file MUST get a `DocEntry` (audience and kind) in `src/pyeye/docs_facts/docs.py` in the same PR.
-- A docs check MUST iterate `DOCS`. NEVER glob for its own file list. A new fact family is a new extractor in `EXTRACTORS` (`src/pyeye/docs_facts/registry.py`).
+- A new `.md` file MUST get a `[[doc]]` entry (audience and kind) in `docs/facts/docs.toml` in the same PR.
+- A docs check MUST iterate the repository's doc registry (`registered_files`). NEVER glob for its own file list. A new fact family is a new extractor in `EXTRACTORS` (`src/pyeye/docs_facts/registry.py`).
 - A tool example in `docs/api/`, `docs/reference/`, a skill, or a human/both-audience prose page outside `.claude/` SHOULD be a ```` ```json pyeye-example tool=<tool> ```` block (args only, never `project_path`), so CI runs it. A shown output (```` ```json pyeye-output ````) MUST mark every trim: `"…": "<omitted>"` for left-out keys, a final `"<omitted>"` for left-out items, `"<absent>"` for a key that isn't there. Run `uv run pytest tests/test_docs_examples.py`.
 - `uv run python scripts/docs_facts.py check` MUST pass (CI runs it). See `docs/development/docs-facts.md`.
 
