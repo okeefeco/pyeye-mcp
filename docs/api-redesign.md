@@ -3,7 +3,7 @@
 > This page records the **design** of the resolve / inspect redesign. For the
 > response shapes as they are now, see [tools.md](reference/tools.md),
 > [edges.md](reference/edges.md) and the
-> [python-explore skill](../skills/python-explore/SKILL.md).
+> [python-explore skill](../.claude/skills/python-explore/SKILL.md).
 
 ## Overview
 
@@ -185,7 +185,7 @@ Every `inspect` response is a Node dict. Fields come in two layers:
 
 The rows below are the design record, not the full list. For the fields
 `inspect` returns today, see the executed `inspect` example under Worked
-Examples in [the python-explore skill](../skills/python-explore/SKILL.md#worked-examples).
+Examples in [the python-explore skill](../.claude/skills/python-explore/SKILL.md#worked-examples).
 
 | Field | Kinds | Description |
 |-------|-------|-------------|
