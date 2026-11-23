@@ -132,6 +132,30 @@ class TestTheModuleDefaults:
         assert "no entries" in result.stdout
 
 
+class TestTheShippedHeader:
+    """The header ``migrate`` writes in any repo names the skill, not a path in this one (#1177)."""
+
+    def test_it_names_no_repo_relative_skill_path(self) -> None:
+        """``skills/decision-log/SKILL.md`` moved (#1153); elsewhere it comes from the plugin."""
+        assert "SKILL.md" not in decisions.STATIC_HEADER
+        assert "skills/" not in decisions.STATIC_HEADER
+
+    def test_it_still_names_the_skill(self) -> None:
+        assert "`decision-log` skill" in decisions.STATIC_HEADER
+
+    def test_this_repos_log_is_the_wrappers_header(self) -> None:
+        """This repo's ``DECISIONS.md`` is the wrapper's header, which ``check`` enforces."""
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location("decisions_wrapper_header", WRAPPER)
+        assert spec is not None and spec.loader is not None
+        wrapper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(wrapper)
+        assert (ROOT / "docs" / "decisions" / "DECISIONS.md").read_text(
+            encoding="utf-8"
+        ) == wrapper.STATIC_HEADER
+
+
 class TestTheRepoWrapper:
     @pytest.mark.parametrize(
         "args",
