@@ -207,6 +207,11 @@ class FakeWatcher:
 def fake_watchers(monkeypatch: pytest.MonkeyPatch) -> list[FakeWatcher]:
     FakeWatcher.instances = []
     monkeypatch.setattr(project_manager_module, "CodebaseWatcher", FakeWatcher)
+    # No start-up catch-up sweeps (#1171, as #789): they re-signal every file
+    # written within their mtime margin of the watch starting, so one landing
+    # mid-test invalidates what the test asserts is still cached. These tests
+    # deliver changes by hand; the sweeps are tested in test_watcher_catchup_sweep.
+    monkeypatch.setattr(project_manager_module, "CATCHUP_SWEEP_OFFSETS", ())
     return FakeWatcher.instances
 
 
@@ -344,6 +349,23 @@ def _assert_indexed(*roots: Path) -> None:
 
 
 class TestPerProjectInvalidation:
+    @pytest.mark.usefixtures("fake_watchers")
+    def test_no_start_up_sweep_can_land_mid_test(
+        self, tmp_path: Path, manager: ProjectManager
+    ) -> None:
+        """These tests drive ``_on_files_changed`` by hand: nothing else may invalidate (#1171).
+
+        A start-up catch-up sweep (#738) fires ``debounce + 0.5`` s after the
+        watch starts and re-signals every file written within its 2 s mtime
+        margin, which is every file ``_project`` just wrote. On CI a test that
+        stalled past 1 s had its "still cached" guard fail. The sweeps have their
+        own tests (``tests/test_watcher_catchup_sweep.py``).
+        """
+        proj = _project(tmp_path / "proj")
+        manager.get_analyzer(proj.as_posix())
+
+        assert manager._catchup_timers.get(proj.resolve(), []) == []
+
     @pytest.mark.usefixtures("fake_watchers")
     async def test_scoped_cache_sees_a_new_file_before_the_ttl(
         self, tmp_path: Path, manager: ProjectManager
