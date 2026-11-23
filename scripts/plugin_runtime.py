@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the pyeye plugin: its venv, its MCP server and its SessionStart guard (#1136).
+"""Run the pyeye plugin: its venv and its MCP server (#1136).
 
 Standard library only: it runs before pyeye is installed, via::
 
@@ -20,10 +20,6 @@ Modes:
     The async SessionStart hook: the same sync, ahead of the server, plus
     removal of venvs whose plugin root no longer exists.  Exit code 2 rewakes
     Claude with the error.
-``guard``
-    A synchronous SessionStart hook.  In the pyeye repo it warns when the
-    running plugin is not the session's checkout, i.e. the installed copy is
-    running instead of ``claude --plugin-dir <this checkout>``.
 
 The venv lives at ``${CLAUDE_PLUGIN_DATA}/venvs/<hash of the plugin root>/.venv``.
 Every ``claude --plugin-dir`` session is plugin ``pyeye@inline`` and shares one
@@ -40,7 +36,6 @@ from __future__ import annotations
 
 import filecmp
 import hashlib
-import json
 import os
 import re
 import shutil
@@ -173,27 +168,6 @@ def prune(data: Path) -> list[Path]:
     return removed
 
 
-def _is_pyeye_repo(project: Path) -> bool:
-    manifest = project / ".claude-plugin" / "plugin.json"
-    try:
-        return json.loads(manifest.read_text(encoding="utf-8")).get("name") == "pyeye"
-    except (OSError, ValueError, AttributeError):
-        return False
-
-
-def guard_message(root: Path, project: Path) -> str | None:
-    """A warning when *project* is the pyeye repo but the plugin isn't from it."""
-    if not _is_pyeye_repo(project) or _canonical(root) == _canonical(project):
-        return None
-    return (
-        f"pyeye dev mode is off: this session runs the pyeye plugin from {root}, "
-        f"not from this checkout ({project}). Its skills, hooks and MCP server are "
-        "not this checkout's code. To test this checkout, restart with "
-        '`claude --plugin-dir "$PWD"` from its root (CONTRIBUTING.md, "Running '
-        'your checkout in Claude Code").'
-    )
-
-
 def _exec(argv: list[str]) -> int:
     """Replace this process with *argv* (POSIX); on Windows, run it and wait."""
     if os.name == "nt":
@@ -239,26 +213,6 @@ def _setup() -> int:
     return 0
 
 
-def _guard() -> int:
-    root, project = os.environ.get("CLAUDE_PLUGIN_ROOT"), os.environ.get("CLAUDE_PROJECT_DIR")
-    if not root or not project:
-        return 0
-    message = guard_message(Path(root), Path(project))
-    if message:
-        print(
-            json.dumps(
-                {
-                    "systemMessage": message,
-                    "hookSpecificOutput": {
-                        "hookEventName": "SessionStart",
-                        "additionalContext": message,
-                    },
-                }
-            )
-        )
-    return 0
-
-
 def main(argv: list[str]) -> int:
     """Dispatch on the mode in ``argv[0]``."""
     mode, rest = (argv[0], argv[1:]) if argv else ("", [])
@@ -268,9 +222,7 @@ def main(argv: list[str]) -> int:
         return _in_venv(rest)
     if mode == "setup":
         return _setup()
-    if mode == "guard":
-        return _guard()
-    print("usage: plugin_runtime.py launch|python ARGS...|setup|guard", file=sys.stderr)
+    print("usage: plugin_runtime.py launch|python ARGS...|setup", file=sys.stderr)
     return 2
 
 

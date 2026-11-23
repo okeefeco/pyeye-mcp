@@ -27,5 +27,11 @@
     }
   },
   "name": "pyeye",
-  "repository": "https://github.com/okeefeco/pyeye-mcp"
+  "repository": "https://github.com/okeefeco/pyeye-mcp",
+  "skills": [
+    "./.claude/skills/architecture-review/",
+    "./.claude/skills/decision-log/",
+    "./.claude/skills/duplication-review/",
+    "./.claude/skills/python-explore/"
+  ]
 }

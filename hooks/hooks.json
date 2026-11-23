@@ -4,10 +4,6 @@
       {
         "hooks": [
           {
-            "command": "uv run --no-project python \"${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py\" guard",
-            "type": "command"
-          },
-          {
             "asyncRewake": true,
             "command": "uv run --no-project python \"${CLAUDE_PLUGIN_ROOT}/scripts/plugin_runtime.py\" setup",
             "rewakeSummary": "pyeye plugin setup",

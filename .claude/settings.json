@@ -1,4 +1,10 @@
 {
+  "enabledMcpjsonServers": [
+    "pyeye"
+  ],
+  "enabledPlugins": {
+    "pyeye@pyeye-marketplace": false
+  },
   "permissions": {
     "allow": [
       "Bash(uv run mypy:*)",

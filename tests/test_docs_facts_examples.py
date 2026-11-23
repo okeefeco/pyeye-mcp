@@ -125,7 +125,7 @@ class TestWhereExamplesLive:
         [
             (DocEntry("docs/api/flask-tools.md", "human", "prose"), True),
             (DocEntry("docs/reference/tools.md", "both", "reference"), True),
-            (DocEntry("skills/python-explore/SKILL.md", "claude", "skill"), True),
+            (DocEntry(".claude/skills/python-explore/SKILL.md", "claude", "skill"), True),
             (DocEntry(".claude/skills/pyeye-verify/SKILL.md", "claude", "skill"), True),
             # Widened by design C17: prose for humans.
             (DocEntry("README.md", "human", "prose"), True),

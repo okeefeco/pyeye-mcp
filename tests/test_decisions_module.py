@@ -24,7 +24,7 @@ from pyeye import decisions
 ROOT = Path(__file__).resolve().parents[1]
 WRAPPER = ROOT / "scripts" / "decisions.py"
 MODULE = ROOT / "src" / "pyeye" / "decisions.py"
-SKILL = ROOT / "skills" / "decision-log" / "SKILL.md"
+SKILL = ROOT / ".claude" / "skills" / "decision-log" / "SKILL.md"
 
 
 def _run(argv: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:

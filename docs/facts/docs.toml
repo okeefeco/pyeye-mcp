@@ -193,7 +193,7 @@ kind = "skill"
 # Shipped skills
 
 [[doc]]
-path = "skills/python-explore/SKILL.md"
+path = ".claude/skills/python-explore/SKILL.md"
 audience = "claude"
 kind = "skill"
 
@@ -206,27 +206,27 @@ kind = "skill"
 
 # The detail python-explore loads on demand (#1130).
 [[doc]]
-path = "skills/python-explore/reference.md"
+path = ".claude/skills/python-explore/reference.md"
 audience = "claude"
 kind = "skill"
 
 [[doc]]
-path = "skills/architecture-review/SKILL.md"
+path = ".claude/skills/architecture-review/SKILL.md"
 audience = "claude"
 kind = "skill"
 
 [[doc]]
-path = "skills/architecture-review/auditor.md"
+path = ".claude/skills/architecture-review/auditor.md"
 audience = "claude"
 kind = "skill"
 
 [[doc]]
-path = "skills/duplication-review/SKILL.md"
+path = ".claude/skills/duplication-review/SKILL.md"
 audience = "claude"
 kind = "skill"
 
 [[doc]]
-path = "skills/decision-log/SKILL.md"
+path = ".claude/skills/decision-log/SKILL.md"
 audience = "claude"
 kind = "skill"
 

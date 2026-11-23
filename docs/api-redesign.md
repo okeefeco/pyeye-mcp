@@ -13,7 +13,7 @@ progressive-disclosure operations — `resolve`, `resolve_at`, `inspect`,
 `outline`, `expand`, and `trace` — optimised for cheap, pointer-first code
 navigation. All six are shipped, live MCP tools. The canonical,
 conformance-tested reference for the full set (and the supported edges) lives in
-`skills/python-explore/SKILL.md`; this document covers the design background and
+`.claude/skills/python-explore/SKILL.md`; this document covers the design background and
 documents the `resolve` / `resolve_at` / `inspect` intake operations in detail.
 
 ### Why a redesign?
@@ -48,7 +48,7 @@ live class (`JediAnalyzer`) against it.
 `expand()` and `trace()` are also shipped, live MCP tools. The full primitive
 set (`resolve` / `resolve_at` / `inspect` / `outline` / `expand` / `trace`) is
 implemented. For the edges they traverse, see the live edge list in
-`skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page
+`.claude/skills/python-explore/SKILL.md` and `docs/reference/edges.md`; this page
 doesn't repeat it.
 
 ---
@@ -57,7 +57,7 @@ doesn't repeat it.
 
 These three intake operations are documented in full below. The remaining
 primitives — `outline`, `expand`, and `trace` — are shipped and documented in
-`skills/python-explore/SKILL.md` (the single source of truth, per #374).
+`.claude/skills/python-explore/SKILL.md` (the single source of truth, per #374).
 
 ### `resolve(identifier, project_path?)`
 

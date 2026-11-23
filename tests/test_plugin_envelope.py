@@ -379,7 +379,13 @@ class TestWithoutResolver:
 
 
 def test_skill_tells_agents_to_pass_envelope() -> None:
-    skill = Path(__file__).resolve().parent.parent / "skills" / "python-explore" / "SKILL.md"
+    skill = (
+        Path(__file__).resolve().parent.parent
+        / ".claude"
+        / "skills"
+        / "python-explore"
+        / "SKILL.md"
+    )
     text = skill.read_text(encoding="utf-8")
 
     assert "envelope=true" in text

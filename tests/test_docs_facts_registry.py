@@ -57,7 +57,7 @@ class TestDocRegistry:
         found = _git_docs()
 
         assert "README.md" in found
-        assert "skills/python-explore/SKILL.md" in found
+        assert ".claude/skills/python-explore/SKILL.md" in found
 
     def test_every_exact_entry_exists(self) -> None:
         assert docs.missing_files(ROOT) == []
