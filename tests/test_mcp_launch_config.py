@@ -191,3 +191,51 @@ class TestFreshWorktrees:
         assert self._imported_from(uv, data, b).is_relative_to(b / "src")
         assert (a / "uv.lock").read_bytes() == lock_before, "--frozen must not rewrite uv.lock"
         assert not (a / ".venv").exists(), "the checkout's own dev venv is never touched"
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+def test_a_cache_install_without_git_syncs_and_imports(tmp_path: Path) -> None:
+    """#1148: Claude Code runs an installed plugin from a per-version cache copy
+    with no ``.git``, where setuptools-scm finds no version and the build fails."""
+    uv, git = shutil.which("uv"), shutil.which("git")
+    if not uv or not git:
+        pytest.skip("needs uv and git on PATH")
+    if not (_REPO / ".git").exists():
+        pytest.skip("needs a git checkout to export from")
+    # As the plugin cache holds it: the tracked files, named by a short sha.
+    root = tmp_path / "cache" / "pyeye-marketplace" / "pyeye" / "0123456789ab"
+    root.mkdir(parents=True)
+    archive = tmp_path / "plugin.tar"
+    subprocess.run(  # nosec B603
+        [git, "-C", str(_REPO), "archive", "--output", str(archive), "HEAD"], check=True
+    )
+    shutil.unpack_archive(archive, root)
+    shutil.copy2(_REPO / "scripts" / "plugin_runtime.py", root / "scripts")
+    assert not (root / ".git").exists()
+    assert not (root / "src" / "pyeye" / "_version.py").exists()
+
+    data = tmp_path / "data"
+    env = _clean_env(data, root)
+    env.pop("SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYEYE_MCP", None)
+    env.pop("SETUPTOOLS_SCM_PRETEND_VERSION", None)
+    runtime = [uv, "run", "--no-project", "python", str(root / "scripts" / "plugin_runtime.py")]
+    setup = subprocess.run(  # nosec B603
+        [*runtime, "setup"], capture_output=True, text=True, timeout=300, env=env
+    )
+    assert setup.returncode == 0, (setup.stdout + setup.stderr)[-2000:]
+
+    probe = "import pyeye, pyeye.mcp.server; print(pyeye.__version__); print(pyeye.__file__)"
+    result = subprocess.run(  # nosec B603
+        [*runtime, "python", "-c", probe],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+        cwd=str(data),
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+    version, module = result.stdout.split()
+    assert version.endswith("+g0123456789ab"), version
+    assert not version.startswith("0"), "the last release from CHANGELOG.md"
+    assert Path(module).is_relative_to(root / "src")
