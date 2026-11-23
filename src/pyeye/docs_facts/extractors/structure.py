@@ -25,9 +25,11 @@ the repository and yields, under its ``prefix`` (default ``arch``):
   facts. The candidates themselves and their scores are a judgement, so they go
   on an advisory page (``candidates_page``) that ``check`` never compares.
 
-It brings two rules, built for its prefix so a custom one keeps them:
+It brings three rules, built for its prefix so a custom one keeps them:
 ``layering`` (``CHECK no-import: A -> B`` lines on the pages, against the
-imports facts) and ``structure-coverage``. Static only (ruling C19): nothing
+imports facts), ``structure-coverage``, and ``architecture-handles`` (every
+handle an ``architecture_pages`` page names resolves against the members
+facts, #1176; :mod:`..structure.handles` states the handle convention). Static only (ruling C19): nothing
 imports or runs the analysed code.
 """
 
@@ -54,7 +56,15 @@ from ..facts import (
     text,
 )
 from ..registry import Extractor
-from ..structure import candidates, coverage, dump, layering, options, relations
+from ..structure import (
+    candidates,
+    coverage,
+    dump,
+    handles as page_handles,
+    layering,
+    options,
+    relations,
+)
 
 #: The coverage categories that are gaps (ruling Q4), in report order.
 GAP_CATEGORIES = (
@@ -86,7 +96,11 @@ def structure(table_: Mapping[str, Any]) -> Extractor:
         "structure",
         (opts.prefix,),
         lambda root: extract(root, opts),
-        rules=(layering_rule(opts.prefix), coverage_rule(opts.prefix)),
+        rules=(
+            layering_rule(opts.prefix),
+            coverage_rule(opts.prefix),
+            handles_rule(opts.prefix, opts.architecture_pages),
+        ),
     )
 
 
@@ -528,6 +542,39 @@ def layering_rule(prefix: str) -> rules.Rule:
         False,
         lambda page, facts: layering_findings(prefix, page, facts),
         requires=frozenset({f"{prefix}.imports."}),
+    )
+
+
+def handles_findings(
+    prefix: str, patterns: tuple[str, ...], page: rules.Page, facts: rules.Facts
+) -> list[rules.Finding]:
+    """A finding per handle *page* names that the *prefix* dump doesn't define (#1176)."""
+    if not page_handles.is_architecture_page(page.name, patterns):
+        return []
+    defined = page_handles.known(prefix, facts)
+    if page.root is None:
+        stale = page_handles.unresolved(page.prose, defined)
+    else:
+        with dump.Pyeye(page.root) as ops:
+            stale = page_handles.unresolved(
+                page.prose, defined, lambda h: page_handles.found(ops.resolve(h))
+            )
+    return [
+        rules.Finding(
+            page.line + line - 1, f"`{name}` doesn't resolve in the {prefix} dump or with pyeye"
+        )
+        for line, name in stale
+    ]
+
+
+def handles_rule(prefix: str, patterns: tuple[str, ...]) -> rules.Rule:
+    """The ``architecture-handles`` rule over the *prefix* facts, on the *patterns* pages."""
+    return rules.Rule(
+        rules.ARCHITECTURE_HANDLES,
+        _CHECK_KINDS,
+        False,
+        lambda page, facts: handles_findings(prefix, patterns, page, facts),
+        requires=frozenset({f"{prefix}.members."}),
     )
 
 

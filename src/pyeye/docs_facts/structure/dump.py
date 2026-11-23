@@ -288,6 +288,12 @@ class Pyeye:
 
         return asyncio.run(inspect(handle, self.analyzer))
 
+    def resolve(self, identifier: str) -> dict[str, Any]:
+        """The ``resolve`` result pyeye gives for *identifier* (#1176): canonical handles."""
+        from ...mcp.operations.resolve import resolve
+
+        return dict(asyncio.run(resolve(identifier, self.analyzer)))
+
     def module_name(self, file: Path) -> str | None:
         """The file -> module mapper's name for *file*."""
         from ...project_layout import module_name_for_file

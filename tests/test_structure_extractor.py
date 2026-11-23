@@ -49,13 +49,18 @@ class TestRegistration:
     def test_structure_is_a_generic_built_in_kind(self) -> None:
         assert kinds.BUILT_IN_KINDS["structure"] is kind.structure
 
-    def test_factory_owns_its_prefix_and_brings_both_rules(self) -> None:
+    def test_factory_owns_its_prefix_and_brings_its_rules(self) -> None:
         extractor = kind.structure({"prefix": "layout"})
         assert extractor.prefixes == ("layout",)
-        assert [r.id for r in extractor.rules] == [rules.LAYERING, rules.STRUCTURE_COVERAGE]
+        assert [r.id for r in extractor.rules] == [
+            rules.LAYERING,
+            rules.STRUCTURE_COVERAGE,
+            rules.ARCHITECTURE_HANDLES,
+        ]
         assert {need for r in extractor.rules for need in r.requires} == {
             "layout.imports.",
             "layout.coverage.gaps",
+            "layout.members.",
         }
 
     def test_bad_options_are_a_kind_options_error(self) -> None:
