@@ -175,6 +175,16 @@ entry shows up in the PR diff, for the reviewer and for `/docs-review`. An entry
 when its fact is covered or no longer exists. `check` prints how many `new` entries the
 ledger holds, as information only.
 
+`generate` derives the ledger and `removed.json` from their copies at the merge base of
+`HEAD` and `origin/main` (`--base` names another branch), not from the working tree
+(#1112). So an earlier local run doesn't leave a trace. Without that run, a fact covered
+or deleted for a moment on your branch would fall out of `baseline` for good, or get a
+permanent `removed.json` entry. From the working tree it keeps only what a person or a
+release wrote: an entry's hand-edited `match` or `note`, a hand-written entry, and a
+`first_seen` that `scripts/changelog.py prepare` stamped. Without git or a merge base
+it uses the working tree and prints a note saying so. `check` needs no git: the files
+`generate` writes are already up to date with themselves, so it compares them as they are.
+
 Some fact families are reference data rather than claims a page should explain, such
 as the list of pre-commit hooks. A setup declares those families **reference-only**:
 their facts never enter the ledger, and `generate` and `check` print a note naming them

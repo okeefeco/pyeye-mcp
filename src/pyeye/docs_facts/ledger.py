@@ -29,6 +29,10 @@ fact's value changes, and the fact returns to the uncovered entries.
 
 The ledger never blocks a PR: a new entry is a line in the diff for the reviewer
 and for ``/docs-review`` to work down.
+
+``generate`` derives it from the copy at the merge base with the default branch,
+not the working tree (#1112), so an earlier local run that briefly covered a
+baseline fact can't move it to ``new``.
 """
 
 from __future__ import annotations
@@ -74,11 +78,16 @@ def expand(ids: Iterable[str], facts: Mapping[str, Bindable]) -> set[str]:
 
 
 def load(root: Path, record: str = UNCOVERED) -> Ledger | None:
-    """The committed ledger, or None before it's first created."""
+    """The working-tree ledger, or None before it's first created."""
     path = root / record
     if not path.is_file():
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
+    return parse(path.read_text(encoding="utf-8"))
+
+
+def parse(text: str) -> Ledger:
+    """A ledger from the file's text (the working tree's, or a revision's)."""
+    data = json.loads(text)
     new = {row["fact_id"]: str(row["first_seen"]) for row in data["new"]}
     dismissed = {i: dict(v) for i, v in data.get("dismissed", {}).items()}
     return Ledger(tuple(data["baseline"]), new, dismissed)
@@ -91,8 +100,15 @@ def updated(
     dismissed: Mapping[str, Mapping[str, str]] | None = None,
     *,
     reference_only: frozenset[str] = frozenset(),
+    current: Ledger | None = None,
 ) -> Ledger:
     """The ledger for today's facts and coverage, given the committed one.
+
+    *old* is the ledger at the merge base when ``generate`` has one (#1112), so
+    an intermediate run that briefly covered a baseline fact can't move it to
+    ``new``. *current* is then the working-tree ledger, consulted only for a
+    ``first_seen`` it records that *old* doesn't, as ``changelog.py prepare``
+    stamps them. Without a base, *old* is the working-tree ledger itself.
 
     *dismissed* is :func:`.review.dismissed_uncovered`: the facts a human recorded
     as deliberately not covered, whose dismissal still holds. They leave the
@@ -109,8 +125,16 @@ def updated(
     if old is None:
         return Ledger(tuple(sorted(uncovered)), {}, held)
     baseline = tuple(sorted(set(old.baseline) & uncovered))
-    new = {i: old.new.get(i, UNRELEASED) for i in uncovered if i not in baseline}
+    seen = {**old.new, **_stamped(current)}
+    new = {i: seen.get(i, UNRELEASED) for i in uncovered if i not in baseline}
     return Ledger(baseline, dict(sorted(new.items())), held)
+
+
+def _stamped(current: Ledger | None) -> dict[str, str]:
+    """The working tree's release-stamped ``first_seen`` values (never ``unreleased``)."""
+    if current is None:
+        return {}
+    return {i: s for i, s in current.new.items() if s != UNRELEASED}
 
 
 def render(ledger: Ledger) -> str:

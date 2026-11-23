@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import subprocess  # nosec B404 - runs git with a fixed argument list
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -82,12 +83,21 @@ def reference_only_note(setup: Setup) -> list[str]:
 
 
 def plan(
-    root: Path, facts: Mapping[str, Bindable] | None = None, setup: Setup | None = None
+    root: Path,
+    facts: Mapping[str, Bindable] | None = None,
+    setup: Setup | None = None,
+    base: str | None = None,
 ) -> Plan:
     """Compute the generated text of every registered doc, page and the snapshot.
 
     *setup* is the repository's (#1091): its extractors, doc registry, rules and
     pages. Default: *root*'s own, from its config (:func:`.config.load`).
+
+    *base* is a git revision (``generate`` passes the merge base, #1112): the
+    ledger and the removed names are then derived from its copies, so the
+    order of earlier local runs doesn't matter. Without one they're derived from
+    the working tree, which ``generate``'s result is a fixed point of, so
+    ``check`` needs no git.
     """
     setup = config.load(root) if setup is None else setup
     result = Plan()
@@ -135,23 +145,67 @@ def plan(
     result.problems.extend(rules.run(root, facts, setup.docs, setup.rules))
     result.notes.extend(rules.skipped(setup.rules, facts))
     result.notes.extend(reference_only_note(setup))
-    old_snapshot = _committed_snapshots(root, setup.paths)
+    current_ledger = ledger.load(root, setup.paths.uncovered)
+    if base is None:
+        old_entries, old_snapshot, old_ledger = (
+            entries,
+            _committed_snapshots(root, setup.paths),
+            current_ledger,
+        )
+        current_entries: list[removed.Removed] | None = None
+        current_ledger = None
+    else:
+        old_entries, old_snapshot, old_ledger = _records_at(root, base, setup.paths)
+        current_entries = entries
     result.outputs[setup.paths.removed] = removed.render(
-        removed.updated(entries, old_snapshot, facts)
+        removed.updated(old_entries, old_snapshot, facts, current=current_entries)
     )
     review_state = review.load(root, setup.paths.review_state)
     result.problems.extend(review.orphaned(review_state, facts, root, review.project_symbols(root)))
-    result.problems.extend(_shadowing_advisory(result))
     result.outputs[setup.paths.uncovered] = ledger.render(
         ledger.updated(
-            ledger.load(root, setup.paths.uncovered),
+            old_ledger,
             facts,
             covered,
             review.dismissed_uncovered(review_state, facts),
             reference_only=setup.reference_only,
+            current=current_ledger,
         )
     )
+    result.problems.extend(_shadowing_advisory(result))  # last: against every output
     return result
+
+
+def merge_base(root: Path, ref: str) -> str | None:
+    """The merge base of ``HEAD`` and *ref*, or None without git or such a ref."""
+    try:
+        result = subprocess.run(  # nosec B603 B607 - fixed git command, no shell
+            ["git", "merge-base", "HEAD", ref],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    sha = result.stdout.strip()
+    return sha if result.returncode == 0 and sha else None
+
+
+def _records_at(
+    root: Path, base: str, paths: Paths
+) -> tuple[list[removed.Removed], dict[str, object], ledger.Ledger | None]:
+    """The removed names, snapshot facts and ledger at revision *base* (#1112).
+
+    A record *base* doesn't have yet is empty (the ledger: None, so it's created).
+    """
+    removed_text = changed.show(root, base, paths.removed)
+    ledger_text = changed.show(root, base, paths.uncovered)
+    return (
+        removed.parse(removed_text) if removed_text is not None else [],
+        base_snapshots(root, base, paths) or {},
+        ledger.parse(ledger_text) if ledger_text is not None else None,
+    )
 
 
 def _committed_snapshot(root: Path, path: str = SNAPSHOT) -> dict[str, object]:
@@ -250,9 +304,20 @@ def _shadowing_advisory(result: Plan) -> list[str]:
     ]
 
 
-def generate(root: Path, setup: Setup | None = None) -> int:
-    """Write every stale output. Returns the exit code (1 on a problem)."""
-    result = plan(root, setup=setup)
+def generate(root: Path, setup: Setup | None = None, base_ref: str = "origin/main") -> int:
+    """Write every stale output. Returns the exit code (1 on a problem).
+
+    The ledger and removed names are derived against the merge base of ``HEAD``
+    and *base_ref* (#1112), or the working tree when there is none (no git, no
+    such ref), which says so.
+    """
+    base = merge_base(root, base_ref)
+    result = plan(root, setup=setup, base=base)
+    if base is None:
+        result.notes.append(
+            f"no merge base with {base_ref}: the ledger and removed names were "
+            "derived from the working tree, so earlier local runs can show in them"
+        )
     for path in stale(root, result):
         _write(root, path, result.outputs[path])
         print(f"docs_facts: regenerated {path}")
@@ -339,7 +404,10 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
     parser.add_argument("command", choices=["generate", "check", "changed"])
     parser.add_argument("--root", type=Path, default=root or Path.cwd(), help="repository root")
     parser.add_argument(
-        "--base", default="origin/main", help="changed: the git revision to diff against"
+        "--base",
+        default="origin/main",
+        help="changed: the git revision to diff against; generate: the branch whose "
+        "merge base the ledger and removed names are derived against (#1112)",
     )
     args = parser.parse_args(argv)
     try:
@@ -349,7 +417,7 @@ def main(argv: Sequence[str] | None = None, root: Path | None = None) -> int:
         return 1
     try:
         if args.command == "generate":
-            return generate(args.root, setup)
+            return generate(args.root, setup, args.base)
         if args.command == "changed":
             return report_changed(args.root, args.base, setup)
         return check(args.root, setup)

@@ -481,10 +481,11 @@ class TestAdvisoryPages:
         page.write_text("edited by hand\n", encoding="utf-8")
         assert cli.check(tmp_path, setup) == 0  # never compared
 
-    def test_it_may_not_shadow_a_checked_output(self, tmp_path: Path) -> None:
-        setup = _advisory_setup(tmp_path, "README.md")
+    @pytest.mark.parametrize("path", ["README.md", "docs/facts/uncovered.json"])
+    def test_it_may_not_shadow_a_checked_output(self, tmp_path: Path, path: str) -> None:
+        setup = _advisory_setup(tmp_path, path)
         result = cli.plan(tmp_path, setup=setup)
-        assert "README.md: an advisory page can't also be a checked output" in result.problems
+        assert f"{path}: an advisory page can't also be a checked output" in result.problems
 
 
 class TestRulesThroughCheck:

@@ -45,6 +45,22 @@ class Changes:
     pages: dict[str, list[str]] = field(default_factory=dict)
 
 
+def show(root: Path, base: str, path: str) -> str | None:
+    """The text of *path* at git revision *base*, or None if it has no such file."""
+    try:
+        result = subprocess.run(  # nosec B603 B607 - fixed git command, no shell
+            ["git", "show", f"{base}:{path}"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
+
+
 def base_snapshot(
     root: Path, base: str, snapshot_path: str, section: str = "facts"
 ) -> dict[str, Any] | None:
@@ -53,16 +69,10 @@ def base_snapshot(
     *section* is ``facts`` (each fact's value) or ``views`` (each view's members,
     #1114); a snapshot from before the views were kept has none, so it reads empty.
     """
-    result = subprocess.run(  # nosec B603 B607 - fixed git command, no shell
-        ["git", "show", f"{base}:{snapshot_path}"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
+    text = show(root, base, snapshot_path)
+    if text is None:
         return None
-    data = json.loads(result.stdout)
+    data = json.loads(text)
     found: dict[str, Any] = data["facts"] if section == "facts" else data.get(section, {})
     return found
 
