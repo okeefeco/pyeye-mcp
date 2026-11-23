@@ -3,10 +3,10 @@ date: "2026-11-24"
 title: "The architecture review engine: an area against its recorded architecture, four anchored outcomes (#1178)"
 issues: [1178, 1132, 1092, 1182]
 anchors: ["pyeye.docs_facts.architecture.plan", "pyeye.docs_facts.architecture.problems", "pyeye.docs_facts.architecture.report", "pyeye.docs_facts.architecture.Area", "pyeye.docs_facts.review.architecture_problems", "pyeye.docs_facts.review.finding_problems", "pyeye.docs_facts.review.finding_key", "tests/test_architecture_review_engine.py", "tests/test_architecture_review_findings.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1178-the-review-lists-unplaceable-sites-apart.md"]
 superseded_by: []
 ---
 

@@ -62,6 +62,9 @@ DECISIONS = [
     _entry("2026-01-01-2-old-paths.md", "superseded", "`pkg.paths.helper`"),
     _entry("2026-01-01-3-shapes.md", "active", "`pkg.shapes.Base` and `pkg.gone.thing`"),
     _entry("2026-01-01-4-policy.md", "active", "none (policy decision: release classification)"),
+    _entry(
+        "2026-01-01-5-short.md", "active", "`util.normalise_path`, `os.path.join` and `pkg.util`"
+    ),
 ]
 
 
@@ -257,9 +260,10 @@ class TestTheDecisionPass:
     def test_a_decision_whose_site_is_in_the_area_is_a_candidate(
         self, core: dict[str, Any]
     ) -> None:
-        [candidate] = core["decisions"]
+        [candidate] = [
+            d for d in core["decisions"] if d["decision"] == "2026-01-01-1-util-delegates.md"
+        ]
 
-        assert candidate["decision"] == "2026-01-01-1-util-delegates.md"
         assert candidate["sites"] == [
             {"text": "pkg.util.normalise_path", "handle": "pkg.util.normalise_path"},
             {"text": "pkg/util.py", "handle": "pkg.util"},
@@ -281,6 +285,30 @@ class TestTheDecisionPass:
             "site": "pkg.gone.thing",
             "reason": "unresolved",
         } in core["unresolved_sites"]
+
+    def test_a_short_form_is_listed_apart_never_as_stale(self, core: dict[str, Any]) -> None:
+        """#1188: a site not rooted at a project top-level name is a short form, never resolved."""
+        short = {"decision": "2026-01-01-5-short.md", "site": "util.normalise_path"}
+
+        assert short in core["short_form_sites"]
+        assert all(s["site"] != "util.normalise_path" for s in core["unresolved_sites"])
+
+    def test_an_external_site_is_listed_apart(self, core: dict[str, Any]) -> None:
+        """A stdlib or environment name can't be in an area: it is listed, never 'not here'."""
+        assert {
+            "decision": "2026-01-01-5-short.md",
+            "site": "os.path.join",
+            "reason": "external",
+        } in core["external_sites"]
+        assert all(s["site"] != "os.path.join" for s in core["unresolved_sites"])
+
+    def test_only_stale_project_sites_are_unresolved(self, core: dict[str, Any]) -> None:
+        assert [s["site"] for s in core["unresolved_sites"]] == ["pkg.gone.thing"]
+
+    def test_a_decision_with_a_short_form_still_matches_on_its_handles(
+        self, core: dict[str, Any]
+    ) -> None:
+        assert "2026-01-01-5-short.md" in {d["decision"] for d in core["decisions"]}
 
     def test_a_none_applies_to_has_no_sites(self, core: dict[str, Any]) -> None:
         assert "2026-01-01-4-policy.md" not in {s["decision"] for s in core["unresolved_sites"]}
@@ -438,6 +466,8 @@ class TestReport:
         out = architecture.report(core, [])
 
         assert out["unresolved_sites"] == core["unresolved_sites"]
+        assert out["short_form_sites"] == core["short_form_sites"]
+        assert out["external_sites"] == core["external_sites"]
         assert out["unassigned"] == core["unassigned"]
 
 
