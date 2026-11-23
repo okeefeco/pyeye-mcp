@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "A typed NamedTuple shows its generated constructor, and None isn't callable (#1126)"
 issues: [1126, 1129, 437, 407]
 anchors: ["pyeye._class_signatures.namedtuple_signature", "pyeye._class_signatures.is_none_signature", "pyeye._class_signatures.is_namedtuple_factory", "pyeye.mcp.operations.inspect._build_signature", "tests/test_namedtuple_signatures.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1129-a-typeddict-shows-its-keyword-only-constructor.md"]
 superseded_by: []
 ---
 
