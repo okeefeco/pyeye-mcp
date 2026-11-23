@@ -16,8 +16,9 @@ with the whole source. One run, for one area (R3):
    - each active decision's ``Applies-to`` sites are resolved through pyeye
      (:mod:`pyeye.decision_sites`, the user's ruling) and matched to the area's
      module globs by canonical handle. A matching decision is a **candidate**
-     for the reviewer to confirm, since a decision is prose. A site that
-     doesn't resolve is reported, never silently unmatched.
+     for the reviewer to confirm, since a decision is prose. A site it can't
+     place is listed apart, never silently unmatched: stale (``unresolved_sites``),
+     a short form or an external name (#1188).
 
 3. **Packet**: the plan's JSON, all a fresh-context reviewer reads.
 4. **Validate** (:func:`problems`): the generalised shared validator
@@ -40,7 +41,7 @@ import fnmatch
 import json
 import sys
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -240,21 +241,58 @@ def _rule_pass(
     return in_scope, findings, unverified
 
 
+@dataclass(frozen=True)
+class _Tops:
+    """The project's own top-level names and the external ones (#1188), read once per run."""
+
+    project: frozenset[str] | None
+    external: frozenset[str]
+
+
+@dataclass
+class _Unplaced:
+    """The sites the decision pass can't place in any area, by why (#1188).
+
+    Attributes:
+        unresolved: Project handles and paths that don't resolve: stale.
+        short_form: Names not rooted at a project top-level name, never resolved.
+        external: Standard-library or environment names: in no area.
+    """
+
+    unresolved: list[dict[str, Any]] = field(default_factory=list)
+    short_form: list[dict[str, Any]] = field(default_factory=list)
+    external: list[dict[str, Any]] = field(default_factory=list)
+
+    def add(self, decision: str, site: decision_sites.Site) -> None:
+        """File *site*, which has no handle, under why it has none."""
+        record = {"decision": decision, "site": site.ref.text}
+        if site.reason == "short_form":
+            self.short_form.append(record)
+        elif site.ref.kind == "external" or site.reason == "external":
+            self.external.append({**record, "reason": site.reason})
+        else:
+            self.unresolved.append({**record, "reason": site.reason})
+
+
 def _decision_pass(
-    area_: Area, entries: Iterable[decisions.Entry], resolver: decision_sites.Resolver
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """The candidate decisions for the area, and every site that didn't resolve."""
-    candidates, unresolved = [], []
+    area_: Area,
+    entries: Iterable[decisions.Entry],
+    resolver: decision_sites.Resolver,
+    tops: _Tops,
+) -> tuple[list[dict[str, Any]], _Unplaced]:
+    """The candidate decisions for the area, and every site it can't place."""
+    candidates: list[dict[str, Any]] = []
+    unplaced = _Unplaced()
     for entry in entries:
         if entry.meta.get("status") not in _GOVERNING:
             continue
         text = decisions.applies_to(entry.body)
-        sites = decision_sites.resolve_sites(text, resolver)
+        sites = decision_sites.resolve_sites(
+            text, resolver, tops=tops.project, external=tops.external
+        )
         for site in sites:
             if site.handle is None:
-                unresolved.append(
-                    {"decision": entry.name, "site": site.ref.text, "reason": site.reason}
-                )
+                unplaced.add(entry.name, site)
         matched = [s for s in sites if s.handle is not None and area_.holds(s.handle)]
         if matched:
             candidates.append(
@@ -266,7 +304,7 @@ def _decision_pass(
                     "sites": [{"text": s.ref.text, "handle": s.handle} for s in matched],
                 }
             )
-    return candidates, unresolved
+    return candidates, unplaced
 
 
 def _area_facts(prefix: str, area_: Area, values: Mapping[str, Any]) -> dict[str, Any]:
@@ -349,8 +387,11 @@ def plan(
     rules, findings, unverified = _rule_pass(area_, mine, _rules(root, setup))
     entries, errors = decisions.load(decisions_dir or root / "docs" / "decisions" / "entries")
     packet["notes"].extend(f"decision entry unreadable: {e}" for e in errors)
-    candidates, unresolved = _decision_pass(
-        area_, entries, resolver or decision_sites.pyeye_resolver(root)
+    tops = _Tops(
+        decision_sites.top_level_names(root), decision_sites.external_top_level_names(root)
+    )
+    candidates, unplaced = _decision_pass(
+        area_, entries, resolver or decision_sites.pyeye_resolver(root), tops
     )
     found_conventions, notes = _conventions(root, conventions)
     packet["notes"].extend(notes)
@@ -360,7 +401,9 @@ def plan(
         rules=rules,
         unverified_rules=unverified,
         decisions=candidates,
-        unresolved_sites=unresolved,
+        unresolved_sites=unplaced.unresolved,
+        short_form_sites=unplaced.short_form,
+        external_sites=unplaced.external,
         conventions=found_conventions,
         findings=findings,
     )
@@ -370,6 +413,8 @@ def plan(
 def _empty(packet: dict[str, Any]) -> dict[str, Any]:
     """A packet with nothing to review: every list present and empty."""
     for key in ("modules", "rules", "unverified_rules", "decisions", "unresolved_sites"):
+        packet.setdefault(key, [])
+    for key in ("short_form_sites", "external_sites"):
         packet.setdefault(key, [])
     for key in ("conventions", "findings"):
         packet.setdefault(key, [])
@@ -493,6 +538,8 @@ def report(
         "adherence": {"count": len(adherence), "findings": sorted(adherence, key=_rank)},
         "unverified_rules": list(packet.get("unverified_rules", [])),
         "unresolved_sites": list(packet.get("unresolved_sites", [])),
+        "short_form_sites": list(packet.get("short_form_sites", [])),
+        "external_sites": list(packet.get("external_sites", [])),
         "unassigned": list(packet.get("unassigned", [])),
         "gaps": dict(packet.get("gaps", {})),
         "notes": list(packet.get("notes", [])),
