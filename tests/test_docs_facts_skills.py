@@ -4,28 +4,30 @@ Replaces ``test_python_explore_skill_conformance`` (#374),
 ``test_architecture_review_skill_conformance`` and
 ``test_duplication_review_skill_conformance`` (#495). Their exact-list anchors
 (``<!-- pyeye-supported-edges: … -->`` and the like) are now fact blocks that
-``docs_facts generate`` writes and ``check`` verifies: ``edges.implemented``,
-``review.axes``, ``review.axes.table``, ``review.facets.table`` and the
-``duplication.*`` facts. What's left here can't be a block: that each fact is
+``docs_facts generate`` writes and ``check`` verifies: ``edges.implemented`` and
+the ``duplication.*`` facts. What's left here can't be a block: that each fact is
 *explained* in the prose, that the skill is still bound at all, and the skills'
-frontmatter.
+frontmatter. ``architecture-review`` reviews an area against its recorded
+architecture (#1179): its conformance is that it explains the engine's four
+outcomes, and that its reviewer's example findings pass the engine's validator.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
 import pytest
 
 from pyeye.architecture_review import taxonomy
-from pyeye.docs_facts import binding, registry
+from pyeye.docs_facts import architecture, binding, registry, review
 from pyeye.docs_facts.facts import Bindable, Fact, View
 
 ROOT = Path(__file__).parent.parent
 PYTHON_EXPLORE = ".claude/skills/python-explore/SKILL.md"
 ARCH_SKILL = ".claude/skills/architecture-review/SKILL.md"
-ARCH_AUDITOR = ".claude/skills/architecture-review/auditor.md"
+ARCH_REVIEWER = ".claude/skills/architecture-review/reviewer.md"
 DUP_SKILL = ".claude/skills/duplication-review/SKILL.md"
 
 
@@ -54,8 +56,6 @@ def _members(facts: dict[str, Bindable], view_id: str) -> list[str]:
     ("path", "fact_ids"),
     [
         (PYTHON_EXPLORE, {"edges.implemented"}),
-        (ARCH_SKILL, {"review.axes"}),
-        (ARCH_AUDITOR, {"review.axes.table", "review.facets.table"}),
         (
             DUP_SKILL,
             {
@@ -114,15 +114,45 @@ class TestPythonExplore:
 
 
 class TestArchitectureReview:
-    def test_every_grade_is_explained(self, facts: dict[str, Bindable]) -> None:
-        text = _text(ARCH_SKILL)
-        missing = [g for g in _members(facts, "review.grades") if f"`{g}`" not in text]
-        assert not missing, f"SKILL.md doesn't explain these grades: {missing}"
+    """The skill over the review engine (#1179): the four outcomes, no dismissals."""
 
-    def test_duplication_is_not_an_axis(self, facts: dict[str, Bindable]) -> None:
-        """Code duplication is carved out to the duplication-review skill (#495)."""
-        assert "duplication" not in _members(facts, "review.axes")
-        assert "`duplication`" not in _text(ARCH_AUDITOR)
+    @pytest.mark.parametrize("path", [ARCH_SKILL, ARCH_REVIEWER])
+    def test_every_outcome_is_explained(self, path: str) -> None:
+        text = _text(path)
+        missing = [o for o in review.OUTCOMES if f"**{o}**" not in text]
+        assert not missing, f"{path} doesn't explain these outcomes: {missing}"
+
+    def test_it_runs_the_engines_commands(self) -> None:
+        text = _text(ARCH_SKILL)
+        for command in ("plan", "validate", "report"):
+            assert f"python -m pyeye.docs_facts architecture {command}" in text or (
+                f"`{command} " in text
+            ), command
+        assert "python -m pyeye.docs_facts architecture plan AREA" in text
+
+    def test_it_says_what_the_engine_says_without_recorded_architecture(self) -> None:
+        assert architecture.NO_ARCHITECTURE in " ".join(_text(ARCH_SKILL).split())
+
+    def test_no_dismissals(self) -> None:
+        """R7: every resolution is a decision entry; a deferral is re-reported."""
+        text = _text(ARCH_SKILL)
+        assert "no dismissals" in text.lower()
+        for gone in ("non_issue", "confirmed_non_issues", "dismiss_finding", "state.py"):
+            assert gone not in text, gone
+
+    def test_it_codifies_through_decision_log_and_a_check_line(self) -> None:
+        text = _text(ARCH_SKILL)
+        assert "(../decision-log/SKILL.md)" in text
+        assert "CHECK no-import: A -> B" in text
+
+    def test_the_reviewers_example_findings_pass_the_validator(self) -> None:
+        """The prompt can't teach a shape the engine rejects."""
+        text = _text(ARCH_REVIEWER)
+        block = text.split("```json\n", 1)[1].split("```", 1)[0]
+        examples = json.loads(block)
+        assert {e["category"] for e in examples} == {"deviation", "decision_needed", "ambiguity"}
+        for finding in examples:
+            assert review.finding_problems(finding) == [], finding
 
     def test_every_axis_has_a_stakes_tier(self) -> None:
         """The bucket is the ranking tier (#492): explicit for each axis, never defaulted."""
@@ -131,8 +161,7 @@ class TestArchitectureReview:
         assert set(taxonomy.AXIS_STAKES_BUCKET.values()) <= {"high", "med", "low"}
 
     def test_it_points_at_the_duplication_skill(self) -> None:
-        for path in (ARCH_SKILL, ARCH_AUDITOR):
-            assert "duplication-review" in _text(path), path
+        assert "duplication-review" in _text(ARCH_SKILL)
 
 
 class TestDuplicationReview:
