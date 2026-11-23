@@ -77,6 +77,8 @@ from pyeye._class_signatures import (
     is_namedtuple_factory,
     is_none_signature,
     namedtuple_signature,
+    typeddict_class,
+    typeddict_signature,
 )
 from pyeye._jedi_location import location_from_name
 from pyeye._module_scope import build_import_table
@@ -408,6 +410,11 @@ def _build_signature(jedi_name: Any) -> str | None:
         # factory's ``(typename, fields, /)``; omitted when it can't be built (#1126).
         if sigs and is_namedtuple_factory(sigs[0]):
             return namedtuple_signature(jedi_name)
+        # A TypedDict shows the keyword-only constructor its keys imply, never
+        # dict's overloads; omitted when its keys can't all be known (#1129).
+        typeddict = typeddict_class(jedi_name) if sigs else None
+        if typeddict is not None:
+            return typeddict_signature(typeddict, jedi_name.name)
         if sigs:
             sig_str = sigs[0].to_string()
             # Guard: must be single-line
