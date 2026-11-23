@@ -253,8 +253,9 @@ def serve_then_clean_up(serve: Callable[[], None]) -> None:
 
     *serve* returns when stdin reaches EOF (the client went away). Cleanup runs
     here, not only from ``atexit``: the interpreter joins every non-daemon
-    thread BEFORE it runs ``atexit`` handlers, and watchdog 7's reader thread on
-    Windows is non-daemon, so a watcher still running would hang the exit.
+    thread BEFORE it runs ``atexit`` handlers, so any non-daemon thread still
+    running would hang the exit. watchdog 7.0-7.1.0's Windows reader thread was
+    one (gorakhargosh/watchdog#1470; pyeye requires 7.1.1 since #1146).
     """
     import atexit
 
