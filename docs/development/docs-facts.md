@@ -231,11 +231,13 @@ pyeye's own repository is configured the same way, in data (#1107):
 
 - `docs = "docs/facts/docs.toml"`: the doc registry in a file (TOML, JSON or YAML)
   whose `doc` key lists the entries. An inline list of tables works too.
-- `extractors`: pyeye's extractors are built-in `pyeye-*` kinds. They read pyeye's
-  source by pyeye's conventions, so each runs only on the repository whose
+- `extractors`: pyeye's extractors are built-in kinds. Most are `pyeye-*` kinds. They
+  read pyeye's source by pyeye's conventions, so each runs only on the repository whose
   `pyproject.toml` declares `[project] name = "pyeye-mcp"`; anywhere else, extraction
   stops with an error that says so. Each kind's docstring says why no generic kind
-  can express it yet, and #1119 converts them.
+  can express it yet. #1119 converts them into generic kinds any repository can use,
+  such as `entry-points` (below), and counts how many remain:
+  <!-- fact:begin docs_facts.pyeye_kinds_remaining -->`10`<!-- fact:end -->.
 - `pages`: the built-in reference pages under `docs/reference/`, also pyeye's only.
 
 `tests/fixtures/docs_facts_inline` is a small repository configured inline, checked in
@@ -272,7 +274,14 @@ kind = "prose"                    # how the checks treat the page
   path; YAML is read with `yaml.safe_load` only. A fact's ID is `prefix.name`.
 - **`extractors`** names other built-in kinds with their options:
   `[[tool.pyeye.docs_facts.extractors]]`, with `kind = "<name>"` and the kind's
-  options.
+  options. Unknown options are refused.
+  - `entry-points` (#1119) gives the repository's entry points. `<prefix>.script.<name>`
+    is each console script in `[project.scripts]`, with its `target`.
+    `<prefix>.module.<dotted>` is each package under `package` that holds a
+    `__main__.py`, so `python -m <dotted>` runs it. The view `<prefix>.all` tables
+    both. Its options are `package` (a directory, optional), `module` (that package's
+    import name, by default the directory's name) and `prefix` (by default `cli`).
+    pyeye's own config gives it `package = "src/pyeye"`.
 - **`docs`** is the doc registry, written as tables or as the path of a data file
   that holds them under `doc`. **`rules`** is `"all"` (the
   default) or a list of rule IDs. A rule whose facts the repository doesn't have,

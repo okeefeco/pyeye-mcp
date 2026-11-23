@@ -3,10 +3,10 @@ date: "2026-11-23"
 title: "pyeye's docs-facts setup is data: a registry file, restricted pyeye-* kinds, built-in pages; the preset is deleted (#1107)"
 issues: [1107, 1091, 1119, 1083]
 anchors: ["pyeye.docs_facts.doc_registry.read", "pyeye.docs_facts.pyeye_kinds.PYEYE_KINDS", "pyeye.docs_facts.pyeye_kinds.project_name", "pyeye.docs_facts.config.load", "pyeye.docs_facts.docs.for_repo", "docs/facts/docs.toml", "tests/test_docs_facts_pyeye_kinds.py", "tests/test_docs_facts_doc_registry.py", "tests/test_docs_facts_config.py"]
-status: "active"
+status: "amended"
 amends: ["2026-11-23-1091-a-data-only-docs-facts-config-per-repository.md"]
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-23-1119-a-generic-kinds-fact-schema-is-fixed-under-a-prefix.md"]
 superseded_by: []
 ---
 

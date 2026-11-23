@@ -37,8 +37,10 @@ BUILT_IN_KINDS: dict[str, KindFactory] = {}
 
 # Generic kinds: each in its own module, one registration line each. Imported
 # here, after KindOptionsError, which their factories raise.
+from . import entry_points  # noqa: E402
 from .extractors.structure import structure as _structure  # noqa: E402
 
+BUILT_IN_KINDS[entry_points.KIND] = entry_points.factory
 BUILT_IN_KINDS["structure"] = _structure
 
 # pyeye's own extractors, restricted to pyeye's repository (#1107). Imported
