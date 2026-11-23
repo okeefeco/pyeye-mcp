@@ -2,7 +2,7 @@
 
 The first run of the release-pass verification step (#1140, `docs/RELEASE.md` step 2). It used the `pyeye-verify` procedure on the two release-pass scenarios from `pyeye-scenarios`. The baseline records it created are `.claude/skills/pyeye-scenarios/baselines/poetry.md` and `scrapy.md`.
 
-- **Code under test:** pyeye `main` at `f58d0b86`. The probes ran on a fresh server built from `f053174e` (`2.2.1.dev75+gf053174ea`); the commits between it and `f58d0b86` change only docs-facts generation. The task-trial agents ran `claude --plugin-dir` on a clone at `f58d0b86`.
+- **Code under test:** pyeye `main` at `f58d0b86`. The probes ran on a fresh server built from `f053174e` (`2.2.1.dev75+gf053174ea`); the commits between it and `f58d0b86` change only docs-facts generation. The task-trial agents ran `claude --plugin-dir` on a clone at `f58d0b86`. After #1166 merged, the Scrapy probes were re-run directly from a checkout at `596c8bd6` (`2.2.1.dev101+g596c8bd60`).
 - **Scenarios:**
   - Poetry 2.5.2 (`4934abbd`), a `src/`-layout project;
   - Scrapy 2.20.0 (`4a421e45`), a plain tree.
@@ -12,17 +12,20 @@ The first run of the release-pass verification step (#1140, `docs/RELEASE.md` st
 
 ## Verdict
 
-**Pass.** There are no regressions: no earlier baseline existed for either scenario, and the probes that cover earlier fixes all hold. The round-trip probe found 0 misses on both, and both task trials were as accurate as their controls. One new defect was found, reproduced on `main` and filed: **#1159**.
+**Pass.** There are no regressions: no earlier baseline existed for either scenario, and the probes that cover earlier fixes all hold. The round-trip probe found 0 misses on both, and both task trials were as accurate as their controls.
+
+- **One defect found: #1159.** It was reproduced on `main` and filed, then fixed by #1166 the same day. It is verified fixed on `596c8bd6` (`2.2.1.dev101+g596c8bd60`), where the Scrapy probes were re-run and are all ✅.
+- **The token cost of pyeye:** the skill + pyeye arm used **1.2× (Scrapy) to 2.9× (Poetry) the tokens** of the grep-only control, for equal accuracy. That is the measure #1130's guidance ("find with grep, prove with pyeye") is judged by.
 
 ## Probes
 
 | Scenario | Probes | Round-trip | Notes |
 |----------|--------|------------|-------|
 | poetry | 8 ✅ | `poetry.installation.executor`: 0 of 39 miss | ✅ #1126 holds: `Hexdigest(md5: str \| None, sha256: str \| None, blake2_256: str \| None)` |
-| scrapy | 4 ✅, 1 ❌ | `scrapy.spidermiddlewares.referer`: 0 of 22 miss | ✅ #1125 holds. #1133 is explained (below). ❌ #1159, new |
+| scrapy | 5 ✅ (on `596c8bd6`) | `scrapy.spidermiddlewares.referer`: 0 of 22 miss | ✅ #1125 holds. #1133 is explained (below). Row 4 was ❌ on `f053174e` (#1159); it is ✅ after #1166 |
 
 - **#1133 (already closed as not reproduced; this run agrees):** `expand("scrapy.spidermiddlewares.referer", "imports")` reports `warn` as `_warnings.warn`. That's the canonical definition site of `from warnings import warn` in typeshed, not a stdlib module's imports attributed to `referer`. `unresolved_imports` is `[]`.
-- **#1159 (new):** a parameter annotation that spans lines truncates the rendered signature at its first line. Scrapy's `Request` stub shows `Request(url: str, callback: CallbackT | None=None, method: str="GET", headers: Mapping[str, Any]`, with no closing paren. It was reproduced on `main` with a minimal function and class, and the cause is `_build_signature` keeping only the first line of Jedi's render.
+- **#1159 (found by this run, fixed by #1166 the same day):** a parameter annotation that spans lines truncated the rendered signature at its first line. On `f053174e`, Scrapy's `Request` stub showed `Request(url: str, callback: CallbackT | None=None, method: str="GET", headers: Mapping[str, Any]`, with no closing paren. It was reproduced on `main` with a minimal function and class before filing; the cause was `_build_signature` keeping only the first line of Jedi's render. **Verified fixed** on `596c8bd6`: both `Request` and `Response` now render whole, on one line.
 
 ## Agent-consumption rubric: 8/8 pass
 
@@ -51,6 +54,6 @@ The first run of the release-pass verification step (#1140, `docs/RELEASE.md` st
 
 ## Actions
 
-- Filed **#1159**.
+- Filed **#1159**, fixed by #1166 and verified fixed on `596c8bd6`.
 - Recorded the first `poetry` and `scrapy` baselines.
 - #1133 needs nothing more: it was already closed as not reproduced, and this run agrees.
