@@ -3,10 +3,10 @@ date: "2026-11-18"
 title: "A subscripted base names its class; a non-class base is unresolved (#921, #922)"
 issues: [921, 922, 624, 417, 505]
 anchors: ["pyeye._ast_targets.unsubscripted", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._get_base_name_from_ast", "pyeye.analyzers.jedi_analyzer.JediAnalyzer._get_ast_leaf_position", "pyeye.mcp.operations.edges.superclass_bases"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

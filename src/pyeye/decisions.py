@@ -26,6 +26,7 @@ Usage::
 
     python -m pyeye.decisions index [--symbol S] [--issue N] [--active] [--status STATUS]
     python -m pyeye.decisions check
+    python -m pyeye.decisions check --resolve   # also resolve Anchor/Applies-to (needs pyeye)
     python -m pyeye.decisions migrate     # split entries still in DECISIONS.md into files
     python -m pyeye.decisions --decisions-dir path/to/decisions --grandfathered OLD.md check
 
@@ -41,6 +42,7 @@ and run it with a bare ``python``, without the ``pyeye`` package's dependencies.
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import re
 import sys
@@ -460,6 +462,30 @@ def format_index(entries: list[Entry]) -> str:
     return "\n".join(rows)
 
 
+def _resolve(
+    entries: list[Entry], entries_dir: Path, root: Path, short_forms_fail_from: str | None
+) -> list[str]:
+    """``check --resolve``'s problems; its counts and externals are printed (#1182).
+
+    pyeye is imported by name, so this module stays standard-library only and
+    a bare-Python ``check`` never needs it. Without pyeye, ``--resolve`` is a
+    problem: an unchecked reference must never read as a passing one.
+    """
+    try:
+        decision_check = importlib.import_module("pyeye.decision_check")
+    except ImportError as exc:
+        return [f"--resolve needs pyeye importable (run it under `uv run`): {exc}"]
+    report = decision_check.resolve_check(entries, entries_dir, root, short_forms_fail_from)
+    before = f"before {short_forms_fail_from}" if short_forms_fail_from else "(no gate date)"
+    print(
+        f"decisions: resolved the references of {report.checked_entries} active entries; "
+        f"{report.grandfathered_short_forms} short form(s) in entries {before} not checked"
+    )
+    for external in report.unresolved_externals:
+        print(f"decisions: external reference not resolved (not a failure): {external}")
+    return list(report.problems)
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -467,6 +493,8 @@ def main(
     grandfathered: frozenset[str] = DEFAULT_GRANDFATHERED,
     header: str = STATIC_HEADER,
     command: str = DEFAULT_COMMAND,
+    short_forms_fail_from: str | None = None,
+    project_root: Path | None = None,
 ) -> int:
     """Command-line entry point (``python -m pyeye.decisions``).
 
@@ -476,6 +504,12 @@ def main(
     grandfathered from the ``Applies-to`` rule, the header ``migrate`` writes,
     and how messages name the command. ``--decisions-dir`` and
     ``--grandfathered`` set the first two from the command line.
+
+    ``check --resolve`` also resolves every Anchor and Applies-to reference
+    of the active entries with pyeye (:mod:`pyeye.decision_check`, #1182),
+    in *project_root* (``--project-root``, default the working directory). A
+    short form fails in entries dated on or after *short_forms_fail_from*.
+    It needs pyeye importable: without it the check fails, never passes.
     """
     # Titles carry non-ASCII (—, ·, ↔). A Windows console defaults to cp1252.
     for stream in (sys.stdout, sys.stderr):
@@ -504,7 +538,18 @@ def main(
     index.add_argument("--issue", type=int, help="only entries for this issue number")
     index.add_argument("--active", action="store_true", help="hide superseded entries")
     index.add_argument("--status", choices=STATUSES, help="only entries with this status")
-    sub.add_parser("check", help="validate every entry (run in CI)")
+    check_parser = sub.add_parser("check", help="validate every entry (run in CI)")
+    check_parser.add_argument(
+        "--resolve",
+        action="store_true",
+        help="also resolve every Anchor and Applies-to reference with pyeye (#1182)",
+    )
+    check_parser.add_argument(
+        "--project-root",
+        type=Path,
+        default=project_root if project_root is not None else Path("."),
+        help="the project --resolve resolves references in (default: the working directory)",
+    )
     migrate_parser = sub.add_parser(
         "migrate", help="split entries still in DECISIONS.md into files"
     )
@@ -540,6 +585,8 @@ def main(
         return 0
     if args.command == "check":
         problems = errors + check(entries, exempt) + stale_grandfathered(entries, exempt)
+        if args.resolve:
+            problems += _resolve(entries, entries_dir, args.project_root, short_forms_fail_from)
         if log_file.exists():
             left = entries_in_log(log_file.read_text(encoding="utf-8"))
             if left:

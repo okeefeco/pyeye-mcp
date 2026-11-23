@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Duplication review is a judgment tool over exact-match clone families, keyed on member locations; the shared detector caps repeated windows (#495)"
 issues: [495, 492, 498, 616, 636, 629]
 anchors: ["pyeye.duplication.find_clones", "pyeye.duplication.DEFAULT_MAX_OCCURRENCES", "pyeye.duplication.build_sites", "pyeye.duplication.build_families", "pyeye.duplication.apply_dismissals", "pyeye.duplication.dismiss", "pyeye.duplication.Family.key", "pyeye.architecture_review.state.non_issue_key", "skills/duplication-review/SKILL.md"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 

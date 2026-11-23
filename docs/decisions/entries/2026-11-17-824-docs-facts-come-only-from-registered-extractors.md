@@ -3,10 +3,10 @@ date: "2026-11-17"
 title: "Facts reach the docs only through registered extractors, marker blocks and generated pages, over one doc registry (#824)"
 issues: [824, 818]
 anchors: ["pyeye.docs_facts.registry.EXTRACTORS", "pyeye.docs_facts.registry.build", "pyeye.docs_facts.docs.DOCS", "pyeye.docs_facts.binding.render", "pyeye.docs_facts.pages.PAGES", "pyeye.docs_facts.cli.check", "tests/test_docs_facts_registry.py"]
-status: "active"
+status: "amended"
 amends: []
 supersedes: []
-amended_by: []
+amended_by: ["2026-11-24-1182-anchors-that-drifted-are-carried-to-their-current-sites.md"]
 superseded_by: []
 ---
 
