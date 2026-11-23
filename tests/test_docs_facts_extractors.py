@@ -79,7 +79,12 @@ class TestMcpSurface:
         monkeypatch.setattr(srv, "_registered_plugin_tools", set())
         monkeypatch.setattr(srv, "_startup_root", None)
         monkeypatch.setattr(srv, "_startup_resolver", None)
-        monkeypatch.setattr(srv, "_activate_if_detected", lambda cls, path, _config: cls(path))
+        monkeypatch.setattr(srv, "_plugin_detection", {})
+        monkeypatch.setattr(
+            srv,
+            "_detect_one",
+            lambda cls, path, _config: srv.DetectedPlugin(cls, "detected", cls(path)),
+        )
         srv.initialize_plugins(tmp_path.as_posix())
         registered = {t.name: t.input_schema for t in asyncio.run(fresh.list_tools())}
         documented = {

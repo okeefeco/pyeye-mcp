@@ -6,7 +6,7 @@ anchors: ["pyeye.async_utils.filtered_rglob", "rglob_async", "pyeye.plugins.pyda
 status: "amended"
 amends: ["2026-08-09-507-the-project-scan-excludes-nested-git-worktrees-not.md"]
 supersedes: []
-amended_by: ["2026-11-23-1104-a-package-named-like-an-excluded-dir-is-scanned.md"]
+amended_by: ["2026-11-23-1104-a-package-named-like-an-excluded-dir-is-scanned.md", "2026-11-23-1143-plugin-detection-declared-first-bounded-in-background.md"]
 superseded_by: []
 ---
 
